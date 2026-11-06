@@ -1129,7 +1129,9 @@ dependencies = [
  "rdc-codec",
  "rdc-connect",
  "rdc-core",
+ "rdc-decode",
  "rdc-protocol",
+ "rdc-runtime",
  "rdc-security",
  "rdc-signal",
  "tokio",
@@ -1181,6 +1183,16 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "rdc-decode"
+version = "0.1.0"
+dependencies = [
+ "rdc-protocol",
+ "rdc-runtime",
+ "thiserror",
+ "windows",
 ]
 
 [[package]]
