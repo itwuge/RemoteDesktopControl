@@ -13,6 +13,7 @@ use std::time::Duration;
 mod demo;
 mod s3a;
 mod s3b;
+mod s3b3;
 
 // =====** 入口 =====**
 
@@ -34,9 +35,13 @@ async fn main() -> ExitCode {
         // 夹具窗口是可选的一次性测试件，只有显式 `--fixture` 才创建。
         Some("s3a") => run_s3a(args.any(|arg| arg == "--fixture")),
         Some("s3b") => run_s3b(&mut args),
+        Some("s3b3") => run_s3b3(&mut args),
         Some(other) => {
             eprintln!("未知子命令: {other}");
-            eprintln!("可用: doctor | selftest | demo | s3a [--fixture] | s3b [--frames N]");
+            eprintln!(
+                "可用: doctor | selftest | demo | s3a [--fixture] | s3b [--frames N] | \
+                 s3b3 [--instances K] [--frames N] [--bitrate B]"
+            );
             ExitCode::FAILURE
         }
     }
@@ -91,6 +96,26 @@ fn run_s3a(fixture: bool) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("S3a 失败: {err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// S3b-3 并行编码实测：K 个独立 MF 会话，测 push 成本与码率偏差。
+///
+/// # Arguments
+/// * `args` - `s3b3` 之后的参数。
+///
+/// # Returns
+/// 判据满足返回 SUCCESS，否则 FAILURE。
+///
+/// # Errors
+/// 不返回错误；通过退出码与 stderr 表达。
+fn run_s3b3(args: &mut impl Iterator<Item = String>) -> ExitCode {
+    match s3b3::run(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("S3b-3 失败: {err}");
             ExitCode::FAILURE
         }
     }

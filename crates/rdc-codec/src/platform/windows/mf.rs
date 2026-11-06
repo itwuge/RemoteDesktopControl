@@ -556,7 +556,7 @@ impl MfH264Session {
 
     /// 构造 NV12 输入样本（直接写入 MFT 缓冲）。
     fn build_input_sample(
-        &self,
+        &mut self,
         rgba: &[u8],
         pts_100ns: i64,
         duration_100ns: i64,
@@ -595,6 +595,9 @@ impl MfH264Session {
             if self.force_key {
                 // 不支持 ForceKeyFrame 的编码器忽略错误，由 GOP 兜底。
                 let _ = self.set_codec_value(&CODECAPI_AVEncVideoForceKeyFrame, VARIANT::from(1u32));
+                // 只对本帧生效：不清标志会让后续每一帧都请求 IDR，
+                // 实测会把单帧编码成本抬到 45ms 量级并让码率偏离目标（D18/D19 根因）。
+                self.force_key = false;
             }
         }
         Ok(sample)
