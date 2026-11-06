@@ -404,6 +404,9 @@ mod windows_impl {
         let mut feed_times: Vec<u64> = Vec::new();
         let mut present_times: Vec<u64> = Vec::new();
         let mut skipped_stale = 0u64;
+        let mut inflight_peak = 0u64;
+        let mut dropped_latest = 0u64;
+        let mut trace: Vec<(u64, u64, usize, u64)> = Vec::new();
         let mut packets = 0u64;
         let mut bytes = 0u64;
         let mut frames = 0u64;
@@ -433,8 +436,21 @@ mod windows_impl {
             }
             let feed_start = Instant::now();
             let decoded = decoder.feed(&annexb, header.ts_us)?;
-            feed_times.push(feed_start.elapsed().as_micros() as u64);
-            for frame in decoded {
+            let feed_us = feed_start.elapsed().as_micros() as u64;
+            feed_times.push(feed_us);
+            let inflight_now = decoder.in_flight();
+            trace.push((
+                started.elapsed().as_millis() as u64,
+                inflight_now,
+                decoded.len(),
+                feed_us,
+            ));
+            inflight_peak = inflight_peak.max(inflight_now);
+            // 解码后 latest-frame-wins：同一批里只上屏最新帧，旧帧立即归还样本池。
+            if decoded.len() > 1 {
+                dropped_latest += (decoded.len() - 1) as u64;
+            }
+            if let Some(frame) = decoded.last() {
                 let present_start = Instant::now();
                 if let Some(gpu) = frame.texture.as_ref() {
                     window.present_texture(&gpu.texture, gpu.array_slice)?;
@@ -464,7 +480,8 @@ mod windows_impl {
                     au_ts_us: header.ts_us,
                     decoded_ts_us: frame.ts_us,
                     tcode: value,
-                    expected: header.ts_us & 0xFF_FFFF,
+                    // 期望值取该解码帧自身时间码：对不上说明回读的不是这一帧。
+                    expected: frame.ts_us & 0xFF_FFFF,
                     now24,
                     e2e_us: e2e,
                 });
@@ -488,6 +505,8 @@ mod windows_impl {
         );
         let (p50, p99) = (percentile(&samples, 0.50), percentile(&samples, 0.99));
         let mismatched = records.iter().filter(|r| r.tcode != r.expected).count();
+        let inflight_end = decoder.in_flight();
+        let dropped_frames = reassembler.dropped();
         let fps = frames as f64 / elapsed;
         let feed_p50 = percentile(&feed_times, 0.50);
         let feed_p99 = percentile(&feed_times, 0.99);
@@ -496,21 +515,26 @@ mod windows_impl {
         let json = format!(
             "{{\"role\":\"ctrl\",\"seconds\":{:.2},\"frames\":{frames},\"packets\":{packets},\
              \"bytes\":{bytes},\"bitrate_bps\":{:.0},\"samples\":{},\"e2e_p50_us\":{p50},\
-             \"e2e_p99_us\":{p99},\"fps\":{fps:.2},\"presented\":{},\"dropped\":{},\"skipped_stale\":{skipped_stale},\
+             \"e2e_p99_us\":{p99},\"fps\":{fps:.2},\"presented\":{},\"dropped\":{dropped_frames},\"skipped_stale\":{skipped_stale},\
              \"tcode_mismatch\":{mismatched},\"feed_p50_us\":{feed_p50},\"feed_p99_us\":{feed_p99},\
              \"present_p50_us\":{present_p50},\"present_p99_us\":{present_p99},\"retransmits\":0,\
              \"decoder\":\"{decoder_name}\",\"decoder_hw\":{decoder_hw},\"decoder_hw_mft\":{decoder_hw_mft},\
              \"decoder_dxva_aware\":{decoder_dxva},\"decoder_output\":\"{decoder_output}\",\
-             \"h264_profiles\":{h264_profiles},\"hung\":{hung}}}",
+             \"h264_profiles\":{h264_profiles},\"inflight_peak\":{inflight_peak},\
+             \"inflight_end\":{inflight_end},\"dropped_latest\":{dropped_latest},\"hung\":{hung}}}",
             elapsed,
             bytes as f64 * 8.0 / elapsed,
             samples.len(),
-            presented,
-            reassembler.dropped()
+            presented
         );
         let _ = std::fs::create_dir_all(&options.out);
         let report = Path::new(&options.out).join("report.json");
         std::fs::write(&report, json)?;
+        let mut trace_csv = std::fs::File::create(Path::new(&options.out).join("decode-trace.csv"))?;
+        writeln!(trace_csv, "t_ms,in_flight,outs,feed_us")?;
+        for &(t_ms, inflight, outs, feed_us) in &trace {
+            writeln!(trace_csv, "{t_ms},{inflight},{outs},{feed_us}")?;
+        }
         let mut csv = std::fs::File::create(Path::new(&options.out).join("e2e-samples.csv"))?;
         writeln!(
             csv,

@@ -19,6 +19,7 @@ use windows::Win32::Graphics::Direct3D11::{
     ID3D11Device, ID3D11Texture2D, D3D11_BIND_DECODER, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
 };
 use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC};
+use windows::Win32::System::Variant::VT_BOOL;
 use windows::core::{GUID, Interface};
 use windows::Win32::Media::MediaFoundation::{
     IMFActivate, IMFDXGIBuffer, IMFDXGIDeviceManager, IMFMediaBuffer, IMFMediaEventGenerator,
@@ -33,7 +34,9 @@ use windows::Win32::Media::MediaFoundation::{
     MFT_MESSAGE_COMMAND_FLUSH, MFT_MESSAGE_SET_D3D_MANAGER, MFT_OUTPUT_DATA_BUFFER,
     MFT_OUTPUT_STREAM_PROVIDES_SAMPLES, MFT_REGISTER_TYPE_INFO, MF_E_NO_EVENTS_AVAILABLE,
     MF_E_TRANSFORM_NEED_MORE_INPUT, MF_E_TRANSFORM_STREAM_CHANGE, MF_EVENT_FLAG_NO_WAIT,
-    MF_LOW_LATENCY, MF_SA_D3D11_AWARE, MF_VERSION, METransformHaveOutput, METransformNeedInput,
+    MF_LOW_LATENCY, MF_SA_D3D11_AWARE, MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, MF_VERSION, ICodecAPI,
+    CODECAPI_AVLowLatencyMode,
+    METransformHaveOutput, METransformNeedInput,
     MFT_FRIENDLY_NAME_Attribute,
 };
 use windows::Win32::System::Com::CoTaskMemFree;
@@ -145,6 +148,8 @@ pub struct TextureFrame {
     pub texture: ID3D11Texture2D,
     /// 纹理数组切片（`IMFDXGIBuffer` 的 subresource 索引；非数组纹理为 0）。
     pub array_slice: u32,
+    /// 持有输出样本，防止解码器在呈现前复用同一纹理（样本池语义）。
+    pub sample: IMFSample,
 }
 
 /// 一帧解码结果。
@@ -213,6 +218,32 @@ struct D3dBinding {
     reset_token: u32,
 }
 
+// =====** VT_BOOL VARIANT =====**
+
+/// 手工构造的 `VT_BOOL` VARIANT（windows-core 未提供 bool 构造器，布局与原生 VARIANT 一致）。
+#[repr(C)]
+struct BoolVariant {
+    vt: u16,
+    reserved: [u16; 3],
+    value: i16,
+    padding: [u8; 14],
+}
+
+impl BoolVariant {
+    fn new(flag: bool) -> Self {
+        Self {
+            vt: VT_BOOL.0,
+            reserved: [0; 3],
+            value: if flag { -1 } else { 0 },
+            padding: [0; 14],
+        }
+    }
+
+    fn as_ptr(&self) -> *const windows::core::VARIANT {
+        self as *const Self as *const windows::core::VARIANT
+    }
+}
+
 // =====** MfH264Decoder =====**
 
 /// 独占一个 H.264 解码 MFT 的会话。
@@ -245,6 +276,10 @@ pub struct MfH264Decoder {
     d3d: Option<D3dBinding>,
     /// 实际输出缓冲类型（首次取到输出后确定）。
     output_kind: OutputKind,
+    /// 已送入的输入帧数（积压统计用）。
+    fed: u64,
+    /// 已取出的输出帧数（积压统计用）。
+    produced: u64,
 }
 
 impl MfH264Decoder {
@@ -383,6 +418,15 @@ impl MfH264Decoder {
                     .map_err(|e| DecodeError::DecoderUnavailable(format!("异步解锁({name}): {e}")))?;
                 // 低时延对解码同样有意义；老驱动不认该属性时不阻断。
                 let _ = attrs.SetUINT32(&MF_LOW_LATENCY, 1);
+                // 限制 MFT 在管线里可持有/分配的输出样本上限（3 帧起步），压小内部积压。
+                let _ = attrs.SetUINT32(&MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, 3);
+            }
+        }
+        // CODECAPI 低延迟是 VT_BOOL；属性形式 (MF_LOW_LATENCY) 在部分 in-box 解码器上不生效。
+        if let Ok(codec) = transform.cast::<ICodecAPI>() {
+            let value = BoolVariant::new(true);
+            unsafe {
+                let _ = codec.SetValue(&CODECAPI_AVLowLatencyMode, value.as_ptr());
             }
         }
 
@@ -447,6 +491,8 @@ impl MfH264Decoder {
             dxva_aware,
             d3d: d3d.cloned(),
             output_kind: OutputKind::Unknown,
+            fed: 0,
+            produced: 0,
         };
         unsafe {
             decoder
@@ -495,6 +541,11 @@ impl MfH264Decoder {
         self.output_kind
     }
 
+    /// 解码器内部积压帧数（已送输入 − 已取输出）。
+    pub fn in_flight(&self) -> u64 {
+        self.fed.saturating_sub(self.produced)
+    }
+
     /// 送入一个 Annex-B 访问单元并取回已解出的帧。
     ///
     /// # Arguments
@@ -523,6 +574,7 @@ impl MfH264Decoder {
         }
         self.expecting_input = false;
         self.last_input_ts_100ns = ts_us.saturating_mul(10);
+        self.fed = self.fed.saturating_add(1);
 
         // 异步 MFT 的输出未必立刻可用；取不到时留到下一次 drain。
         if self.events.is_none() {
@@ -756,6 +808,7 @@ impl MfH264Decoder {
             let texture = unsafe { ID3D11Texture2D::from_raw(raw) };
             let array_slice = unsafe { dxgi.GetSubresourceIndex() }.unwrap_or(0);
             self.output_kind = OutputKind::DxgiTexture;
+            self.produced = self.produced.saturating_add(1);
             return Ok(DecodedFrame {
                 ts_us: self.sample_ts_100ns(sample) / 10,
                 width: self.width,
@@ -765,10 +818,12 @@ impl MfH264Decoder {
                 texture: Some(TextureFrame {
                     texture,
                     array_slice,
+                    sample: sample.clone(),
                 }),
             });
         }
         self.output_kind = OutputKind::SystemMemory;
+        self.produced = self.produced.saturating_add(1);
         let mut ptr: *mut u8 = std::ptr::null_mut();
         let mut len = 0u32;
         unsafe {
