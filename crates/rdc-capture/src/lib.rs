@@ -11,10 +11,12 @@ pub mod frame;
 pub mod params;
 pub mod platform;
 pub mod source;
+pub mod stats;
 
 // =====** 对外再导出 =====**
 
 pub use error::CaptureError;
-pub use frame::{Frame, FrameMeta};
+pub use frame::{Frame, FrameMeta, FrameRect, MoveRect, PixelFormat};
 pub use platform::create_source;
 pub use source::{CaptureConfig, CaptureSource, ChromaFormat, DisplayInfo, FrameSink};
+pub use stats::{CaptureSnapshot, CaptureStats};

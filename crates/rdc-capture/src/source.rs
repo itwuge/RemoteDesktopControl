@@ -90,6 +90,31 @@ pub trait FrameSink: Send + Sync {
 /// 生命周期：`enumerate` → `set_sink` → `start` →（可选 `reconfigure`）→ `stop`。
 /// 实现必须是 `Send`：会话建立后由 rdc-ctl 移交给采集线程。
 pub trait CaptureSource: Send {
+    /// 返回实际生效的采集后端名称（如 `dxgi-desktop-duplication` / `gdi-bitblt`）。
+    ///
+    /// 为什么提供默认实现：非 Windows 后端尚未落地，S3a 只要求 Windows 汇报路径；
+    /// 默认值避免为了一个诊断字段改动所有实现。
+    ///
+    /// # Returns
+    /// 静态后端标识，用于日志与实测报告。
+    ///
+    /// # Errors
+    /// 不会失败。
+    fn backend_name(&self) -> &'static str {
+        "unknown"
+    }
+
+    /// 返回采集统计快照（实测报告与 HUD 使用）。
+    ///
+    /// # Returns
+    /// 当前会话的采集计数与分位数；未启动或平台未实现时返回全零快照。
+    ///
+    /// # Errors
+    /// 不会失败。
+    fn stats(&self) -> crate::CaptureSnapshot {
+        crate::CaptureSnapshot::default()
+    }
+
     /// 枚举当前可用显示器。
     ///
     /// 调用线程：rdc-ctl（会话建立前一次性调用）。

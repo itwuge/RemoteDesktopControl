@@ -23,5 +23,11 @@ rdc-protocol = { workspace = true }
 rdc-connect = { workspace = true }
 rdc-security = { workspace = true }
 rdc-signal = { workspace = true }
+rdc-capture = { workspace = true }
+rdc-codec = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# S3a 端到端自检需要创建全屏动态图案窗口（测试夹具，不属于产品代码）。
+windows = { workspace = true }

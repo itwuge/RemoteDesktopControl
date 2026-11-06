@@ -9,14 +9,26 @@
 pub mod decoder;
 pub mod encoder;
 pub mod error;
+pub mod metrics;
+#[cfg(target_os = "windows")]
+pub mod mux;
+pub mod nv12;
 pub mod params;
 pub mod platform;
+#[cfg(target_os = "windows")]
+pub mod verify;
 
 // =====** 对外再导出 =====**
 
 pub use decoder::VideoDecoder;
 pub use encoder::{
-    CodecKind, EncodedPacket, EncoderCaps, VideoChroma, VideoConfig, VideoEncoder,
+    CodecKind, EncodedPacket, EncoderCapability, EncoderCaps, ProbeReport, VideoChroma, VideoConfig,
+    VideoEncoder,
 };
 pub use error::CodecError;
-pub use platform::create_encoder;
+pub use metrics::{EncodeSnapshot, EncodeStats};
+pub use platform::{create_encoder, probe_encoders};
+#[cfg(target_os = "windows")]
+pub use mux::{extract_sps_pps, Mp4Writer};
+#[cfg(target_os = "windows")]
+pub use verify::{verify_mp4, VerifyReport};

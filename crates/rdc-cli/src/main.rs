@@ -11,6 +11,7 @@ use std::time::Duration;
 // =====** 模块声明 =====**
 
 mod demo;
+mod s3a;
 
 // =====** 入口 =====**
 
@@ -29,9 +30,11 @@ async fn main() -> ExitCode {
         Some("doctor") | None => run_doctor(),
         Some("selftest") => run_selftest(),
         Some("demo") => run_demo().await,
+        // 夹具窗口是可选的一次性测试件，只有显式 `--fixture` 才创建。
+        Some("s3a") => run_s3a(args.any(|arg| arg == "--fixture")),
         Some(other) => {
             eprintln!("未知子命令: {other}");
-            eprintln!("可用: doctor | selftest | demo");
+            eprintln!("可用: doctor | selftest | demo | s3a [--fixture]");
             ExitCode::FAILURE
         }
     }
@@ -69,6 +72,26 @@ fn run_selftest() -> ExitCode {
     println!("core={} platform={}", rdc_core::core_version(), rdc_core::platform_name());
     println!("protocol={}", rdc_protocol::version_string());
     ExitCode::SUCCESS
+}
+
+/// S3a 采集与编码端到端实测：10 秒 1080p60，需真实桌面。
+///
+/// # Arguments
+/// * `fixture` - 是否创建全屏动态夹具窗口（仅显式 `--fixture` 时为 true）。
+///
+/// # Returns
+/// 实测通过返回 SUCCESS；失败或未达门槛返回 FAILURE。
+///
+/// # Errors
+/// 不返回错误；通过退出码与 stderr 表达。
+fn run_s3a(fixture: bool) -> ExitCode {
+    match s3a::run(fixture) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("S3a 失败: {err}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// S2 本机回环 Demo：30 s 上限，超时按失败处理。

@@ -6,6 +6,7 @@
 
 // =====** 模块声明 =====**
 
+pub mod metrics;
 pub mod pool;
 pub mod ring;
 pub mod stats;
@@ -13,6 +14,7 @@ pub mod thread;
 
 // =====** 对外再导出 =====**
 
+pub use metrics::SampleWindow;
 pub use pool::{FramePool, PooledBuffer};
 pub use ring::SpscRing;
 pub use stats::AtomicCounters;

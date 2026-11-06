@@ -91,6 +91,53 @@ pub struct EncodedPacket {
     pub suggested_shard_bytes: u16,
 }
 
+// =====** EncoderCapability / ProbeReport =====**
+
+/// 单个编码器实例的实测能力（由平台后端真实枚举与类型协商得出）。
+///
+/// 与 [`EncoderCaps`] 的区别：[`EncoderCaps`] 是给人看的最小摘要，
+/// 本结构是 S3a 实测报告用的完整证据（含名称、码率范围与数据来源）。
+#[derive(Debug, Clone, PartialEq)]
+pub struct EncoderCapability {
+    /// 编码器名称（MFT 友好名称等）。
+    pub name: String,
+    /// 是否硬件编码器（`false` 表示软件 MFT，只允许显式启用）。
+    pub hardware: bool,
+    /// 编码格式。
+    pub codec: CodecKind,
+    /// 实测支持的最大宽。
+    pub max_width: u32,
+    /// 实测支持的最大高。
+    pub max_height: u32,
+    /// 实测支持的最大帧率。
+    pub max_fps: u32,
+    /// 输入色度采样。
+    pub chroma: VideoChroma,
+    /// 输入位深。
+    pub bit_depth: u8,
+    /// 实测可设置的码率下限（bps）。
+    pub min_bitrate_bps: u32,
+    /// 实测可设置的码率上限（bps）。
+    pub max_bitrate_bps: u32,
+    /// 是否支持运行期参数热更新。
+    pub runtime_reconfigure: bool,
+    /// 取值依据（说明哪些字段是枚举得出、哪些是协商尝试得出）。
+    pub note: String,
+}
+
+/// 平台编码器探测报告。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ProbeReport {
+    /// 是否存在可用硬件编码器。
+    pub hardware_available: bool,
+    /// 硬件编码器列表（按系统排序）。
+    pub hardware: Vec<EncoderCapability>,
+    /// 软件编码器列表（仅用于报告，默认不被选用）。
+    pub software: Vec<EncoderCapability>,
+    /// 探测过程中的错误；有值时上述列表可能不完整。
+    pub error: Option<String>,
+}
+
 // =====** VideoEncoder =====**
 
 /// 平台无关的视频编码器。
@@ -201,4 +248,55 @@ pub trait VideoEncoder: Send {
     /// # Errors
     /// 不会失败。
     fn request_keyframe(&mut self);
+
+    // =====** 诊断接口（带默认实现，避免改动其它平台后端） =====**
+
+    /// 返回实际生效的后端名称。
+    ///
+    /// 为什么提供默认实现：非 Windows 后端尚未落地，S3a 只要求 Windows 汇报路径。
+    ///
+    /// # Returns
+    /// 后端标识，用于日志与实测报告。
+    ///
+    /// # Errors
+    /// 不会失败。
+    fn backend_name(&self) -> &str {
+        "unknown"
+    }
+
+    /// 返回编码统计快照。
+    ///
+    /// # Returns
+    /// 已实现统计的后端返回快照；默认返回 `None`（表示该后端未埋点）。
+    ///
+    /// # Errors
+    /// 不会失败。
+    fn stats_snapshot(&self) -> Option<crate::metrics::EncodeSnapshot> {
+        None
+    }
+
+    /// 返回当前会话的序列头（Annex-B）。
+    ///
+    /// # Returns
+    /// SPS/PPS 字节；未提供时为空切片。
+    ///
+    /// # Errors
+    /// 不会失败。
+    fn sequence_header(&self) -> &[u8] {
+        &[]
+    }
+
+    /// 冲刷编码器内部缓存，返回剩余码流包。
+    ///
+    /// 为什么需要：硬件 MFT 为异步流水线，停在采集末尾时仍有 1~2 帧滞留在
+    /// 输入/输出缓冲里；不冲刷就会丢尾帧，实测帧数与采集帧数对不上。
+    ///
+    /// # Returns
+    /// 剩余包（按提交顺序）；未实现的后端返回空列表。
+    ///
+    /// # Errors
+    /// 后端冲刷失败时返回 [`CodecError`]。
+    fn flush(&mut self) -> Result<Vec<EncodedPacket>, CodecError> {
+        Ok(Vec::new())
+    }
 }

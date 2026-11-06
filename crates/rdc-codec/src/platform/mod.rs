@@ -4,13 +4,13 @@
 //! 用途：按 target_os 编译期选择硬件编码实现，统一暴露 create_encoder 入口
 //! 调用方：rdc-codec 的对外再导出、rdc-core（会话建立时创建编码器）
 
-use crate::encoder::{CodecKind, VideoEncoder};
+use crate::encoder::{CodecKind, ProbeReport, VideoEncoder};
 use crate::error::CodecError;
 
 // =====** 平台模块声明 =====**
 
 #[cfg(target_os = "windows")]
-mod windows;
+pub(crate) mod windows;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -39,7 +39,7 @@ mod unsupported;
 pub fn create_encoder(kind: CodecKind) -> Result<Box<dyn VideoEncoder>, CodecError> {
     #[cfg(target_os = "windows")]
     {
-        // S1 忽略 kind：stage3 将按 kind 选择 NVENC / AMF / QSV。
+        // kind 在校验阶段过滤：Windows 后端 S3a 只实现 H.264。
         let _ = kind;
         Ok(Box::new(windows::PlatformEncoder::new()))
     }
@@ -63,5 +63,29 @@ pub fn create_encoder(kind: CodecKind) -> Result<Box<dyn VideoEncoder>, CodecErr
         // 移动端与其它目标没有硬件编码后端，按契约回退到 Unsupported。
         let _ = kind;
         Err(CodecError::Unsupported)
+    }
+}
+
+// =====** 能力探测 =====**
+
+/// 探测当前平台的可用编码器能力。
+///
+/// 调用线程：rdc-ctl（会话建立前一次性调用，阻塞数百毫秒以内）。
+/// 用途：S3a 实测报告与「无硬件时明确报不可用」的依据。
+///
+/// # Returns
+/// 硬件/软件编码器能力报告；非 Windows 平台返回空报告（S3a 未落地）。
+///
+/// # Errors
+/// 不会失败；探测错误写进 [`ProbeReport::error`]。
+pub fn probe_encoders() -> ProbeReport {
+    #[cfg(target_os = "windows")]
+    {
+        windows::probe_report()
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        ProbeReport::default()
     }
 }

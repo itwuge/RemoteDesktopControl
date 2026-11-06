@@ -19,3 +19,7 @@ rdc-protocol = { workspace = true }
 rdc-runtime = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+
+# 平台 API 只允许出现在 src/platform/*.rs；Windows 后端使用 Media Foundation。
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true }
