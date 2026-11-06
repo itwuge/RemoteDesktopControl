@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # 脚本用途：Windows 打包主流程（cargo 产物 + Flutter 产物 → NSIS 安装包）
 #
 # 层级：packaging（CI 与本地共用）
@@ -16,6 +16,28 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $DistDir = Join-Path $RepoRoot "dist"
 $ReleaseDir = Join-Path $RepoRoot "app\build\windows\x64\runner\Release"
 
+# =====** 外部命令包装 =====**
+# 为什么需要：Windows PowerShell 5 会把原生命令的 stderr 当成 ErrorRecord，
+# 在 $ErrorActionPreference=Stop 下直接中断（cargo 的进度条走 stderr）。
+# 这里临时放宽为 Continue，仅依据退出码判定成败。
+function Invoke-Native {
+    param(
+        [Parameter(Mandatory = $true)][string]$Command,
+        [Parameter(Mandatory = $true)][string[]]$Arguments
+    )
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Command @Arguments 2>&1 | ForEach-Object { Write-Host $_ }
+    } finally {
+        $code = $LASTEXITCODE
+        $ErrorActionPreference = $previous
+    }
+    if ($code -ne 0) {
+        throw "$Command 执行失败（退出码 $code）：$($Arguments -join ' ')"
+    }
+}
+
 # =====** 版本号 =====**
 if ([string]::IsNullOrWhiteSpace($Version)) {
     # 版本唯一真源：根 Cargo.toml 的 workspace.package.version。
@@ -29,7 +51,7 @@ Write-Host "[packaging/windows] 版本 $Version"
 Push-Location $RepoRoot
 try {
     # rdc-cli 随安装包分发，供用户自助诊断（docs/08 §5 产物附加要求）。
-    cargo build --release -p rdc-bridge -p rdc-cli
+    Invoke-Native -Command "cargo" -Arguments @("build", "--release", "-p", "rdc-bridge", "-p", "rdc-cli")
 } finally {
     Pop-Location
 }
@@ -38,7 +60,7 @@ try {
 if (-not $SkipFlutter) {
     Push-Location (Join-Path $RepoRoot "app")
     try {
-        flutter build windows --release
+        Invoke-Native -Command "flutter" -Arguments @("build", "windows", "--release")
     } finally {
         Pop-Location
     }
@@ -66,8 +88,9 @@ $makensis = Get-Command makensis -ErrorAction SilentlyContinue
 if ($makensis) {
     Push-Location $PSScriptRoot
     try {
-        & $makensis.Source "/DVERSION=$Version" "/DSRC=$ReleaseDir" "/DOUTPUT=$outExe" $nsi
-        if ($LASTEXITCODE -ne 0) { throw "makensis 退出码 $LASTEXITCODE" }
+        Invoke-Native -Command $makensis.Source -Arguments @(
+            "/DVERSION=$Version", "/DSRC=$ReleaseDir", "/DOUTPUT=$outExe", $nsi
+        )
     } finally {
         Pop-Location
     }
