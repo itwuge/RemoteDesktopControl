@@ -194,6 +194,9 @@ impl OutputKind {
     }
 }
 
+/// 解码输出回调：每解出一帧调用一次，使调用方能「取一帧 → 立刻上屏 → 释放输出样本」。
+type FrameSink<'a> = dyn FnMut(DecodedFrame) -> Result<(), DecodeError> + 'a;
+
 /// MFT 事件类别。
 enum EventKind {
     /// 需要输入。
@@ -559,18 +562,70 @@ impl MfH264Decoder {
     /// 等待事件超时、`ProcessInput`/`ProcessOutput` 失败时返回
     /// [`DecodeError::DecodeFailure`]。
     pub fn feed(&mut self, annexb: &[u8], ts_us: u64) -> Result<Vec<DecodedFrame>, DecodeError> {
+        let mut outs = Vec::new();
+        self.feed_each(annexb, ts_us, |frame| {
+            outs.push(frame);
+            Ok(())
+        })?;
+        Ok(outs)
+    }
+
+    /// 送入一个访问单元，每解出一帧就立刻交给回调处理（不再先攒成一批）。
+    ///
+    /// 用途：in-box 解码器的输出表面池很浅（实测同时持有 4 帧会让 MFT 永久
+    /// `MF_E_NOTACCEPTING`），逐帧交给上层处理（上屏后立刻释放样本）才能让解码继续。
+    /// 输出顺序即呈现顺序（本链路编码无 B 帧），因此按回调顺序上屏等价于按时间码顺序。
+    ///
+    /// # Arguments
+    /// * `annexb` - Annex-B 码流（关键帧需自带 SPS/PPS）
+    /// * `ts_us` - 该帧的采集时间（微秒）
+    /// * `on_frame` - 每解出一帧调用一次；返回错误会中止本次送入并向上传播
+    ///
+    /// # Errors
+    /// 码流为空、`ProcessInput`/`ProcessOutput` 失败、或回调返回错误时向上传播。
+    pub fn feed_each<F>(
+        &mut self,
+        annexb: &[u8],
+        ts_us: u64,
+        mut on_frame: F,
+    ) -> Result<(), DecodeError>
+    where
+        F: FnMut(DecodedFrame) -> Result<(), DecodeError>,
+    {
         if annexb.is_empty() {
             return Err(DecodeError::InvalidArgument("码流为空".to_owned()));
         }
-        let mut outs = Vec::new();
-        self.drain_ready(&mut outs)?;
-        self.wait_for_input(&mut outs, Duration::from_millis(300))?;
+        let mut sink = |frame: DecodedFrame| on_frame(frame);
+        self.drain_ready(&mut sink)?;
+        self.wait_for_input(&mut sink, Duration::from_millis(300))?;
 
         let sample = self.build_input_sample(annexb, ts_us)?;
-        unsafe {
-            self.transform
-                .ProcessInput(0, &sample, 0)
-                .map_err(|e| DecodeError::DecodeFailure(format!("ProcessInput({}): {e}", self.name)))?;
+        // 60fps 送包时 MFT 的 NeedInput 事件可能滞后于真实状态：直接 ProcessInput 会拿到
+        // MF_E_NOTACCEPTING(0xC00D36B5)。此时先把已就绪输出全部取走腾出输入队列，再等 NeedInput
+        // 重试；仍不接收才判失败（有界重试，避免死等）。
+        let mut attempts = 0u32;
+        loop {
+            match unsafe { self.transform.ProcessInput(0, &sample, 0) } {
+                Ok(()) => break,
+                Err(e) if (e.code().0 as u32) == 0xC00D_36B5 && attempts < 64 => {
+                    attempts += 1;
+                    if attempts == 1 {
+                        eprintln!(
+                            "[mf-decoder] NOTACCEPTING: fed={} produced={} expect={}",
+                            self.fed, self.produced, self.expecting_input
+                        );
+                    }
+                    self.drain_ready(&mut sink)?;
+                    self.expecting_input = false;
+                    self.wait_for_input(&mut sink, Duration::from_millis(20))?;
+                }
+                Err(e) => {
+                    return Err(DecodeError::DecodeFailure(format!(
+                        "ProcessInput({}): {e} (重试 {attempts} 次)",
+                        self.name
+                    )));
+                }
+            }
         }
         self.expecting_input = false;
         self.last_input_ts_100ns = ts_us.saturating_mul(10);
@@ -578,9 +633,9 @@ impl MfH264Decoder {
 
         // 异步 MFT 的输出未必立刻可用；取不到时留到下一次 drain。
         if self.events.is_none() {
-            self.collect_until_idle(&mut outs)?;
+            self.collect_until_idle(&mut sink)?;
         }
-        Ok(outs)
+        Ok(())
     }
 
     /// 冲刷解码器：发送 END_OF_STREAM 并尽力取回剩余帧。
@@ -604,7 +659,7 @@ impl MfH264Decoder {
     }
 
     /// 非阻塞排空事件队列与已就绪输出。
-    fn drain_ready(&mut self, outs: &mut Vec<DecodedFrame>) -> Result<(), DecodeError> {
+    fn drain_ready(&mut self, sink: &mut FrameSink<'_>) -> Result<(), DecodeError> {
         let Some(events) = self.events.clone() else {
             return Ok(());
         };
@@ -617,7 +672,7 @@ impl MfH264Decoder {
             match unsafe { event.GetType() }.unwrap_or(0) as i32 {
                 k if k == METransformHaveOutput.0 => {
                     if let Some(frame) = self.take_output_now()? {
-                        outs.push(frame);
+                        sink(frame)?;
                     }
                 }
                 k if k == METransformNeedInput.0 => self.expecting_input = true,
@@ -630,7 +685,7 @@ impl MfH264Decoder {
     /// 等到 NeedInput；期间若有输出则先取走。
     fn wait_for_input(
         &mut self,
-        outs: &mut Vec<DecodedFrame>,
+        sink: &mut FrameSink<'_>,
         timeout: Duration,
     ) -> Result<(), DecodeError> {
         if self.events.is_none() || self.expecting_input {
@@ -645,7 +700,7 @@ impl MfH264Decoder {
                 }
                 Some(EventKind::HaveOutput) => {
                     if let Some(frame) = self.take_output_now()? {
-                        outs.push(frame);
+                        sink(frame)?;
                     }
                 }
                 Some(EventKind::Other) | None => {
@@ -657,10 +712,10 @@ impl MfH264Decoder {
     }
 
     /// 同步 MFT：反复取输出直到无更多。
-    fn collect_until_idle(&mut self, outs: &mut Vec<DecodedFrame>) -> Result<(), DecodeError> {
+    fn collect_until_idle(&mut self, sink: &mut FrameSink<'_>) -> Result<(), DecodeError> {
         for _ in 0..4 {
             match self.take_output_now()? {
-                Some(frame) => outs.push(frame),
+                Some(frame) => sink(frame)?,
                 None => break,
             }
         }
@@ -776,9 +831,8 @@ impl MfH264Decoder {
             sample
                 .AddBuffer(&buffer)
                 .map_err(|e| DecodeError::DecodeFailure(format!("AddBuffer(gpu): {e}")))?;
-            sample
-                .SetSampleTime(self.last_input_ts_100ns as i64)
-                .map_err(|e| DecodeError::DecodeFailure(format!("SetSampleTime(gpu): {e}")))?;
+            // 时间戳交给解码器写：这里若预置 SetSampleTime，会把「最近一次送入」的时间
+            // 盖到所有输出样本上，导致 pts 与真实输出帧错位（S3c 实测 tcode_mismatch=100%）。
             sample
                 .SetSampleDuration(self.duration_100ns as i64)
                 .map_err(|e| {

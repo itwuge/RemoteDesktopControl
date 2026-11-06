@@ -182,6 +182,8 @@ pub struct PresentWindow {
     client_height: u32,
     /// 已呈现帧数。
     presented: u64,
+    /// Present 的同步间隔（默认 1：每次呈现等一个垂直同步）。
+    sync_interval: u32,
     /// 后缓冲回读纹理（首次回读时按客户区尺寸创建）。
     readback: Option<ID3D11Texture2D>,
     /// 呈现前需要回读的像素点（客户区坐标），空表示不采样。
@@ -346,6 +348,7 @@ impl PresentWindow {
             client_width,
             client_height,
             presented: 0,
+            sync_interval: 1,
             readback: None,
             probe_points: Vec::new(),
             probe_samples: Vec::new(),
@@ -586,7 +589,7 @@ impl PresentWindow {
             }
             let _ = ManuallyDrop::take(&mut stream.pInputSurface);
             self.swapchain
-                .Present(1, 0)
+                .Present(self.sync_interval, 0)
                 .ok()
                 .map_err(|e| DecodeError::PresentFailure(format!("Present: {e}")))?;
         }
@@ -603,6 +606,15 @@ impl PresentWindow {
     /// 已呈现帧数。
     pub fn presented_frames(&self) -> u64 {
         self.presented
+    }
+
+    /// 设置呈现同步间隔（0=不等待垂直同步，1=每帧等一次）。
+    ///
+    /// 端到端实测里输入帧率恰好等于刷新率时，若每帧都等垂直同步，任何额外开销都会
+    /// 让管线错过一个刷新周期并持续累积成秒级积压；置 0 让呈现不再反过来卡住解码，
+    /// 显示器仍按刷新率取最新画面（可见帧率上限仍是刷新率）。
+    pub fn set_sync_interval(&mut self, interval: u32) {
+        self.sync_interval = interval;
     }
 
     /// 设置「呈现前回读」的像素点（客户区坐标）。

@@ -130,6 +130,51 @@ mod windows_impl {
     /// 迟到阈值（微秒）：访问单元到达时已比采集时刻晚这么多，就不再送解码。
     const STALE_US: u64 = 150_000;
 
+    /// pacer 目标码率上限（bps）：回环没有真实瓶颈，只需防抖，不需要更大预算。
+    const MAX_PACER_BPS: f64 = 64_000_000.0;
+
+    /// 编码器实测码率的滑动窗口（1 秒）。
+    ///
+    /// 只统计「每帧实际编码字节」再乘以目标帧率，**不能**用墙钟吞吐：
+    /// 发送一旦被限速，墙钟吞吐会跟着掉，形成「越限越慢」的正反馈死锁。
+    struct RateWindow {
+        /// (记录时刻, 该帧编码字节数)；0 字节也要记（编码器可能尚未吐帧）。
+        entries: std::collections::VecDeque<(Instant, u64)>,
+        /// 编码推送帧率：把每帧字节折算成码率。
+        fps: u32,
+    }
+
+    impl RateWindow {
+        /// 新建窗口（`fps` 为编码推送帧率）。
+        fn new(fps: u32) -> Self {
+            Self {
+                entries: std::collections::VecDeque::new(),
+                fps: fps.max(1),
+            }
+        }
+
+        /// 记录一帧编码输出字节数，并淘汰 1 秒之前的记录。
+        fn push(&mut self, now: Instant, bytes: u64) {
+            self.entries.push_back((now, bytes));
+            while let Some(&(at, _)) = self.entries.front() {
+                if now.duration_since(at).as_secs_f64() > 1.0 {
+                    self.entries.pop_front();
+                } else {
+                    break;
+                }
+            }
+        }
+
+        /// 窗口内实测输出码率（bit/s）；样本不足 8 帧时返回 `None`（首帧 IDR 会严重高估）。
+        fn measured_bps(&self) -> Option<f64> {
+            if self.entries.len() < 8 {
+                return None;
+            }
+            let total: u64 = self.entries.iter().map(|(_, bytes)| *bytes).sum();
+            Some(total as f64 * 8.0 * f64::from(self.fps) / self.entries.len() as f64)
+        }
+    }
+
     /// 单帧端到端样本（同时保留原始值以便复核）。
     struct SampleRecord {
         /// 帧号（来自包头）。
@@ -237,6 +282,11 @@ mod windows_impl {
         let mut frames = 0u64;
         let mut packets = 0u64;
         let mut bytes = 0u64;
+        let mut encoded_bytes = 0u64;
+        let mut rate_window = RateWindow::new(60);
+        let mut pacer_bps = TARGET_BITRATE;
+        let mut priority_skips = 0u64;
+        let mut send_waits: Vec<u64> = Vec::new();
         let started = Instant::now();
 
         while started.elapsed().as_secs() < options.secs {
@@ -250,6 +300,10 @@ mod windows_impl {
             draw_frame(buffer.as_mut_slice(), captured_us, frames);
             encoder.push(buffer, frames * 1_000_000_000 / 60, frames % 120 == 0)?;
             frames += 1;
+            // 帧率优先：本帧所有分片的发送等待不得越过一个帧周期的末尾。
+            let frame_deadline = Instant::now() + Duration::from_micros(FRAME_PERIOD_US);
+            let mut frame_bytes = 0u64;
+            let mut frame_wait = 0u64;
 
             while let Some(packet) = encoder.poll_packet() {
                 let mut annexb = Vec::with_capacity(packet.data.len() + 64);
@@ -263,6 +317,7 @@ mod windows_impl {
                     annexb.extend_from_slice(&header);
                 }
                 annexb.extend_from_slice(&packet.data);
+                frame_bytes += annexb.len() as u64;
                 bytes += send_frame(
                     &udp,
                     peer,
@@ -272,11 +327,29 @@ mod windows_impl {
                     &mut pacer,
                     captured_us,
                     &mut packets,
+                    frame_deadline,
+                    &mut frame_wait,
+                    &mut priority_skips,
                 )?;
+            }
+            if packets > 0 {
+                send_waits.push(frame_wait);
+            }
+            encoded_bytes += frame_bytes;
+            // 每帧都记一次（含 0 字节帧）：码率按「每帧字节 × 60fps」折算，与发送节奏解耦。
+            rate_window.push(Instant::now(), frame_bytes);
+            if let Some(measured) = rate_window.measured_bps() {
+                let target = (measured * 1.05)
+                    .min(MAX_PACER_BPS)
+                    .max(f64::from(TARGET_BITRATE));
+                pacer_bps = target as u32;
+                pacer.set_target_bitrate(pacer_bps)?;
             }
         }
         // 收尾：把编码器缓存吐干净。
+        let drain_deadline = Instant::now() + Duration::from_millis(10);
         for packet in encoder.flush()? {
+            let mut wait = 0u64;
             bytes += send_frame(
                 &udp,
                 peer,
@@ -286,20 +359,37 @@ mod windows_impl {
                 &mut pacer,
                 qpc_us(),
                 &mut packets,
+                drain_deadline,
+                &mut wait,
+                &mut priority_skips,
             )?;
         }
         let elapsed = started.elapsed().as_secs_f64().max(0.001);
+        let measured_bps = rate_window.measured_bps().unwrap_or(0.0);
+        let avg_frame_bytes = if frames == 0 {
+            0.0
+        } else {
+            encoded_bytes as f64 / frames as f64
+        };
+        let send_wait_p50 = percentile(&send_waits, 0.50);
+        let send_wait_p99 = percentile(&send_waits, 0.99);
+        let fps = frames as f64 / elapsed;
         let json = format!(
             "{{\"role\":\"host\",\"seconds\":{:.2},\"frames\":{frames},\"packets\":{packets},\
-             \"bytes\":{bytes},\"bitrate_bps\":{:.0}}}",
+             \"bytes\":{bytes},\"bitrate_bps\":{:.0},\"fps\":{fps:.2},\"encoded_bytes\":{encoded_bytes},\
+             \"avg_frame_bytes\":{avg_frame_bytes:.0},\"measured_bps\":{measured_bps:.0},\
+             \"pacer_target_bps\":{pacer_bps},\"fps_priority_skips\":{priority_skips},\
+             \"send_wait_p50_us\":{send_wait_p50},\"send_wait_p99_us\":{send_wait_p99}}}",
             elapsed,
             bytes as f64 * 8.0 / elapsed
         );
         let _ = std::fs::create_dir_all(&options.out);
         std::fs::write(Path::new(&options.out).join("host.json"), json)?;
         println!(
-            "[host] 完成：{frames} 帧 / {packets} 包 / {:.1} Mbps",
-            bytes as f64 * 8.0 / elapsed / 1_000_000.0
+            "[host] 完成：{frames} 帧 / {packets} 包 / {:.1} Mbps / {fps:.1} fps / pacer {} Mbps / 实测 {:.1} Mbps / 帧率优先跳过 {priority_skips}",
+            bytes as f64 * 8.0 / elapsed / 1_000_000.0,
+            pacer_bps / 1_000_000,
+            measured_bps / 1_000_000.0
         );
         Ok(())
     }
@@ -315,6 +405,9 @@ mod windows_impl {
         pacer: &mut Pacer,
         captured_us: u64,
         packets: &mut u64,
+        frame_deadline: Instant,
+        wait_us: &mut u64,
+        priority_skips: &mut u64,
     ) -> S3bResult<u64> {
         // 媒体分片头占 8 字节，必须从载荷上限里扣掉，否则包头长度校验会拒绝。
         const SHARD: usize = rdc_protocol::FRAGMENT_PAYLOAD_MAX - 8;
@@ -339,9 +432,17 @@ mod windows_impl {
                 payload.len() as u16,
             )?;
             // 发送节奏：追不上目标码率就等，避免把回环打爆掩盖真实延迟。
+            // 但帧率优先：等到本帧周期末尾就不再等，宁可瞬时超码率也不许把帧拖慢。
             let delay = pacer.poll_delay_for(payload.len() + 32, Instant::now());
             if delay > Duration::ZERO {
-                std::thread::sleep(delay.min(Duration::from_millis(4)));
+                if Instant::now() >= frame_deadline {
+                    *priority_skips += 1;
+                } else {
+                    let wait_start = Instant::now();
+                    let wait = delay.min(Duration::from_millis(4));
+                    std::thread::sleep(wait);
+                    *wait_us += wait_start.elapsed().as_micros() as u64;
+                }
             }
             udp.send_to(peer, &header, &payload)?;
             pacer.on_sent(payload.len() + 32, Instant::now());
@@ -383,6 +484,9 @@ mod windows_impl {
             points.push((x as u32, y as u32));
         }
         window.set_probe_points(points);
+        // 输入帧率≈刷新率时，每帧都等垂直同步会把呈现开销累积成秒级积压；
+        // 这里不阻塞 Present，显示器仍按刷新率取最新画面（可见帧率上限仍是刷新率）。
+        window.set_sync_interval(0);
 
         // 枚举证据 + 驱动侧 profile 证据（D28 需可复核）。
         let (hardware_names, all_names) = rdc_decode::decoder_names();
@@ -405,11 +509,15 @@ mod windows_impl {
         let mut present_times: Vec<u64> = Vec::new();
         let mut skipped_stale = 0u64;
         let mut inflight_peak = 0u64;
-        let mut dropped_latest = 0u64;
+        let mut decoded_frames = 0u64;
+        let mut shown_before = 0u64;
         let mut trace: Vec<(u64, u64, usize, u64)> = Vec::new();
         let mut packets = 0u64;
         let mut bytes = 0u64;
         let mut frames = 0u64;
+        // 真实接收窗口：首帧到末帧。帧率必须以它为分母，不能混入握手/开窗/收尾时间。
+        let mut stream_start: Option<Instant> = None;
+        let mut stream_end = Instant::now();
         let started = Instant::now();
 
         while started.elapsed().as_secs() < options.secs {
@@ -427,6 +535,10 @@ mod windows_impl {
                 continue;
             };
             frames += 1;
+            if stream_start.is_none() {
+                stream_start = Some(Instant::now());
+            }
+            stream_end = Instant::now();
             let now_us = qpc_us();
             // 只丢「到达即已过期」的访问单元（编码/传输堵住时会触发）；
             // 本轮不实现丢帧追赶，解码器积压会如实反映在端到端延迟里。
@@ -435,32 +547,22 @@ mod windows_impl {
                 continue;
             }
             let feed_start = Instant::now();
-            let decoded = decoder.feed(&annexb, header.ts_us)?;
-            let feed_us = feed_start.elapsed().as_micros() as u64;
-            feed_times.push(feed_us);
-            let inflight_now = decoder.in_flight();
-            trace.push((
-                started.elapsed().as_millis() as u64,
-                inflight_now,
-                decoded.len(),
-                feed_us,
-            ));
-            inflight_peak = inflight_peak.max(inflight_now);
-            // 解码后 latest-frame-wins：同一批里只上屏最新帧，旧帧立即归还样本池。
-            if decoded.len() > 1 {
-                dropped_latest += (decoded.len() - 1) as u64;
-            }
-            if let Some(frame) = decoded.last() {
+            // 逐帧上屏：解码器每解出一帧，立刻按呈现顺序上屏并释放输出样本。
+            // 不能先攒成一批再上屏——in-box MFT 的输出表面池很浅，同时持有 4 帧会永久
+            // MF_E_NOTACCEPTING（D1 诊断实测 fed=19 后停摆）。
+            let frame_id_for_show = header.frame_id;
+            decoder.feed_each(&annexb, header.ts_us, |frame| {
+                decoded_frames += 1;
                 let present_start = Instant::now();
                 if let Some(gpu) = frame.texture.as_ref() {
                     window.present_texture(&gpu.texture, gpu.array_slice)?;
                 } else {
                     window.present_nv12(&frame.data, frame.stride)?;
                 }
-                let probe = window.take_probe_samples();
                 present_times.push(present_start.elapsed().as_micros() as u64);
+                let probe = window.take_probe_samples();
                 if probe.len() != BITS {
-                    continue;
+                    return Ok(());
                 }
                 let mut value = 0u64;
                 for (index, pixel) in probe.iter().enumerate() {
@@ -476,7 +578,7 @@ mod windows_impl {
                 let e2e = (diff - (1 << 23)).max(0) as u64;
                 samples.push(e2e);
                 records.push(SampleRecord {
-                    frame_id: header.frame_id,
+                    frame_id: frame_id_for_show,
                     au_ts_us: header.ts_us,
                     decoded_ts_us: frame.ts_us,
                     tcode: value,
@@ -485,18 +587,31 @@ mod windows_impl {
                     now24,
                     e2e_us: e2e,
                 });
-            }
+                Ok(())
+            })?;
+            let feed_us = feed_start.elapsed().as_micros() as u64;
+            feed_times.push(feed_us);
+            let inflight_now = decoder.in_flight();
+            trace.push((
+                started.elapsed().as_millis() as u64,
+                inflight_now,
+                (decoded_frames - shown_before) as usize,
+                feed_us,
+            ));
+            shown_before = decoded_frames;
+            inflight_peak = inflight_peak.max(inflight_now);
             window.pump();
             if window.closing() {
                 break;
             }
         }
+        // 接收窗口到此结束：耗时必须在销毁窗口/等收尾之前定格，否则会把窗口销毁时间
+        // 算进帧率分母，把真实上屏帧率压低（实测曾因此 48 fps 而非 58 fps）。
+        let elapsed = started.elapsed().as_secs_f64().max(0.001);
         // 响应性判定必须在销毁窗口之前采集（与 S3a/S3b-2 口径一致）。
         let hung = is_hung(window.hwnd());
         let presented = window.presented_frames();
         drop(window);
-
-        let elapsed = started.elapsed().as_secs_f64().max(0.001);
         let decoder_output = decoder.output_kind().as_str();
         // 硬件判定按「设备管理器绑定 + DXGI 纹理输出」双条件，而不是枚举命中。
         let decoder_hw = decoder.hardware_active();
@@ -507,7 +622,14 @@ mod windows_impl {
         let mismatched = records.iter().filter(|r| r.tcode != r.expected).count();
         let inflight_end = decoder.in_flight();
         let dropped_frames = reassembler.dropped();
-        let fps = frames as f64 / elapsed;
+        let stream_secs = stream_start
+            .map(|start| stream_end.duration_since(start).as_secs_f64())
+            .unwrap_or(elapsed)
+            .max(0.001);
+        let decode_fps = frames as f64 / stream_secs;
+        // 真实上屏帧率：窗口实际 Present 次数，与解码输入帧率严格区分。
+        let present_fps = presented as f64 / stream_secs;
+        let batch_dropped = decoded_frames.saturating_sub(presented);
         let feed_p50 = percentile(&feed_times, 0.50);
         let feed_p99 = percentile(&feed_times, 0.99);
         let present_p50 = percentile(&present_times, 0.50);
@@ -515,13 +637,16 @@ mod windows_impl {
         let json = format!(
             "{{\"role\":\"ctrl\",\"seconds\":{:.2},\"frames\":{frames},\"packets\":{packets},\
              \"bytes\":{bytes},\"bitrate_bps\":{:.0},\"samples\":{},\"e2e_p50_us\":{p50},\
-             \"e2e_p99_us\":{p99},\"fps\":{fps:.2},\"presented\":{},\"dropped\":{dropped_frames},\"skipped_stale\":{skipped_stale},\
+             \"e2e_p99_us\":{p99},\"stream_seconds\":{stream_secs:.2},\
+             \"decode_fps\":{decode_fps:.2},\"present_fps\":{present_fps:.2},\
+             \"presented\":{},\"decoded_frames\":{decoded_frames},\
+             \"batch_dropped\":{batch_dropped},\"dropped\":{dropped_frames},\"skipped_stale\":{skipped_stale},\
              \"tcode_mismatch\":{mismatched},\"feed_p50_us\":{feed_p50},\"feed_p99_us\":{feed_p99},\
              \"present_p50_us\":{present_p50},\"present_p99_us\":{present_p99},\"retransmits\":0,\
              \"decoder\":\"{decoder_name}\",\"decoder_hw\":{decoder_hw},\"decoder_hw_mft\":{decoder_hw_mft},\
              \"decoder_dxva_aware\":{decoder_dxva},\"decoder_output\":\"{decoder_output}\",\
              \"h264_profiles\":{h264_profiles},\"inflight_peak\":{inflight_peak},\
-             \"inflight_end\":{inflight_end},\"dropped_latest\":{dropped_latest},\"hung\":{hung}}}",
+             \"inflight_end\":{inflight_end},\"hung\":{hung}}}",
             elapsed,
             bytes as f64 * 8.0 / elapsed,
             samples.len(),
@@ -554,7 +679,7 @@ mod windows_impl {
             )?;
         }
         println!(
-            "[ctrl] 完成：{frames} 帧 / {} 样本 / p50 {p50} us / p99 {p99} us / {fps:.1} fps",
+            "[ctrl] 完成：解码输入 {frames} 帧 ({decode_fps:.1} fps) / 上屏 {presented} 帧 ({present_fps:.1} fps) / {} 样本 / p50 {p50} us / p99 {p99} us",
             samples.len()
         );
         Ok(())
