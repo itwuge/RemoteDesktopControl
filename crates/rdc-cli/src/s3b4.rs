@@ -74,6 +74,7 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
     let (role, rest) = match collected.first().map(String::as_str) {
         Some("host") => ("host", collected[1..].to_vec()),
         Some("ctrl") => ("ctrl", collected[1..].to_vec()),
+        Some("exp") => ("exp", collected[1..].to_vec()),
         _ => ("", collected),
     };
     let options = parse(&mut rest.into_iter());
@@ -87,6 +88,8 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
         match role {
             "host" => windows_impl::run_host(&options),
             "ctrl" => windows_impl::run_ctrl(&options),
+            // D2 受控实验：不经过网络，直接驱动同一个解码器。
+            "exp" => windows_impl::run_exp(&options),
             _ => windows_impl::run_driver(&options),
         }
     }
@@ -238,6 +241,197 @@ mod windows_impl {
                 println!("== {name} ==\n{text}");
             }
         }
+        Ok(())
+    }
+
+    /// D2 受控实验：同一段码流，两种送法驱动同一个解码器，量清「17 帧」到底是谁的。
+    ///
+    /// - 连续送入：一直送到解码器返回 NeedInput 才停（等价生产链路的送包节奏上限）。
+    /// - 严格串行：送一帧、等到有输出、再送下一帧。
+    /// - 自有队列：从最近一次端到端实测的 decode-trace.csv 里取「首次拿到输出时已送几帧」。
+    pub(super) fn run_exp(options: &Options) -> S3bResult<()> {
+        let window = PresentWindow::create(WIDTH / 2, HEIGHT / 2, "RDC S3d-D2 解码受控实验")?;
+        let device = window.device().clone();
+
+        // 码流准备：120 帧合成画面，与 s3b4 host 完全同一编码路径与参数。
+        let mut encoder = create_encoder(CodecKind::H264)?;
+        encoder.configure(VideoConfig {
+            codec: CodecKind::H264,
+            width: WIDTH,
+            height: HEIGHT,
+            fps: 60,
+            bitrate_bps: TARGET_BITRATE,
+            chroma: VideoChroma::Yuv420,
+            bit_depth: 8,
+            low_latency: true,
+        })?;
+        let pool = FramePool::new(4, FRAME_BYTES);
+        let base = build_base();
+        let mut aus: Vec<Vec<u8>> = Vec::new();
+        let mut ts_us = 1_000_000u64;
+        for index in 0..120u64 {
+            let mut buffer = pool.acquire().ok_or("帧池已空")?;
+            buffer.as_mut_slice().copy_from_slice(&base);
+            draw_frame(buffer.as_mut_slice(), ts_us, index);
+            encoder.push(buffer, index * 1_000_000_000 / 60, index % 120 == 0)?;
+            while let Some(packet) = encoder.poll_packet() {
+                let mut annexb = Vec::with_capacity(packet.data.len() + 64);
+                if packet.is_keyframe {
+                    let header = encoder.sequence_header();
+                    let header = if header.is_empty() {
+                        rdc_codec::extract_sps_pps(&packet.data)
+                    } else {
+                        header.to_vec()
+                    };
+                    annexb.extend_from_slice(&header);
+                }
+                annexb.extend_from_slice(&packet.data);
+                aus.push(annexb);
+                ts_us += FRAME_PERIOD_US;
+            }
+        }
+        println!("[exp] 码流准备完成：{} 个访问单元", aus.len());
+        if aus.len() < 40 {
+            return Err("编码输出过少，无法做受控实验".into());
+        }
+
+        // 实验 1：连续送入，直到需要更多输入。
+        let mut decoder = MfH264Decoder::open_with_device(&device, WIDTH, HEIGHT, 60, true)?;
+        let mut feeds = 0u64;
+        let mut outputs = 0u64;
+        let mut first_out_feeds = 0u64;
+        let mut first_out_ms = 0f64;
+        let mut feed_ms: Vec<u64> = Vec::new();
+        let mut max_in_flight = 0u64;
+        let exp_start = Instant::now();
+        for au in aus.iter() {
+            feeds += 1;
+            let feed_start = Instant::now();
+            decoder.feed_each(au, ts_us, |_frame| {
+                if outputs == 0 {
+                    first_out_feeds = feeds;
+                    first_out_ms = exp_start.elapsed().as_secs_f64() * 1000.0;
+                }
+                outputs += 1;
+                Ok(())
+            })?;
+            feed_ms.push(feed_start.elapsed().as_micros() as u64);
+            max_in_flight = max_in_flight.max(decoder.in_flight());
+        }
+        // 送完后再把管线里剩下的帧取干净，用于统计总产出与末态 in_flight。
+        let continuous_steady_in_flight = decoder.in_flight();
+        for _ in 0..32 {
+            let pumped = decoder.pump()?;
+            if pumped.is_empty() {
+                break;
+            }
+            outputs += pumped.len() as u64;
+        }
+        let continuous_hw = decoder.hardware_active();
+        let feed_p50_us = percentile(&feed_ms, 0.50);
+        let feed_p99_us = percentile(&feed_ms, 0.99);
+        println!(
+            "[exp] 连续送入：首次输出在送入第 {first_out_feeds} 帧后（{first_out_ms:.1} ms），峰值 in_flight={max_in_flight}，末态 {continuous_steady_in_flight}，共输出 {outputs}/{}",
+            aus.len()
+        );
+
+        // 实验 2：送一帧、等一帧，严格串行。
+        let mut decoder = MfH264Decoder::open_with_device(&device, WIDTH, HEIGHT, 60, true)?;
+        let mut feeds = 0u64;
+        let mut serial_outputs = 0u64;
+        let mut first_out_feeds_serial = 0u64;
+        let mut first_out_ms_serial = 0f64;
+        let mut wait_ms: Vec<u64> = Vec::new();
+        let mut timeouts = 0u64;
+        let mut stalled_at = 0u64;
+        let mut stall_message = String::new();
+        let serial_start = Instant::now();
+        let serial_result: S3bResult<()> = (|decoder: &mut MfH264Decoder| -> S3bResult<()> {
+            for au in aus.iter().take(60) {
+                feeds += 1;
+                let before_feed = serial_outputs;
+                let feed_start = Instant::now();
+                decoder.feed_each(au, ts_us, |_frame| {
+                    if serial_outputs == 0 {
+                        first_out_feeds_serial = feeds;
+                        first_out_ms_serial = serial_start.elapsed().as_secs_f64() * 1000.0;
+                    }
+                    serial_outputs += 1;
+                    Ok(())
+                })?;
+                // 本次送入期间没出帧，就一直探测到出帧为止（最多 50 ms/帧）。
+                while serial_outputs == before_feed {
+                    let pumped = decoder.pump()?;
+                    serial_outputs += pumped.len() as u64;
+                    if serial_outputs > before_feed {
+                        if first_out_feeds_serial == 0 {
+                            first_out_feeds_serial = feeds;
+                            first_out_ms_serial =
+                                serial_start.elapsed().as_secs_f64() * 1000.0;
+                        }
+                        break;
+                    }
+                    if feed_start.elapsed().as_millis() >= 50 {
+                        timeouts += 1;
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                wait_ms.push(feed_start.elapsed().as_millis() as u64);
+                if serial_outputs >= 40 {
+                    break;
+                }
+            }
+            Ok(())
+        })(&mut decoder);
+        if let Err(error) = serial_result {
+            // MFT 不再接收输入（输出表面池/内部队列已满）本身就是结论，不要直接崩掉实验。
+            stalled_at = feeds;
+            stall_message = error.to_string();
+            eprintln!("[exp] 串行送入在第 {stalled_at} 帧停摆：{stall_message}");
+        }
+        let serial_wait_p50 = percentile(&wait_ms, 0.50);
+        let serial_wait_p99 = percentile(&wait_ms, 0.99);
+        println!(
+            "[exp] 严格串行：首次输出在送入第 {first_out_feeds_serial} 帧后（{first_out_ms_serial:.1} ms），等待 p50/p99 {serial_wait_p50}/{serial_wait_p99} ms，超时 {timeouts} 次，共输出 {serial_outputs}"
+        );
+
+        // 实验 3：自有队列预填深度——取最近一次端到端实测的逐帧 trace。
+        let trace_path = Path::new("logs/s3d-d1-run8/decode-trace.csv");
+        let mut our_prefill_feeds = 0u64;
+        let mut our_prefill_ms = 0u64;
+        let mut trace_source = "缺失".to_owned();
+        if let Ok(text) = std::fs::read_to_string(trace_path) {
+            trace_source = trace_path.display().to_string();
+            for line in text.lines().skip(1) {
+                let cols: Vec<&str> = line.split(',').collect();
+                if cols.len() >= 4 && cols[2].parse::<u64>().unwrap_or(0) > 0 {
+                    our_prefill_ms = cols[0].parse().unwrap_or(0);
+                    // trace 的 in_flight 就是「已送 − 已出」，即首次拿到输出时的送入帧数。
+                    our_prefill_feeds = cols[1].parse().unwrap_or(0);
+                    break;
+                }
+            }
+        }
+        println!(
+            "[exp] 自有队列：首次拿到输出时 in_flight={our_prefill_feeds}（{our_prefill_ms} ms），来源 {trace_source}"
+        );
+
+        let json = format!(
+            "{{\"mode\":\"d2\",\"aus\":{},\
+             \"continuous\":{{\"first_output_after_feeds\":{first_out_feeds},\"first_output_ms\":{first_out_ms:.1},\
+             \"feed_p50_us\":{feed_p50_us},\"feed_p99_us\":{feed_p99_us},\"outputs\":{outputs},\
+             \"max_in_flight\":{max_in_flight},\"end_in_flight\":{continuous_steady_in_flight},\
+             \"hardware\":{continuous_hw}}},\
+             \"serial\":{{\"first_output_after_feeds\":{first_out_feeds_serial},\"first_output_ms\":{first_out_ms_serial:.1},\
+             \"wait_p50_ms\":{serial_wait_p50},\"wait_p99_ms\":{serial_wait_p99},\"timeouts\":{timeouts},\
+             \"outputs\":{serial_outputs},\"stalled_at_feed\":{stalled_at},\"stall\":\"{stall_message}\"}},\
+             \"our_queue\":{{\"first_output_in_flight\":{our_prefill_feeds},\"first_output_at_ms\":{our_prefill_ms},\"source\":\"{trace_source}\"}}}}",
+            aus.len()
+        );
+        let _ = std::fs::create_dir_all(&options.out);
+        std::fs::write(Path::new(&options.out).join("d2.json"), json)?;
+        println!("[exp] 已写 {}/d2.json", options.out);
         Ok(())
     }
 

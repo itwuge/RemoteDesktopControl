@@ -570,6 +570,26 @@ impl MfH264Decoder {
         Ok(outs)
     }
 
+    /// 只取输出、不送输入：把当前已就绪的解码帧全部取走。
+    ///
+    /// 用途：受控实验里要「送一帧 → 等这一帧的输出 → 再送下一帧」，就必须能在
+    /// 不产生新输入的情况下反复探测输出。
+    ///
+    /// # Returns
+    /// 本次探测能取到的解码帧（可能为空）。
+    ///
+    /// # Errors
+    /// 事件或 `ProcessOutput` 失败时返回 [`DecodeError::DecodeFailure`]。
+    pub fn pump(&mut self) -> Result<Vec<DecodedFrame>, DecodeError> {
+        let mut outs = Vec::new();
+        let mut sink = |frame: DecodedFrame| {
+            outs.push(frame);
+            Ok(())
+        };
+        self.drain_ready(&mut sink)?;
+        Ok(outs)
+    }
+
     /// 送入一个访问单元，每解出一帧就立刻交给回调处理（不再先攒成一批）。
     ///
     /// 用途：in-box 解码器的输出表面池很浅（实测同时持有 4 帧会让 MFT 永久
