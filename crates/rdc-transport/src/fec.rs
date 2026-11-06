@@ -1,4 +1,4 @@
-//! rdc-transport / 前向纠错
+﻿//! rdc-transport / 前向纠错
 //!
 //! 层级：L2 能力层
 //! 用途：按组生成冗余分片、并在丢包后恢复数据分片；S1 只保留参数校验与接口
@@ -11,7 +11,7 @@ use crate::error::TransportError;
 /// FEC 编码器。
 pub struct FecEncoder {
     /// 每组附加的冗余分片数；0 在构造期即被拒绝。
-    redundancy: u8,
+    _redundancy: u8,
 }
 
 impl FecEncoder {
@@ -30,7 +30,7 @@ impl FecEncoder {
         if redundancy == 0 {
             return Err(TransportError::InvalidRate);
         }
-        Ok(Self { redundancy })
+        Ok(Self { _redundancy: redundancy })
     }
 
     /// 为一组数据分片生成冗余分片。
@@ -56,7 +56,7 @@ impl FecEncoder {
 /// FEC 解码器，按组恢复丢失的数据分片。
 pub struct FecDecoder {
     /// 与编码端约定的冗余分片数。
-    redundancy: u8,
+    _redundancy: u8,
 }
 
 impl FecDecoder {
@@ -71,7 +71,7 @@ impl FecDecoder {
     /// # Errors
     /// 不会失败；冗余度为 0 时解码器退化为直通模式。
     pub fn new(redundancy: u8) -> Self {
-        Self { redundancy }
+        Self { _redundancy: redundancy }
     }
 
     /// 从组内分片（含空洞）恢复数据分片。

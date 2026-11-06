@@ -17,13 +17,18 @@ const ITERATIONS: u32 = 10_000;
 ///
 /// 返回：无返回值；结果输出到 stdout 供 CI 存档。
 fn main() {
+    // S2 信封使用 `id/seq/ts` 独立字段，消息体摊平；此处构造注册消息作为代表样本。
     let envelope = SignalEnvelope::new(
+        "peer-0001",
+        1,
+        1_700_000_000_000,
         SignalMessage::Register {
-            peer_id: "peer-0001".to_owned(),
-            public_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".to_owned(),
+            pub_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=".to_owned(),
+            device_name: "bench".to_owned(),
+            platform: "windows".to_owned(),
+            caps: Capabilities::DEFAULT,
         },
-        Capabilities(Capabilities::H264 | Capabilities::HEVC),
-    );
+    ).signed("bench-signature");
 
     // =====** 序列化 =====**
     let start = Instant::now();

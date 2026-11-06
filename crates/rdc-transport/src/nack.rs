@@ -1,4 +1,4 @@
-//! rdc-transport / NACK 重传缓存
+﻿//! rdc-transport / NACK 重传缓存
 //!
 //! 层级：L2 能力层
 //! 用途：缓存已发送分片，按接收端反馈找出缺失序号并取回原始载荷用于重传
@@ -13,7 +13,7 @@
 /// 先固定对外行为，避免过早绑定实现。
 pub struct NackCache {
     /// 缓存容量，生产配置取 `params::NACK_CACHE_LEN`。
-    capacity: usize,
+    _capacity: usize,
 }
 
 impl NackCache {
@@ -28,7 +28,7 @@ impl NackCache {
     /// # Errors
     /// 不会失败。
     pub fn new(capacity: usize) -> Self {
-        Self { capacity }
+        Self { _capacity: capacity }
     }
 
     /// 记录一个已发送分片。

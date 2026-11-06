@@ -102,10 +102,8 @@ impl VideoEncoder for PlatformEncoder {
     /// # Errors
     /// 不会失败。
     fn poll_packet(&mut self) -> Option<EncodedPacket> {
-        // 未配置时不存在编码输出，直接返回 None，避免读取未初始化的会话状态。
-        if self.config.is_none() {
-            return None;
-        }
+        // 未配置时不存在编码输出：用 `?` 提前返回 None，避免读取未初始化的会话状态。
+        self.config.as_ref()?;
         // TODO(stage3)：轮询硬件编码器输出队列。
         None
     }

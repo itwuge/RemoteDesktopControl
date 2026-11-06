@@ -30,6 +30,23 @@ pub enum SecurityError {
     /// 签名校验不通过。
     #[error("签名校验失败")]
     SignatureInvalid,
+    /// 报文序号被重放或超出接收窗口。
+    #[error("检测到重放或序号超出窗口: seq={seq}, 窗口最高={highest}")]
+    ReplayDetected {
+        /// 收到的序号。
+        seq: u64,
+        /// 接收窗口当前最高序号。
+        highest: u64,
+    },
+    /// PAKE 交互失败（消息长度/侧别不匹配或口令不一致）。
+    #[error("PAKE 交互失败: {0}")]
+    PakeFailure(&'static str),
+    /// 配对码格式非法。
+    #[error("配对码格式非法")]
+    PairingCodeInvalid,
+    /// 握手确认 HMAC 校验失败（通常意味着配对码错误）。
+    #[error("握手确认失败")]
+    ConfirmationFailed,
     /// 中继票据无效或已过期。
     #[error("中继票据无效")]
     TicketInvalid,

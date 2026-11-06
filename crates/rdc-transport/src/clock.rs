@@ -13,6 +13,13 @@ pub struct ClockEstimator {
     offset_ns: i64,
 }
 
+impl Default for ClockEstimator {
+    /// 等价于 [`ClockEstimator::new`]，便于在结构体里用 `Default` 派生。
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClockEstimator {
     /// 构造零偏移的估计器。
     ///

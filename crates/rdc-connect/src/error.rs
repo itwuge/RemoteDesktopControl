@@ -25,6 +25,14 @@ pub enum ConnectError {
     /// 中继通道被策略禁用，无法回退。
     #[error("中继未启用")]
     RelayDisabled,
+    /// 信令服务返回了显式错误（错误码来自 docs/03 §2.3）。
+    #[error("信令错误 {code:?}: {message}")]
+    Signaling {
+        /// 服务端错误码。
+        code: rdc_protocol::SignalErrorCode,
+        /// 服务端说明（面向用户，不含敏感信息）。
+        message: String,
+    },
     /// 传输层错误。
     #[error(transparent)]
     Transport(#[from] rdc_transport::TransportError),

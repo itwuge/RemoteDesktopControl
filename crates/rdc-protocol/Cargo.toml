@@ -17,6 +17,8 @@ description = "RDC 信令与媒体报文的纯类型定义、序列化与错误�
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+# 挑战/签名/公钥在信令报文里都是 Base64 文本，编解码集中在此，避免各 crate 各写一套。
+base64 = { workspace = true }
 
 [[bench]]
 name = "envelope_roundtrip"

@@ -1,4 +1,4 @@
-//! rdc-transport / 发送节流
+﻿//! rdc-transport / 发送节流
 //!
 //! 层级：L2 能力层
 //! 用途：把拥塞控制器给出的目标码率换算成每个分片的发送延迟，平滑出包避免整秒突刺
@@ -15,7 +15,7 @@ pub struct Pacer {
     /// 目标码率（bit/s），由拥塞控制器更新。
     target_bps: u32,
     /// 允许的瞬时突发字节数，吸收编码器的帧级抖动。
-    burst_bytes: u32,
+    _burst_bytes: u32,
 }
 
 impl Pacer {
@@ -37,7 +37,7 @@ impl Pacer {
         }
         Ok(Self {
             target_bps,
-            burst_bytes,
+            _burst_bytes: burst_bytes,
         })
     }
 

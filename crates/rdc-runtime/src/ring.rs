@@ -14,7 +14,8 @@
 /// - 内部使用原子量做序号交换，**禁止**在此基础上再加锁。
 pub struct SpscRing<T> {
     /// 预分配的槽位；容量固定后不再增长，避免逐帧分配（docs/01 §3.1 帧内存池段）。
-    slots: Vec<Option<T>>,
+    /// S1 仅为接口形状占位，stage3 实现时改回 `slots` 并接入真实读写。
+    _slots: Vec<Option<T>>,
 }
 
 impl<T> SpscRing<T> {
@@ -71,6 +72,17 @@ impl<T> SpscRing<T> {
     /// 不会失败。
     pub fn len(&self) -> usize {
         todo!("S1 空壳：SPSC 环在 stage3 实现")
+    }
+
+    /// 环是否为空（与 `len` 配套，便于 `if ring.is_empty()`）。
+    ///
+    /// # Returns
+    /// 积压为 0 时返回 `true`；近似值，仅供观测。
+    ///
+    /// # Errors
+    /// 不会失败。
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

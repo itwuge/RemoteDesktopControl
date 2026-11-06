@@ -22,3 +22,9 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 # 候选地址需随信令报文序列化（candidates.rs 的 derive），故显式依赖 serde。
 serde = { workspace = true }
+serde_json = { workspace = true }
+# S2：信令客户端与直连会话需要真实 QUIC 端点（TLS 1.3）。
+tokio = { workspace = true }
+quinn = { workspace = true }
+rustls = { workspace = true }
+base64 = { workspace = true }

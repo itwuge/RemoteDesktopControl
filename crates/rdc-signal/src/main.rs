@@ -1,31 +1,42 @@
-//! rdc-signal · 信令会合服务器（S1 空壳）
+//! rdc-signal · 信令会合服务器二进制入口
 //!
 //! 层级：L1 服务端（独立可部署进程）
-//! 用途：注册、地址交换、配对码校验、限流、中继票据签发（docs/03）
-//! 调用方：被控端与主控端经 UDP 21116 访问；运维经健康检查端口探活
+//! 用途：绑定 UDP 21116 并运行 TLS 1.3 over QUIC 信令服务，直到收到 Ctrl+C。
+//! 调用方：运维直接启动；rdc-cli demo 使用 lib 版 `SignalServer` 同进程启动。
 //!
-//! S1 目标：进程能启动、打印版本与监听计划，不实现任何协议处理。
+//! 安全前提：自签证书仅用于本地/内网部署；生产必须由运维注入正式证书。
+
+use std::net::SocketAddr;
 
 use rdc_protocol::ports::PORT_SIGNAL;
+use rdc_signal::SignalServer;
 
 // =====** 入口 =====**
 
-/// 进程入口：打印启动信息后等待退出（S1 空壳）。
+/// 进程入口：启动信令服务并等待退出信号。
 ///
 /// # Returns
-/// 正常退出返回 `Ok(())`。
+/// 正常关闭返回 `Ok(())`。
 ///
 /// # Errors
-/// S1 不执行任何 IO，不会失败。
+/// 端口绑定或 TLS 初始化失败时返回错误。
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 版本与端口来自 protocol 单一真源，避免服务端与客户端端口漂移。
+    // 默认监听所有 IPv4 网卡；若需 IPv6 可改为 `[::]:PORT_SIGNAL`。
+    let addr = SocketAddr::from(([0, 0, 0, 0], PORT_SIGNAL));
+    let server = SignalServer::bind(addr).await?;
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
-        port = PORT_SIGNAL,
-        "rdc-signal 启动（S1 空壳）"
+        addr = %server.addr(),
+        "rdc-signal 启动"
     );
-    println!("rdc-signal {} listening on udp/{PORT_SIGNAL} (S1 skeleton)", env!("CARGO_PKG_VERSION"));
-    // TODO(stage2): 绑定 UDP 端口并处理 register/call/accept/candidates/relay_ticket/bye。
+    println!(
+        "rdc-signal {} listening on udp/{} (TLS 1.3 / QUIC)",
+        env!("CARGO_PKG_VERSION"),
+        server.addr()
+    );
+
+    // run() 只在端点关闭时返回；进程收到 Ctrl+C 时由操作系统直接结束。
+    server.run().await;
     Ok(())
 }
