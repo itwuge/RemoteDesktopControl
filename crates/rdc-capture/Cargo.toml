@@ -1,0 +1,21 @@
+# ============================================================
+# rdc-capture · crate 清单
+#
+# 用途：屏幕采集抽象（显示器枚举、帧类型、采集源 trait）与按平台的采集后端入口。
+# 层级：L3 采集层，消费 rdc-runtime 的缓冲原语，向 rdc-codec 交付帧。
+# 依赖纪律：不依赖 UI 框架；平台 API 只出现在 src/platform/*.rs。
+# ============================================================
+
+[package]
+name = "rdc-capture"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 屏幕采集抽象与平台后端"
+
+[dependencies]
+rdc-protocol = { workspace = true }
+rdc-runtime = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

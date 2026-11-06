@@ -1,0 +1,18 @@
+# ============================================================
+# RemoteDesktopControl · rustfmt 配置
+#
+# 用途：统一 Rust 代码格式；分区标记（// =====** 模块名 =====**）依赖注释保持原样。
+# 层级：仓库根配置。
+# 被谁调用：cargo fmt / CI 的格式检查。
+# ============================================================
+
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+# 注释不做自动换行：分区标记与"为什么"注释由作者控制断行，避免格式化破坏可读性。
+wrap_comments = false
+# 保留模块顶部 //! 文档注释与文件头分区标记之间的空行结构。
+normalize_comments = false
+reorder_imports = true
+use_field_init_shorthand = true

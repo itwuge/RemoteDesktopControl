@@ -1,0 +1,24 @@
+# ============================================================
+# rdc-bridge · crate 清单
+#
+# 用途：唯一的 FFI 出口，由 flutter_rust_bridge 生成 Dart 绑定（docs/02 §1.1）。
+# 层级：L4 桥接层，只做类型转换与生命周期托管，不含业务实现。
+# 产物：cdylib（桌面/Android）、staticlib（iOS）。
+# ============================================================
+
+[package]
+name = "rdc-bridge"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 与 Flutter 之间的 FFI 桥接层"
+
+[lib]
+# cdylib 供 Windows/Linux/Android 动态加载；staticlib 供 iOS 静态链接。
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+rdc-core = { workspace = true }
+rdc-protocol = { workspace = true }
+flutter_rust_bridge = { workspace = true }

@@ -1,0 +1,22 @@
+# ============================================================
+# rdc-cli · crate 清单
+#
+# 用途：无 UI 验证工具：doctor / selftest / host / connect / bench（docs/02 §1.1）。
+# 层级：L4 验证入口，只依赖 core/protocol，禁止依赖 bridge。
+# ============================================================
+
+[package]
+name = "rdc-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 命令行自检与直连验证工具"
+
+[[bin]]
+name = "rdc-cli"
+path = "src/main.rs"
+
+[dependencies]
+rdc-core = { workspace = true }
+rdc-protocol = { workspace = true }

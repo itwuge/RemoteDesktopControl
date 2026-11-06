@@ -1,0 +1,69 @@
+# ============================================================
+# RemoteDesktopControl · Rust workspace 根清单
+#
+# 用途：统一管理 13 个 rdc-* crate 的成员列表、版本与第三方依赖版本。
+# 层级：仓库根（不属于任何 crate）。
+# 被谁调用：cargo（本地与 CI）读取本清单决定 workspace 成员与依赖解析。
+# 目录真源：docs/09-目录结构与命名规范.md §2。
+# ============================================================
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/rdc-protocol",
+    "crates/rdc-runtime",
+    "crates/rdc-security",
+    "crates/rdc-connect",
+    "crates/rdc-transport",
+    "crates/rdc-capture",
+    "crates/rdc-codec",
+    "crates/rdc-input",
+    "crates/rdc-core",
+    "crates/rdc-bridge",
+    "crates/rdc-signal",
+    "crates/rdc-relay",
+    "crates/rdc-cli",
+]
+
+[workspace.package]
+# 版本号唯一真源：CI 打包脚本从这里读取，禁止在各 crate 内重复手写。
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+authors = ["RDC Team"]
+
+[workspace.dependencies]
+# 协议序列化：只有 rdc-protocol 需要，其余 crate 通过 protocol 的类型间接使用。
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# 错误定义：每个 crate 用 thiserror 定义本层错误，再在 rdc-core 收敛为 RdcError。
+thiserror = "2"
+# 异步运行时：网络任务（tx/rx/NACK 定时器）统一跑在共享的 tokio 多线程 runtime 上。
+tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
+# 日志门面：库代码只依赖 tracing，不直接 println，便于被 Flutter/CLI 重定向。
+tracing = "0.1"
+# FFI 桥接：仅 rdc-bridge 依赖，版本必须与 app/pubspec.yaml 中 Dart 依赖严格一致。
+flutter_rust_bridge = "=2.13.0"
+
+# --- 内部 crate 依赖（统一在此声明，crate 内用 workspace = true 引用）---
+rdc-protocol = { path = "crates/rdc-protocol" }
+rdc-runtime = { path = "crates/rdc-runtime" }
+rdc-security = { path = "crates/rdc-security" }
+rdc-connect = { path = "crates/rdc-connect" }
+rdc-transport = { path = "crates/rdc-transport" }
+rdc-capture = { path = "crates/rdc-capture" }
+rdc-codec = { path = "crates/rdc-codec" }
+rdc-input = { path = "crates/rdc-input" }
+rdc-core = { path = "crates/rdc-core" }
+rdc-bridge = { path = "crates/rdc-bridge" }
+
+# 性能敏感路径统一开启优化，Debug 构建也保证 S1 自检不被拖慢（无业务逻辑，仅留约定）。
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

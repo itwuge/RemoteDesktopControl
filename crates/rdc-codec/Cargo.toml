@@ -1,0 +1,21 @@
+# ============================================================
+# rdc-codec · crate 清单
+#
+# 用途：视频编解码抽象（格式/能力/配置、编码器与解码器 trait）与按平台的硬件后端入口。
+# 层级：L3 编解码层，消费 rdc-runtime 的池化帧，向 rdc-transport 交付编码包。
+# 依赖纪律：不依赖 UI 框架；平台 API 只出现在 src/platform/*.rs。
+# ============================================================
+
+[package]
+name = "rdc-codec"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 视频编解码抽象与平台硬件后端"
+
+[dependencies]
+rdc-protocol = { workspace = true }
+rdc-runtime = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

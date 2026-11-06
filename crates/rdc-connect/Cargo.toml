@@ -1,0 +1,24 @@
+# ============================================================
+# rdc-connect · crate 清单
+#
+# 用途：候选地址、打洞策略、信令客户端抽象与连接错误（S1 仅类型骨架）。
+# 层级：L2 能力层，位于 protocol / security / transport 之上，被 rdc-core 使用。
+# 依赖纪律：本 crate 不直接持有 socket，连接动作由 rdc-core 的网络任务执行。
+# ============================================================
+
+[package]
+name = "rdc-connect"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 候选协商、P2P 打洞策略与信令客户端抽象"
+
+[dependencies]
+rdc-protocol = { workspace = true }
+rdc-security = { workspace = true }
+rdc-transport = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+# 候选地址需随信令报文序列化（candidates.rs 的 derive），故显式依赖 serde。
+serde = { workspace = true }

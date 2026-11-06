@@ -1,0 +1,24 @@
+# ============================================================
+# rdc-signal · crate 清单
+#
+# 用途：会合服务器二进制（注册、地址交换、配对码校验、限流、中继票据）。
+# 层级：L1 服务端，独立进程；只依赖 protocol/security，禁止媒体处理。
+# ============================================================
+
+[package]
+name = "rdc-signal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 信令会合服务器"
+
+[[bin]]
+name = "rdc-signal"
+path = "src/main.rs"
+
+[dependencies]
+rdc-protocol = { workspace = true }
+rdc-security = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

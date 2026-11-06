@@ -1,0 +1,204 @@
+//! rdc-codec / 编码器契约类型
+//!
+//! 层级：L3 编解码层
+//! 用途：定义编码格式、色度、编码配置、能力描述、编码包与编码器 trait（平台无关）
+//! 调用方：rdc-codec 各平台后端实现 [`VideoEncoder`]；rdc-core 通过该 trait 驱动编码
+
+use rdc_runtime::PooledBuffer;
+
+use crate::error::CodecError;
+
+// =====** CodecKind =====**
+
+/// 视频编码格式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CodecKind {
+    /// HEVC / H.265（默认格式，配合 4:4:4 可保留桌面文字锐度）。
+    Hevc,
+    /// H.264 / AVC（兼容性兜底）。
+    H264,
+    /// AV1（软编或新一代硬编）。
+    Av1,
+}
+
+// =====** VideoChroma =====**
+
+/// 编码色度采样。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VideoChroma {
+    /// 4:2:0：带宽减半，适用于视频类内容。
+    Yuv420,
+    /// 4:4:4：保留色度细节，适用于桌面文字与彩色边缘。
+    Yuv444,
+}
+
+// =====** VideoConfig =====**
+
+/// 单次编码会话配置。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VideoConfig {
+    /// 目标编码格式。
+    pub codec: CodecKind,
+    /// 编码宽度，单位：像素。
+    pub width: u32,
+    /// 编码高度，单位：像素。
+    pub height: u32,
+    /// 目标帧率，单位：Hz。
+    pub fps: u32,
+    /// 目标码率，单位：bit/s。
+    pub bitrate_bps: u32,
+    /// 色度采样。
+    pub chroma: VideoChroma,
+    /// 位深（8 或 10）。
+    pub bit_depth: u8,
+    /// 是否启用低时延模式（关闭 B 帧与前视）。
+    pub low_latency: bool,
+}
+
+// =====** EncoderCaps =====**
+
+/// 单个编码格式的硬件能力描述。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EncoderCaps {
+    /// 能力对应的编码格式。
+    pub codec: CodecKind,
+    /// 最大支持宽度，单位：像素。
+    pub max_width: u32,
+    /// 最大支持高度，单位：像素。
+    pub max_height: u32,
+    /// 最大支持帧率，单位：Hz。
+    pub max_fps: u32,
+    /// 是否支持 4:4:4。
+    pub supports_444: bool,
+    /// 是否支持 10 bit。
+    pub supports_10bit: bool,
+    /// 是否支持运行期重配（不重建会话改分辨率/码率）。
+    pub supports_runtime_reconfigure: bool,
+}
+
+// =====** EncodedPacket =====**
+
+/// 一包编码输出。
+#[derive(Debug, Clone, PartialEq)]
+pub struct EncodedPacket {
+    /// 编码后的码流字节（一个访问单元）。
+    pub data: Vec<u8>,
+    /// 对应采集帧的时间戳，单位：纳秒。
+    pub pts_ns: u64,
+    /// 是否为关键帧（IDR）；传输层据此划分可独立解码的分片组。
+    pub is_keyframe: bool,
+    /// 建议的传输分片大小，单位：字节；`0` 表示由传输层按 MTU 决定。
+    pub suggested_shard_bytes: u16,
+}
+
+// =====** VideoEncoder =====**
+
+/// 平台无关的视频编码器。
+///
+/// 生命周期：`probe` → `configure` →（`push` / `poll_packet` 循环）→ 可选 `reconfigure`。
+/// 实现必须是 `Send`：会话建立后由 rdc-ctl 移交给编码线程独占使用。
+pub trait VideoEncoder: Send {
+    /// 探测硬件对给定编码格式的支持。
+    ///
+    /// 调用线程：rdc-ctl（会话建立前一次性调用）。
+    /// 阻塞性：可能阻塞（枚举硬件实例），禁止在编码线程调用。
+    /// 内部队列：无。
+    ///
+    /// # Arguments
+    /// * `codecs` - 待探测的编码格式；空切片表示探测全部已知格式。
+    ///
+    /// # Returns
+    /// 每个受支持格式一条能力记录；全不支持时返回空列表（不报错）。
+    ///
+    /// # Errors
+    /// 不会失败；能力缺失用空列表表达。
+    fn probe(&self, codecs: &[CodecKind]) -> Vec<EncoderCaps>;
+
+    /// 配置编码器（创建或重建硬件会话）。
+    ///
+    /// 调用线程：rdc-ctl。
+    /// 阻塞性：阻塞（硬件会话创建可能耗时数十毫秒），仅允许在编码线程启动前调用。
+    /// 内部队列：无。
+    ///
+    /// # Arguments
+    /// * `config` - 编码格式、分辨率、帧率、码率、色度与位深。
+    ///
+    /// # Returns
+    /// 配置成功返回 `Ok(())`。
+    ///
+    /// # Errors
+    /// 配置超出硬件能力返回 [`CodecError::InvalidConfig`]；
+    /// 硬件不可用返回 [`CodecError::HardwareUnsupported`]。
+    fn configure(&mut self, config: VideoConfig) -> Result<(), CodecError>;
+
+    /// 提交一帧到编码器输入。
+    ///
+    /// 调用线程：编码线程（非 rdc-ctl）。
+    /// 阻塞性：非阻塞；输入队列满时立即丢帧或返回错误，禁止忙等。
+    /// 内部队列：编码器私有提交队列（此处仅入队，不等输出）。
+    ///
+    /// # Arguments
+    /// * `frame` - 池化帧；入队后所有权转移给编码器，输出后归还内存池。
+    /// * `pts_ns` - 对应采集帧的时间戳，单位：纳秒。
+    /// * `force_keyframe` - 是否强制本帧为 IDR。
+    ///
+    /// # Returns
+    /// 入队成功返回 `Ok(())`。
+    ///
+    /// # Errors
+    /// 编码器未配置或提交失败时返回 [`CodecError`]。
+    fn push(
+        &mut self,
+        frame: PooledBuffer,
+        pts_ns: u64,
+        force_keyframe: bool,
+    ) -> Result<(), CodecError>;
+
+    /// 非阻塞取出一包编码结果。
+    ///
+    /// 调用线程：编码线程。
+    /// 阻塞性：不阻塞。
+    /// 内部队列：读取编码器输出队列（FIFO）。
+    ///
+    /// # Arguments
+    /// * 无。
+    ///
+    /// # Returns
+    /// 有输出返回 [`EncodedPacket`]；暂无输出返回 `None`。
+    ///
+    /// # Errors
+    /// 不会失败；运行期失败通过后续 `push` 返回或统计计数上报。
+    fn poll_packet(&mut self) -> Option<EncodedPacket>;
+
+    /// 运行期重配（码率/帧率等不改变会话结构的参数）。
+    ///
+    /// 调用线程：rdc-ctl。
+    /// 阻塞性：短阻塞（下发新参数），不等待在途帧完成。
+    /// 内部队列：无——在途帧按旧参数编码，不缓存。
+    ///
+    /// # Arguments
+    /// * `config` - 新的编码配置。
+    ///
+    /// # Returns
+    /// 重配成功返回 `Ok(())`。
+    ///
+    /// # Errors
+    /// 硬件不支持运行期重配或参数非法时返回 [`CodecError`]。
+    fn reconfigure(&mut self, config: VideoConfig) -> Result<(), CodecError>;
+
+    /// 请求下一个提交帧编码为关键帧。
+    ///
+    /// 调用线程：rdc-ctl。
+    /// 阻塞性：不阻塞（仅置位请求标志）。
+    /// 内部队列：无。
+    ///
+    /// # Arguments
+    /// * 无。
+    ///
+    /// # Returns
+    /// 无返回值。
+    ///
+    /// # Errors
+    /// 不会失败。
+    fn request_keyframe(&mut self);
+}

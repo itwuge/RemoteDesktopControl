@@ -1,0 +1,23 @@
+# ============================================================
+# rdc-protocol · crate 清单
+#
+# 用途：协议类型与版本常量；零 IO、零平台依赖（docs/02 §1.1）。
+# 层级：L2 能力层的最底层，被所有其它 crate 依赖。
+# ============================================================
+
+[package]
+name = "rdc-protocol"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 信令与媒体报文的纯类型定义、序列化与错误码"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[[bench]]
+name = "envelope_roundtrip"
+harness = false

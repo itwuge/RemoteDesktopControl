@@ -1,0 +1,23 @@
+# ============================================================
+# rdc-input · crate 清单
+#
+# 用途：输入事件模型、视口与坐标映射、按平台的输入注入入口。
+# 层级：L3 输入层，依赖 rdc-runtime 的线程约定，向 rdc-core 提供注入器。
+# 依赖纪律：不依赖 UI 框架；平台 API 只出现在 src/platform/*.rs。
+# 说明：serde 用于事件跨网络/FFI 序列化，属 rdc-input 自身契约所需。
+# ============================================================
+
+[package]
+name = "rdc-input"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 输入事件映射与平台注入"
+
+[dependencies]
+rdc-protocol = { workspace = true }
+rdc-runtime = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

@@ -1,0 +1,17 @@
+# ============================================================
+# RemoteDesktopControl · Rust 工具链锁定
+#
+# 用途：保证本地、CI 与各平台交叉编译使用同一版本，避免"本地能编 CI 不能编"。
+# 层级：仓库根配置。
+# 被谁调用：rustup（在仓库目录内执行任何 cargo 命令时自动切换）。
+# ============================================================
+
+[toolchain]
+# channel 用 stable：本地与 CI 都通过 rustup 解析到同一最新稳定版；
+# 同时 Cargo.lock 入库锁定依赖版本，二者共同保证可复现构建。
+channel = "stable"
+# 组件：rustfmt 保证格式一致；clippy 在 CI 中作为门禁（见 docs/10 §2.1）。
+components = ["rustfmt", "clippy"]
+# 交叉编译目标不在本文件声明：声明后 rustup 会在每次同步工具链时尝试下载全部目标，
+# 任一目标下载失败会阻塞宿主机构建。改由 CI 的 job 按需 `rustup target add`（见 .github/workflows）。
+profile = "minimal"

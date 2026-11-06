@@ -1,0 +1,20 @@
+# ============================================================
+# RemoteDesktopControl · clippy 阈值配置
+#
+# 用途：把"unsafe 必须写安全注释""禁止裸 unwrap"等文档约束落成可执行的静态检查阈值。
+# 层级：仓库根配置。
+# 被谁调用：cargo clippy（CI 门禁，docs/10 §2.1 要求无 error）。
+# ============================================================
+
+# 与 rust-toolchain.toml 的 rust-version 对齐；低于该版本的 API 直接报错而不是提示。
+msrv = "1.80"
+
+# 允许的单函数参数上限（trait 方法参数较多，超出时应引入配置结构体）。
+too-many-arguments-threshold = 8
+
+# 类型复杂度上限：超过说明该拆结构体，而不是堆泛型。
+type-complexity-threshold = 250
+
+# 文档缺失视为错误（对应 docs/09 §4.1 "公共项一律 ///"）。
+# 注：该阈值需在 crate 的 lib.rs 中配合 #![deny(missing_docs)] 使用。
+doc-valid-idents = ["NVENC", "VAAPI", "DXGI", "WGC", "PipeWire", "VideoToolbox", ".."]

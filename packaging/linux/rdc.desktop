@@ -1,0 +1,13 @@
+[Desktop Entry]
+# ============================================================
+# 文件用途：Linux 桌面入口（deb 与 AppImage 共用）
+# 层级：packaging/linux
+# ============================================================
+Type=Application
+Name=RDC
+Comment=RDC 远程桌面控制
+Exec=/opt/rdc/rdc %U
+Icon=rdc
+Terminal=false
+Categories=Network;RemoteAccess;
+Keywords=remote desktop;rdc;

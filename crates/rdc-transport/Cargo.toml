@@ -1,0 +1,26 @@
+# ============================================================
+# rdc-transport · crate 清单
+#
+# 用途：报文头、FEC、NACK 缓存、pacer 与拥塞控制抽象（S1 仅类型骨架与常量）。
+# 层级：L2 能力层，位于 protocol / security / runtime 之上，被 core / relay / connect 使用。
+# 依赖纪律：本 crate 不直接创建 socket，网络 IO 由 rdc-core 的传输任务持有。
+# ============================================================
+
+[package]
+name = "rdc-transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 报文头、FEC、NACK、pacer 与拥塞控制"
+
+[dependencies]
+rdc-protocol = { workspace = true }
+rdc-security = { workspace = true }
+rdc-runtime = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[[bench]]
+name = "pacer_and_fixed"
+harness = false

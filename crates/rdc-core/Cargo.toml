@@ -1,0 +1,29 @@
+# ============================================================
+# rdc-core · crate 清单
+#
+# 用途：会话编排、三档策略、统计聚合、授权与审计（docs/02 §1.1）。
+# 层级：L3 编排层，唯一允许持有全部 L2 能力的地方。
+# 依赖纪律：不得依赖 rdc-bridge，不得出现任何 UI 概念。
+# ============================================================
+
+[package]
+name = "rdc-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 会话编排、策略与统计聚合"
+
+[dependencies]
+rdc-protocol = { workspace = true }
+rdc-runtime = { workspace = true }
+rdc-security = { workspace = true }
+rdc-connect = { workspace = true }
+rdc-transport = { workspace = true }
+rdc-capture = { workspace = true }
+rdc-codec = { workspace = true }
+rdc-input = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }

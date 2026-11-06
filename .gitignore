@@ -1,0 +1,64 @@
+# ============================================================
+# RemoteDesktopControl · Git 忽略规则
+#
+# 用途：只忽略构建产物、本机配置与运行期数据；源码、文档、lock 文件与生成代码一律入库。
+# 层级：仓库根配置（docs/09 §6）。
+# ============================================================
+
+# --- Rust 构建产物 ---
+/target/
+**/target/
+
+# --- Flutter / Dart 构建产物 ---
+app/build/
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/.packages
+app/pubspec_overrides.yaml
+
+# --- Flutter 平台宿主的本机配置（docs/09 §6.6 禁止提交本机绝对路径）---
+app/android/local.properties
+app/android/.gradle/
+app/android/key.properties
+app/ios/Pods/
+app/ios/Flutter/Generated.xcconfig
+app/ios/Flutter/flutter_export_environment.sh
+app/macos/Pods/
+app/linux/flutter/ephemeral/
+app/windows/flutter/ephemeral/
+
+# --- 打包产物 ---
+/dist/
+packaging/**/output/
+*.AppImage
+*.dmg
+*.apk
+*.ipa
+*.exe
+*.msi
+
+# --- 日志与运行期数据 ---
+*.log
+logs/
+tmp/
+
+# --- 密钥/证书（绝不入库，CI 用 secrets 注入）---
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+.env
+.env.*
+
+# --- IDE / 编辑器 ---
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- 系统文件 ---
+Thumbs.db
+.DS_Store
+desktop.ini

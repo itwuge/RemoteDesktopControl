@@ -1,0 +1,18 @@
+# ============================================================
+# rdc-runtime · crate 清单
+#
+# 用途：线程与缓冲基础设施（SPSC 环、帧内存池、原子统计、线程构造器）。
+# 层级：L2 能力层最底层，被 capture/codec/transport/input/core 使用。
+# 依赖纪律：不得依赖任何其它 rdc crate（docs/09 §2.3）。
+# ============================================================
+
+[package]
+name = "rdc-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 线程、缓冲与统计基础设施"
+
+[dependencies]
+tracing = { workspace = true }

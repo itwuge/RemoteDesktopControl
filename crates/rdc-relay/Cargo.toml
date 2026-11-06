@@ -1,0 +1,24 @@
+# ============================================================
+# rdc-relay · crate 清单
+#
+# 用途：中继服务器二进制；默认不启用，只有用户在设置页显式开启才参与（docs/01 C2）。
+# 层级：L1 服务端，独立进程；禁止解密媒体（只能转发密文）。
+# ============================================================
+
+[package]
+name = "rdc-relay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 媒体中继服务器（默认关闭）"
+
+[[bin]]
+name = "rdc-relay"
+path = "src/main.rs"
+
+[dependencies]
+rdc-protocol = { workspace = true }
+rdc-security = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
