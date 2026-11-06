@@ -1,10 +1,10 @@
 //! rdc-transport · 报文头、FEC、NACK、pacer 与拥塞控制
 //!
-//! 层级：L2 能力层（依赖 rdc-protocol / rdc-security / rdc-runtime，不持有 socket）
-//! 用途：定义报文头编解码、FEC 编解码、NACK 缓存、发送节流与拥塞控制抽象；
-//!       S1 只提供可编译的类型骨架与常量，算法实现在 S2 落地
+//! 层级：L2 能力层（依赖 rdc-protocol / rdc-security / rdc-runtime）
+//! 用途：32 字节包头收发、通道优先级调度、令牌桶 pacer、NACK 重传、Reed-Solomon FEC、
+//!       抖动缓冲与帧重组、GCC 拥塞控制；S3b 起同时提供可直接收发的 UDP 端点。
 //! 调用方：rdc-core（收发线程与 pacer 定时器）、rdc-relay（中继转发）、
-//!         rdc-connect（打洞成功后的建链路径）
+//!         rdc-connect（打洞成功后的建链路径）、S3b 端到端工具
 
 // =====** 模块声明 =====**
 
@@ -12,10 +12,14 @@ pub mod clock;
 pub mod congestion;
 pub mod error;
 pub mod fec;
+pub mod jitter;
 pub mod nack;
 pub mod packet;
 pub mod pacer;
 pub mod params;
+pub mod reasm;
+pub mod scheduler;
+pub mod udp;
 
 // =====** 对外再导出 =====**
 
@@ -25,6 +29,10 @@ pub use congestion::{
 };
 pub use error::TransportError;
 pub use fec::{FecDecoder, FecEncoder};
+pub use jitter::JitterBuffer;
 pub use nack::NackCache;
-pub use packet::PacketHeader;
+pub use packet::Header as PacketHeader;
 pub use pacer::Pacer;
+pub use reasm::{FragmentHeader, Reassembler};
+pub use scheduler::{QueuedPacket, StreamQueues};
+pub use udp::UdpTransport;

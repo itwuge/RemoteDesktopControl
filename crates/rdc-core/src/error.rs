@@ -92,6 +92,9 @@ impl From<rdc_transport::TransportError> for RdcError {
             }
             TransportError::Protocol(e) => RdcError::new(ErrorCode::Transport, e.to_string()),
             TransportError::Internal(msg) => RdcError::new(ErrorCode::Internal, msg),
+            TransportError::Io(msg) => {
+                RdcError::retryable(ErrorCode::Transport, format!("网络 IO 失败: {msg}"), "请检查网络后重试")
+            }
         }
     }
 }

@@ -27,4 +27,7 @@ pub enum TransportError {
     /// 未归类的内部错误；只允许携带可读描述，不得放入密钥等敏感数据。
     #[error("传输内部错误: {0}")]
     Internal(String),
+    /// 网络 IO 失败（绑定、收发、超时设置）；只保留操作系统描述，不含载荷。
+    #[error("网络 IO 失败: {0}")]
+    Io(String),
 }
