@@ -18,8 +18,9 @@ use windows::core::Interface;
 use windows::Win32::Foundation::{HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Graphics::Direct3D11::{
-    D3D11_BIND_DECODER, D3D11_CPU_ACCESS_WRITE,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_WRITE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
+    D3D11_BIND_DECODER, D3D11_CPU_ACCESS_READ, D3D11_CPU_ACCESS_WRITE,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_READ, D3D11_MAP_WRITE, D3D11_MAPPED_SUBRESOURCE,
+    D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
     D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC,
     D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC,
@@ -144,6 +145,12 @@ pub struct PresentWindow {
     client_height: u32,
     /// 已呈现帧数。
     presented: u64,
+    /// 后缓冲回读纹理（首次回读时按客户区尺寸创建）。
+    readback: Option<ID3D11Texture2D>,
+    /// 呈现前需要回读的像素点（客户区坐标），空表示不采样。
+    probe_points: Vec<(u32, u32)>,
+    /// 最近一次呈现前采到的像素（BGR），与 `probe_points` 等长。
+    probe_samples: Vec<[u8; 3]>,
 }
 
 impl PresentWindow {
@@ -293,6 +300,9 @@ impl PresentWindow {
             client_width,
             client_height,
             presented: 0,
+            readback: None,
+            probe_points: Vec::new(),
+            probe_samples: Vec::new(),
         };
         // 源矩形与目标矩形只需设置一次；后续每帧只换输入视图。
         unsafe {
@@ -446,10 +456,20 @@ impl PresentWindow {
             pInputSurfaceRight: ManuallyDrop::new(None),
             ppFutureSurfacesRight: std::ptr::null_mut(),
         };
+        let streaming_probe = !self.probe_points.is_empty();
+        if streaming_probe {
+            self.ensure_readback()?;
+        }
         unsafe {
             self.video_context
                 .VideoProcessorBlt(&self.processor, &output_view, 0, std::slice::from_ref(&stream))
                 .map_err(|e| DecodeError::PresentFailure(format!("VideoProcessorBlt: {e}")))?;
+            if streaming_probe {
+                // Blt 之后、Present 之前拷贝：此刻背缓冲内容就是即将上屏的这一帧；
+                // Present 之后（FLIP_DISCARD）背缓冲会被换走，所以必须在这里拷。
+                self.context
+                    .CopyResource(self.readback.as_ref().unwrap(), &backbuffer);
+            }
             let _ = ManuallyDrop::take(&mut stream.pInputSurface);
             self.swapchain
                 .Present(1, 0)
@@ -457,12 +477,123 @@ impl PresentWindow {
                 .map_err(|e| DecodeError::PresentFailure(format!("Present: {e}")))?;
         }
         self.presented += 1;
+        if streaming_probe {
+            // Present 之后回读刚刚上屏的那一帧（Map 会等待 GPU 拷贝完成）。
+            let points = std::mem::take(&mut self.probe_points);
+            self.probe_samples = self.sample_staging(&points)?;
+            self.probe_points = points;
+        }
         Ok(())
     }
 
     /// 已呈现帧数。
     pub fn presented_frames(&self) -> u64 {
         self.presented
+    }
+
+    /// 设置「呈现前回读」的像素点（客户区坐标）。
+    ///
+    /// 用途：端到端实测需要在画面真正上屏的那一刻读取画内时间码。
+    ///
+    /// # Arguments
+    /// * `points` - 采样点列表；空列表表示关闭采样。
+    pub fn set_probe_points(&mut self, points: Vec<(u32, u32)>) {
+        self.probe_points = points;
+        self.probe_samples.clear();
+    }
+
+    /// 取走最近一次呈现前采到的像素（BGR），无采样时返回空。
+    pub fn take_probe_samples(&mut self) -> Vec<[u8; 3]> {
+        std::mem::take(&mut self.probe_samples)
+    }
+
+    /// 按需创建回读暂存纹理。
+    fn ensure_readback(&mut self) -> Result<(), DecodeError> {
+        if self.readback.is_some() {
+            return Ok(());
+        }
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: self.client_width,
+            Height: self.client_height,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_STAGING,
+            BindFlags: 0,
+            CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+            MiscFlags: 0,
+        };
+        let mut texture: Option<ID3D11Texture2D> = None;
+        unsafe { self.device.CreateTexture2D(&desc, None, Some(&mut texture)) }
+            .map_err(|e| DecodeError::PresentFailure(format!("CreateTexture2D(readback): {e}")))?;
+        self.readback = texture;
+        Ok(())
+    }
+
+    /// 从暂存纹理采样指定点（需已执行 `CopyResource`）。
+    fn sample_staging(&self, points: &[(u32, u32)]) -> Result<Vec<[u8; 3]>, DecodeError> {
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+        unsafe {
+            self.context
+                .Map(
+                    self.readback.as_ref().unwrap(),
+                    0,
+                    D3D11_MAP_READ,
+                    0,
+                    Some(&mut mapped),
+                )
+                .map_err(|e| DecodeError::PresentFailure(format!("Map(readback): {e}")))?;
+        }
+        let width = self.client_width as usize;
+        let height = self.client_height as usize;
+        let row_pitch = mapped.RowPitch as usize;
+        let mut samples = Vec::with_capacity(points.len());
+        for &(x, y) in points {
+            if (x as usize) >= width || (y as usize) >= height {
+                samples.push([0, 0, 0]);
+                continue;
+            }
+            let offset = (y as usize) * row_pitch + (x as usize) * 4;
+            let base = unsafe { (mapped.pData as *const u8).add(offset) };
+            let b = unsafe { *base };
+            let g = unsafe { *base.add(1) };
+            let r = unsafe { *base.add(2) };
+            samples.push([b, g, r]);
+        }
+        unsafe {
+            self.context.Unmap(self.readback.as_ref().unwrap(), 0);
+        }
+        Ok(samples)
+    }
+
+    /// 从当前后缓冲回读若干像素（BGR 顺序）。
+    ///
+    /// # Arguments
+    /// * `points` - 客户区坐标（x, y）列表，越界点按 (0, 0) 返回。
+    ///
+    /// # Returns
+    /// 与 `points` 等长的 BGR 三元组。
+    ///
+    /// # Errors
+    /// 后缓冲取回、回读纹理创建或 Map/Unmap 失败时返回
+    /// [`DecodeError::PresentFailure`]。
+    pub fn readback_bgr(&mut self, points: &[(u32, u32)]) -> Result<Vec<[u8; 3]>, DecodeError> {
+        if points.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.ensure_readback()?;
+        let backbuffer: ID3D11Texture2D = unsafe { self.swapchain.GetBuffer(0) }.map_err(|e| {
+            DecodeError::PresentFailure(format!("GetBuffer(readback): {e}"))
+        })?;
+        unsafe {
+            self.context
+                .CopyResource(self.readback.as_ref().unwrap(), &backbuffer);
+        }
+        self.sample_staging(points)
     }
 }
 

@@ -27,6 +27,7 @@ rdc-capture = { workspace = true }
 rdc-codec = { workspace = true }
 rdc-decode = { workspace = true }
 rdc-runtime = { workspace = true }
+rdc-transport = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 

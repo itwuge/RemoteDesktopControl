@@ -14,6 +14,7 @@ mod demo;
 mod s3a;
 mod s3b;
 mod s3b3;
+mod s3b4;
 
 // =====** 入口 =====**
 
@@ -36,11 +37,12 @@ async fn main() -> ExitCode {
         Some("s3a") => run_s3a(args.any(|arg| arg == "--fixture")),
         Some("s3b") => run_s3b(&mut args),
         Some("s3b3") => run_s3b3(&mut args),
+        Some("s3b4") => run_s3b4(&mut args),
         Some(other) => {
             eprintln!("未知子命令: {other}");
             eprintln!(
                 "可用: doctor | selftest | demo | s3a [--fixture] | s3b [--frames N] | \
-                 s3b3 [--instances K] [--frames N] [--bitrate B]"
+                 s3b3 [--instances K] [--frames N] [--bitrate B] | s3b4 [host|ctrl] [--secs S]"
             );
             ExitCode::FAILURE
         }
@@ -96,6 +98,26 @@ fn run_s3a(fixture: bool) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("S3a 失败: {err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// S3b-4 端到端实测：本机两进程 UDP 回环，画内时间码回读求玻璃到玻璃延迟。
+///
+/// # Arguments
+/// * `args` - `s3b4` 之后的参数（`host` / `ctrl` 或驱动参数 `--secs` / `--out`）。
+///
+/// # Returns
+/// 全链路成功返回 SUCCESS，否则 FAILURE。
+///
+/// # Errors
+/// 不返回错误；通过退出码与 stderr 表达。
+fn run_s3b4(args: &mut impl Iterator<Item = String>) -> ExitCode {
+    match s3b4::run(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("S3b-4 失败: {err}");
             ExitCode::FAILURE
         }
     }

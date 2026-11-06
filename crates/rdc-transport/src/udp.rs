@@ -122,11 +122,30 @@ impl UdpTransport {
     /// 注意：这些错误只影响当前这一个包，调用方应计数后继续收下一个，
     /// 不得因此断开连接（docs/04 §2.4「未知 stream 不报错不断连」同理）。
     pub fn recv(&self, timeout: Duration) -> Result<Option<(PacketHeader, Vec<u8>)>, TransportError> {
+        Ok(self
+            .recv_from(timeout)?
+            .map(|(_, header, payload)| (header, payload)))
+    }
+
+    /// 接收一个报文并返回对端地址（握手/学习控制端地址时使用）。
+    ///
+    /// # Arguments
+    /// * `timeout` - 读超时；`Duration::ZERO` 表示非阻塞
+    ///
+    /// # Returns
+    /// 收到合法报文时返回 `(对端地址, 包头, 载荷)`；超时返回 `Ok(None)`。
+    ///
+    /// # Errors
+    /// 同 [`UdpTransport::recv`]。
+    pub fn recv_from(
+        &self,
+        timeout: Duration,
+    ) -> Result<Option<(SocketAddr, PacketHeader, Vec<u8>)>, TransportError> {
         self.socket
             .set_read_timeout(if timeout.is_zero() { None } else { Some(timeout) })
             .map_err(|e| TransportError::Io(e.to_string()))?;
         let mut buffer = [0u8; RECV_BUFFER_LEN];
-        let (len, _peer) = match self.socket.recv_from(&mut buffer) {
+        let (len, peer) = match self.socket.recv_from(&mut buffer) {
             Ok(value) => value,
             Err(e)
                 if matches!(
@@ -155,7 +174,11 @@ impl UdpTransport {
                 len - HEADER_LEN
             )));
         }
-        Ok(Some((header, buffer[HEADER_LEN..HEADER_LEN + payload_len].to_vec())))
+        Ok(Some((
+            peer,
+            header,
+            buffer[HEADER_LEN..HEADER_LEN + payload_len].to_vec(),
+        )))
     }
 }
 

@@ -1134,6 +1134,7 @@ dependencies = [
  "rdc-runtime",
  "rdc-security",
  "rdc-signal",
+ "rdc-transport",
  "tokio",
  "tracing",
  "windows",
