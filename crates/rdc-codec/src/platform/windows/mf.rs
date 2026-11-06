@@ -601,10 +601,19 @@ impl MfH264Session {
                 &CODECAPI_AVEncCommonMaxBitRate,
                 VARIANT::from(cfg.target_bitrate_bps.saturating_mul(5) / 4),
             );
-            self.set_codec_value(
-                &CODECAPI_AVEncCommonMeanBitRate,
-                VARIANT::from(cfg.target_bitrate_bps),
-            )?;
+            let mean_ok = self
+                .set_codec_value(
+                    &CODECAPI_AVEncCommonMeanBitRate,
+                    VARIANT::from(cfg.target_bitrate_bps),
+                )
+                .is_ok();
+            let mode_ok = self
+                .set_codec_value(
+                    &CODECAPI_AVEncCommonRateControlMode,
+                    VARIANT::from(RATE_CONTROL_DRIVER_DEFAULT),
+                )
+                .is_ok();
+            eprintln!("[enc] codecapi rate_control: mean={mean_ok} mode={RATE_CONTROL_DRIVER_DEFAULT}:{mode_ok}");
             // CODECAPI 的低延迟是 VT_BOOL；此前用 VT_UI4 等于没生效（调研结论）。
             let low_latency = BoolVariant::new(cfg.low_latency);
             let low_ok = self
