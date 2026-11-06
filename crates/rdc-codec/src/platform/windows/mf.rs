@@ -33,13 +33,42 @@ use windows::Win32::Media::MediaFoundation::{
     MF_E_TRANSFORM_STREAM_CHANGE, MF_VERSION, MF_LOW_LATENCY, CODECAPI_AVEncCommonLowLatency,
     CODECAPI_AVEncCommonMeanBitRate, CODECAPI_AVEncCommonRateControlMode,
     CODECAPI_AVEncMPVDefaultBPictureCount, CODECAPI_AVEncMPVGOPSize,
-    CODECAPI_AVEncVideoForceKeyFrame, MFT_FRIENDLY_NAME_Attribute,
+    CODECAPI_AVEncVideoForceKeyFrame, CODECAPI_AVEncVideoMaxNumRefFrame,
+    CODECAPI_AVEncCommonMaxBitRate, CODECAPI_AVEncCommonQualityVsSpeed,
+    MFT_FRIENDLY_NAME_Attribute,
     MEDIA_EVENT_GENERATOR_GET_EVENT_FLAGS, METransformHaveOutput, METransformNeedInput,
     MF_EVENT_FLAG_NO_WAIT,
 };
 use windows::Win32::System::Com::CoTaskMemFree;
+use windows::Win32::System::Variant::VT_BOOL;
 
 use crate::CodecError;
+
+// =====** VT_BOOL VARIANT =====**
+
+/// 手工构造的 `VT_BOOL` VARIANT（windows-core 未提供 bool 构造器，布局与原生 VARIANT 一致）。
+#[repr(C)]
+struct BoolVariant {
+    vt: u16,
+    reserved: [u16; 3],
+    value: i16,
+    padding: [u8; 14],
+}
+
+impl BoolVariant {
+    fn new(flag: bool) -> Self {
+        Self {
+            vt: VT_BOOL.0,
+            reserved: [0; 3],
+            value: if flag { -1 } else { 0 },
+            padding: [0; 14],
+        }
+    }
+
+    fn as_variant(&self) -> &VARIANT {
+        unsafe { &*(self as *const Self as *const VARIANT) }
+    }
+}
 
 // =====** MF 初始化 =====**
 
@@ -194,6 +223,15 @@ pub struct MfH264Session {
     expecting_input: bool,
     /// 编码器名称。
     name: String,
+    /// 编码分段耗时累计（诊断打点）。
+    enc_frames: u64,
+    sum_build_us: u64,
+    sum_wait_us: u64,
+    sum_drain_us: u64,
+    sum_process_us: u64,
+    /// `build` 内部细分：样本/缓冲分配 vs 颜色转换 vs 其它。
+    sum_alloc_us: u64,
+    sum_convert_us: u64,
 }
 
 impl MfH264Session {
@@ -288,6 +326,13 @@ impl MfH264Session {
             force_key: false,
             expecting_input: false,
             name,
+            enc_frames: 0,
+            sum_build_us: 0,
+            sum_wait_us: 0,
+            sum_drain_us: 0,
+            sum_process_us: 0,
+            sum_alloc_us: 0,
+            sum_convert_us: 0,
         };
         // 码控参数属于可选能力：不支持时不阻断会话，由上层报告「热更新不可用」。
         let _ = session.apply_runtime_params(cfg);
@@ -402,17 +447,46 @@ impl MfH264Session {
         // 这样每帧的成本只有「颜色转换 + 提交」，GPU 编码在两次 push 的间隔内并行完成。
         // 若在这里阻塞等 HaveOutput，1080p 下每帧会被 GPU 往返时延串行化到 20ms 量级。
         let mut outs = Vec::new();
+        let drain_start = std::time::Instant::now();
         self.drain_ready(&mut outs)?;
+        let drain_us = drain_start.elapsed().as_micros() as u64;
         // 异步 MFT 只有在 NeedInput 状态下才接收输入；正常情况 drain_ready 已置位。
+        let wait_start = std::time::Instant::now();
         self.wait_for_input(&mut outs)?;
+        let wait_us = wait_start.elapsed().as_micros() as u64;
 
-        let sample = self.build_input_sample(rgba, pts_100ns, duration_100ns)?;
+        let build_start = std::time::Instant::now();
+        let (sample, alloc_us, convert_us) =
+            self.build_input_sample(rgba, pts_100ns, duration_100ns)?;
+        let build_us = build_start.elapsed().as_micros() as u64;
+        let process_start = std::time::Instant::now();
         unsafe {
             self.transform
                 .ProcessInput(0, &sample, 0)
                 .map_err(|e| CodecError::EncoderFailure(format!("ProcessInput: {e}")))?;
         }
+        let process_us = process_start.elapsed().as_micros() as u64;
         self.expecting_input = false;
+        self.enc_frames += 1;
+        self.sum_build_us += build_us;
+        self.sum_wait_us += wait_us;
+        self.sum_drain_us += drain_us;
+        self.sum_process_us += process_us;
+        self.sum_alloc_us += alloc_us;
+        self.sum_convert_us += convert_us;
+        if self.enc_frames % 60 == 0 {
+            let n = self.enc_frames;
+            eprintln!(
+                "[enc] frames={n} build_avg={}us(alloc={}us convert={}us) wait_avg={}us \
+                 drain_avg={}us process_avg={}us",
+                self.sum_build_us / n,
+                self.sum_alloc_us / n,
+                self.sum_convert_us / n,
+                self.sum_wait_us / n,
+                self.sum_drain_us / n,
+                self.sum_process_us / n
+            );
+        }
         // 同步 MFT 没有事件队列，输出只能当场取；异步 MFT 的输出去下一次 encode 取。
         if self.events.is_none() {
             self.collect_outputs(&mut outs)?;
@@ -516,28 +590,55 @@ impl MfH264Session {
             ));
         }
         unsafe {
-            // 码控模式回落到驱动默认（Uninitialized）。实测对比：
-            // - 默认：1080p 实测 8~12 Mbps，端到端时延 ~21ms；
-            // - CBR=1（MeanBitRate=8Mbps）：实测仅有 0.096 Mbps（几乎不发数据），时延无改善。
-            // 说明 AMD 该 MFT 对 CODECAPI 码控支持不完整，S3b 再评估码率控制方案。
+            // 码控模式实测：驱动默认 14.46 Mbps（目标 8，+80.8%）；CBR=1 与
+            // PeakConstrainedVBR=2 都塌到 0.07 Mbps。AMDh264Encoder 对显式码控支持不完整，
+            // 回落到驱动默认并如实记录 D19；峰值属性仍下发，若驱动认可可起约束作用。
             self.set_codec_value(
                 &CODECAPI_AVEncCommonRateControlMode,
                 VARIANT::from(RATE_CONTROL_DRIVER_DEFAULT),
             )?;
+            let _ = self.set_codec_value(
+                &CODECAPI_AVEncCommonMaxBitRate,
+                VARIANT::from(cfg.target_bitrate_bps.saturating_mul(5) / 4),
+            );
             self.set_codec_value(
                 &CODECAPI_AVEncCommonMeanBitRate,
                 VARIANT::from(cfg.target_bitrate_bps),
             )?;
-            self.set_codec_value(
-                &CODECAPI_AVEncCommonLowLatency,
-                VARIANT::from(u32::from(cfg.low_latency)),
-            )?;
-            self.set_codec_value(&CODECAPI_AVEncMPVGOPSize, VARIANT::from(cfg.gop.max(1)))?;
+            // CODECAPI 的低延迟是 VT_BOOL；此前用 VT_UI4 等于没生效（调研结论）。
+            let low_latency = BoolVariant::new(cfg.low_latency);
+            let low_ok = self
+                .set_codec_value_ref(&CODECAPI_AVEncCommonLowLatency, low_latency.as_variant())
+                .is_ok();
+            let gop_ok = self
+                .set_codec_value(&CODECAPI_AVEncMPVGOPSize, VARIANT::from(cfg.gop.max(1)))
+                .is_ok();
             // 低延迟必须禁用 B 帧，否则硬件会缓存多帧，破坏时延目标。
             let b_frames = if cfg.low_latency { 0u32 } else { 2u32 };
-            let _ = self.set_codec_value(
-                &CODECAPI_AVEncMPVDefaultBPictureCount,
-                VARIANT::from(b_frames),
+            let b_ok = self
+                .set_codec_value(
+                    &CODECAPI_AVEncMPVDefaultBPictureCount,
+                    VARIANT::from(b_frames),
+                )
+                .is_ok();
+            // 参考帧压到 1：DPB 越小，解码端可复用的表面越少，稳态积压越低。
+            let refs_ok = !cfg.low_latency
+                || self
+                    .set_codec_value(
+                        &CODECAPI_AVEncVideoMaxNumRefFrame,
+                        VARIANT::from(1u32),
+                    )
+                    .is_ok();
+            // 质量/速度权衡：低延迟场景取「速度优先」，避免驱动默认的慢速搜索
+            // 把 1080p 单帧编码拉到 16ms 以上（实测 push p50 恰好被卡在一个帧周期）。
+            let speed_ok = self
+                .set_codec_value(
+                    &CODECAPI_AVEncCommonQualityVsSpeed,
+                    VARIANT::from(if cfg.low_latency { 0u32 } else { 50u32 }),
+                )
+                .is_ok();
+            eprintln!(
+                "[enc] codecapi low_latency={low_ok} gop={gop_ok} bframes={b_frames}:{b_ok} max_ref1={refs_ok} speed_first={speed_ok}"
             );
         }
         Ok(())
@@ -545,31 +646,42 @@ impl MfH264Session {
 
     /// 通过 ICodecAPI 设置一个值。
     unsafe fn set_codec_value(&self, key: &GUID, value: VARIANT) -> Result<(), CodecError> {
+        self.set_codec_value_ref(key, &value)
+    }
+
+    /// 通过 ICodecAPI 设置一个引用形式的 VARIANT（VT_BOOL 场景）。
+    unsafe fn set_codec_value_ref(&self, key: &GUID, value: &VARIANT) -> Result<(), CodecError> {
         let Some(api) = self.codec_api.as_ref() else {
             return Err(CodecError::InvalidConfig(
                 "编码器不支持 ICodecAPI".to_owned(),
             ));
         };
-        api.SetValue(key, &value)
+        api.SetValue(key, value)
             .map_err(|e| CodecError::EncoderFailure(format!("ICodecAPI::SetValue: {e}")))
     }
 
     /// 构造 NV12 输入样本（直接写入 MFT 缓冲）。
+    ///
+    /// # Returns
+    /// 样本，以及内部两段耗时（分配 / 颜色转换），用于分段打点。
     fn build_input_sample(
         &mut self,
         rgba: &[u8],
         pts_100ns: i64,
         duration_100ns: i64,
-    ) -> Result<IMFSample, CodecError> {
+    ) -> Result<(IMFSample, u64, u64), CodecError> {
         let stride = self.stride as usize;
         let buffer_size = stride * self.height as usize * 3 / 2;
+        let alloc_start = std::time::Instant::now();
         let sample = unsafe { MFCreateSample() }
             .map_err(|e| CodecError::EncoderFailure(format!("MFCreateSample: {e}")))?;
         let buffer = unsafe { MFCreateMemoryBuffer(buffer_size as u32) }
             .map_err(|e| CodecError::EncoderFailure(format!("MFCreateMemoryBuffer: {e}")))?;
+        let alloc_us = alloc_start.elapsed().as_micros() as u64;
 
         // 直接写进 MF 缓冲，避免「先转 NV12 Vec 再拷进 sample」的二次拷贝。
-        unsafe {
+        let convert_start = std::time::Instant::now();
+        let convert = unsafe {
             let mut data: *mut u8 = std::ptr::null_mut();
             let mut max_len = 0u32;
             let mut cur_len = 0u32;
@@ -579,7 +691,11 @@ impl MfH264Session {
             let dst = std::slice::from_raw_parts_mut(data, max_len as usize);
             let convert = crate::nv12::rgba_to_nv12(rgba, self.width, self.height, dst);
             let _ = buffer.Unlock();
-            convert?;
+            convert
+        };
+        let convert_us = convert_start.elapsed().as_micros() as u64;
+        convert?;
+        unsafe {
             buffer
                 .SetCurrentLength(buffer_size as u32)
                 .map_err(|e| CodecError::EncoderFailure(format!("SetCurrentLength: {e}")))?;
@@ -600,7 +716,7 @@ impl MfH264Session {
                 self.force_key = false;
             }
         }
-        Ok(sample)
+        Ok((sample, alloc_us, convert_us))
     }
 
     /// 非阻塞排空已就绪的 MFT 事件与输出（流水线关键：不在这里等 GPU）。

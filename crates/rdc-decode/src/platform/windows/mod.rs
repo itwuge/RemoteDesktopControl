@@ -7,5 +7,6 @@
 pub mod mf_decoder;
 
 pub use mf_decoder::{
-    activation_name, decoder_names, enumerate, ensure_mf, DecodedFrame, MfH264Decoder,
+    activation_name, decoder_names, enumerate, ensure_mf, DecodedFrame, MfH264Decoder, OutputKind,
+    TextureFrame,
 };
