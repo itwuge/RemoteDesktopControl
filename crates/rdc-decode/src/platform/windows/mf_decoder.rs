@@ -14,20 +14,26 @@ use std::mem::ManuallyDrop;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
+use windows::Win32::Foundation::FALSE;
+use windows::Win32::Graphics::Direct3D11::{
+    ID3D11Device, ID3D11Texture2D, D3D11_BIND_DECODER, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+};
+use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC};
 use windows::core::{GUID, Interface};
 use windows::Win32::Media::MediaFoundation::{
-    IMFActivate, IMFMediaEventGenerator, IMFMediaType, IMFSample, IMFTransform, MFCreateMediaType,
-    MFCreateMemoryBuffer, MFCreateSample, MFMediaType_Video, MFTEnumEx, MFVideoFormat_H264,
-    MFVideoFormat_NV12, MFVideoInterlace_Progressive, MFSTARTUP_LITE, MFStartup,
+    IMFActivate, IMFDXGIBuffer, IMFDXGIDeviceManager, IMFMediaBuffer, IMFMediaEventGenerator,
+    IMFMediaType, IMFSample, IMFTransform, MFCreateDXGIDeviceManager, MFCreateDXGISurfaceBuffer,
+    MFCreateMediaType, MFCreateMemoryBuffer, MFCreateSample, MFMediaType_Video, MFTEnumEx,
+    MFVideoFormat_H264, MFVideoFormat_NV12, MFVideoInterlace_Progressive, MFSTARTUP_LITE, MFStartup,
     MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE, MF_MT_MAJOR_TYPE,
     MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE, MF_TRANSFORM_ASYNC_UNLOCK,
     MFT_CATEGORY_VIDEO_DECODER, MFT_ENUM_FLAG, MFT_ENUM_FLAG_ALL, MFT_ENUM_FLAG_HARDWARE,
     MFT_ENUM_FLAG_SORTANDFILTER, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING,
     MFT_MESSAGE_NOTIFY_END_OF_STREAM, MFT_MESSAGE_NOTIFY_START_OF_STREAM,
-    MFT_MESSAGE_COMMAND_FLUSH, MFT_OUTPUT_DATA_BUFFER, MFT_OUTPUT_STREAM_PROVIDES_SAMPLES,
-    MFT_REGISTER_TYPE_INFO, MF_E_NO_EVENTS_AVAILABLE, MF_E_TRANSFORM_NEED_MORE_INPUT,
-    MF_E_TRANSFORM_STREAM_CHANGE, MF_EVENT_FLAG_NO_WAIT, MF_LOW_LATENCY,
-    MF_SA_D3D11_AWARE, MF_VERSION, METransformHaveOutput, METransformNeedInput,
+    MFT_MESSAGE_COMMAND_FLUSH, MFT_MESSAGE_SET_D3D_MANAGER, MFT_OUTPUT_DATA_BUFFER,
+    MFT_OUTPUT_STREAM_PROVIDES_SAMPLES, MFT_REGISTER_TYPE_INFO, MF_E_NO_EVENTS_AVAILABLE,
+    MF_E_TRANSFORM_NEED_MORE_INPUT, MF_E_TRANSFORM_STREAM_CHANGE, MF_EVENT_FLAG_NO_WAIT,
+    MF_LOW_LATENCY, MF_SA_D3D11_AWARE, MF_VERSION, METransformHaveOutput, METransformNeedInput,
     MFT_FRIENDLY_NAME_Attribute,
 };
 use windows::Win32::System::Com::CoTaskMemFree;
@@ -132,7 +138,19 @@ pub fn decoder_names() -> (Vec<String>, Vec<String>) {
 
 // =====** 解码帧 =====**
 
-/// 一帧解码结果（NV12，系统内存）。
+/// 硬解输出：解码器直接写在 GPU 显存里的 NV12 纹理（零拷贝交给上屏）。
+#[derive(Debug, Clone)]
+pub struct TextureFrame {
+    /// 输出纹理（与呈现窗口同一 D3D11 设备）。
+    pub texture: ID3D11Texture2D,
+    /// 纹理数组切片（`IMFDXGIBuffer` 的 subresource 索引；非数组纹理为 0）。
+    pub array_slice: u32,
+}
+
+/// 一帧解码结果。
+///
+/// 系统内存路径填 `data`（NV12 紧密排列）；硬件路径填 `texture`，`data` 为空，
+/// 上屏直接从 GPU 纹理取样，不做回读。
 #[derive(Debug, Clone)]
 pub struct DecodedFrame {
     /// 输入时间码（微秒），取自样本时间。
@@ -141,10 +159,34 @@ pub struct DecodedFrame {
     pub width: u32,
     /// 高（像素）。
     pub height: u32,
-    /// Y 平面行距（字节）；本实现按 `width` 紧密排列。
+    /// Y 平面行距（字节）；系统内存路径按 `width` 紧密排列。
     pub stride: u32,
-    /// NV12 数据：`Y` 平面 + 交错的 `UV` 平面。
+    /// NV12 数据：`Y` 平面 + 交错的 `UV` 平面（仅系统内存路径）。
     pub data: Vec<u8>,
+    /// GPU 输出纹理（仅硬件路径）。
+    pub texture: Option<TextureFrame>,
+}
+
+/// 输出缓冲类型（实测报告用）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputKind {
+    /// 尚未取到输出。
+    Unknown,
+    /// GPU NV12 纹理（`IMFDXGIBuffer`）。
+    DxgiTexture,
+    /// 系统内存（CPU 可读的 `IMFMediaBuffer`）。
+    SystemMemory,
+}
+
+impl OutputKind {
+    /// 报告用字符串。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::DxgiTexture => "dxgi-texture",
+            Self::SystemMemory => "system-memory",
+        }
+    }
 }
 
 /// MFT 事件类别。
@@ -155,6 +197,20 @@ enum EventKind {
     HaveOutput,
     /// 其它事件（属性变更等），忽略。
     Other,
+}
+
+// =====** D3D11 绑定 =====**
+
+/// 解码器与呈现窗口共用的 D3D11 设备绑定（DXVA/D3D11 硬解必需）。
+#[derive(Clone)]
+struct D3dBinding {
+    /// 交给 MFT 的 DXGI 设备管理器。
+    manager: IMFDXGIDeviceManager,
+    /// 设备本体（保证管理器复位后生命周期不短于 MFT）。
+    device: ID3D11Device,
+    /// 管理器复位令牌。
+    #[allow(dead_code)]
+    reset_token: u32,
 }
 
 // =====** MfH264Decoder =====**
@@ -183,8 +239,12 @@ pub struct MfH264Decoder {
     name: String,
     /// 实际走的是否为硬件解码。
     hardware: bool,
-    /// MFT 是否声明 DXVA 能力（诊断用；接线情况见决策待办 D28）。
+    /// MFT 是否声明 DXVA 能力（`MF_SA_D3D11_AWARE`）。
     dxva_aware: bool,
+    /// DXGI Device Manager 绑定；`None` 表示系统内存路径。
+    d3d: Option<D3dBinding>,
+    /// 实际输出缓冲类型（首次取到输出后确定）。
+    output_kind: OutputKind,
 }
 
 impl MfH264Decoder {
@@ -208,6 +268,60 @@ impl MfH264Decoder {
         fps: u32,
         prefer_hardware: bool,
     ) -> Result<Self, DecodeError> {
+        Self::open_inner(width, height, fps, prefer_hardware, None)
+    }
+
+    /// 打开解码器并把 MFT 接到给定的 D3D11 设备（DXVA/D3D11 硬件路径）。
+    ///
+    /// # Arguments
+    /// * `device` - 呈现窗口使用的 D3D11 设备；解码输出直接落在该设备的 NV12 纹理上
+    /// * `width` / `height` / `fps` - 期望输出尺寸与帧率
+    /// * `prefer_hardware` - 优先枚举硬件 MFT
+    ///
+    /// # Returns
+    /// 已绑定 DXGI Device Manager 的解码会话；MFT 不支持 D3D11 时退回系统内存路径。
+    ///
+    /// # Errors
+    /// 设备管理器创建/复位失败、或所有候选都配置失败时返回 [`DecodeError`]。
+    pub fn open_with_device(
+        device: &ID3D11Device,
+        width: u32,
+        height: u32,
+        fps: u32,
+        prefer_hardware: bool,
+    ) -> Result<Self, DecodeError> {
+        ensure_mf()?;
+        let mut reset_token = 0u32;
+        let mut manager: Option<IMFDXGIDeviceManager> = None;
+        unsafe {
+            MFCreateDXGIDeviceManager(&mut reset_token, &mut manager).map_err(|e| {
+                DecodeError::DecoderUnavailable(format!("MFCreateDXGIDeviceManager: {e}"))
+            })?;
+        }
+        let manager = manager.ok_or_else(|| {
+            DecodeError::DecoderUnavailable("DXGI Device Manager 创建为空".to_owned())
+        })?;
+        unsafe {
+            manager.ResetDevice(device, reset_token).map_err(|e| {
+                DecodeError::DecoderUnavailable(format!("DXGI Device Manager ResetDevice: {e}"))
+            })?;
+        }
+        let d3d = D3dBinding {
+            manager,
+            device: device.clone(),
+            reset_token,
+        };
+        Self::open_inner(width, height, fps, prefer_hardware, Some(&d3d))
+    }
+
+    /// 枚举候选并按优先级逐个尝试配置。
+    fn open_inner(
+        width: u32,
+        height: u32,
+        fps: u32,
+        prefer_hardware: bool,
+        d3d: Option<&D3dBinding>,
+    ) -> Result<Self, DecodeError> {
         ensure_mf()?;
         if width == 0 || height == 0 {
             return Err(DecodeError::InvalidArgument("解码尺寸为 0".to_owned()));
@@ -228,9 +342,11 @@ impl MfH264Decoder {
         let mut last_error = String::new();
         for (activate, hardware) in candidates {
             let name = activation_name(&activate);
-            match Self::configure(&activate, width, height, fps, hardware, name.clone()) {
+            match Self::configure(&activate, width, height, fps, hardware, name.clone(), d3d) {
                 Ok(decoder) => return Ok(decoder),
                 Err(error) => {
+                    // 逐候选打失败原因：硬解是否可用的证据必须落日志，而不是只留最后一条。
+                    eprintln!("[mf-decoder] {name} 配置失败: {error}");
                     last_error = format!("{name}: {error}");
                 }
             }
@@ -241,6 +357,7 @@ impl MfH264Decoder {
     }
 
     /// 配置单个候选 MFT。
+    #[allow(clippy::too_many_arguments)]
     fn configure(
         activate: &IMFActivate,
         width: u32,
@@ -248,6 +365,7 @@ impl MfH264Decoder {
         fps: u32,
         hardware: bool,
         name: String,
+        d3d: Option<&D3dBinding>,
     ) -> Result<Self, DecodeError> {
         let transform: IMFTransform = unsafe {
             activate
@@ -271,7 +389,6 @@ impl MfH264Decoder {
         let output = make_output_type(width, height, fps)?;
         let input = make_input_type()?;
         // 该 MFT 是否声明 DXVA 能力（MF_SA_D3D11_AWARE=1 表示可以接 D3D11 设备管理器做硬解）。
-        // 声明能力不等于已经接线：本步骤只走系统内存输出，接线情况如实记录在缺口里。
         let dxva_aware = unsafe {
             transform
                 .GetAttributes()
@@ -280,6 +397,21 @@ impl MfH264Decoder {
                 .map(|value| value != 0)
                 .unwrap_or(false)
         };
+        if let Some(binding) = d3d {
+            if !dxva_aware {
+                return Err(DecodeError::DecoderUnavailable(format!(
+                    "{name} 不支持 D3D11 设备管理器（MF_SA_D3D11_AWARE=0）"
+                )));
+            }
+            // 绑定必须在设置媒体类型之前：DXVA MFT 会按设备能力协商输出纹理格式。
+            unsafe {
+                transform
+                    .ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, binding.manager.as_raw() as usize)
+                    .map_err(|e| {
+                        DecodeError::DecoderUnavailable(format!("SET_D3D_MANAGER({name}): {e}"))
+                    })?;
+            }
+        }
         unsafe {
             // 解码器与编码器相反：必须先设置输入类型（H.264），再设置输出类型，
             // 否则返回 MF_E_TRANSFORM_TYPE_NOT_SET（0xC00D6D60）。
@@ -313,6 +445,8 @@ impl MfH264Decoder {
             name,
             hardware,
             dxva_aware,
+            d3d: d3d.cloned(),
+            output_kind: OutputKind::Unknown,
         };
         unsafe {
             decoder
@@ -332,14 +466,33 @@ impl MfH264Decoder {
         &self.name
     }
 
-    /// 是否走硬件解码。
+    /// 是否走硬件解码路径。
+    ///
+    /// 判定口径：绑定 DXGI Device Manager 且 MFT 声明 `MF_SA_D3D11_AWARE`，输出为
+    /// DXGI 纹理（由 [`Self::output_kind`] 复核）。本机没有独立的 H.264 硬件 MFT，
+    /// 系统解码 MFT（`Microsoft H264 Video Decoder MFT`）正是 DXVA 的硬件加速入口。
     pub fn is_hardware(&self) -> bool {
+        self.d3d.is_some() && self.dxva_aware
+    }
+
+    /// 是否枚举到了独立硬件 MFT（诊断用；本机为 `false`）。
+    pub fn uses_hardware_mft(&self) -> bool {
         self.hardware
     }
 
-    /// MFT 是否声明 DXVA 能力（未接线时仅作诊断信息）。
+    /// GPU 解码是否真正生效：设备管理器已绑定 + 输出为 DXGI 纹理。
+    pub fn hardware_active(&self) -> bool {
+        self.is_hardware() && self.output_kind == OutputKind::DxgiTexture
+    }
+
+    /// MFT 是否声明 DXVA 能力（`MF_SA_D3D11_AWARE`）。
     pub fn dxva_aware(&self) -> bool {
         self.dxva_aware
+    }
+
+    /// 实际输出缓冲类型（首次取到输出后由 `extract_frame` 判定）。
+    pub fn output_kind(&self) -> OutputKind {
+        self.output_kind
     }
 
     /// 送入一个 Annex-B 访问单元并取回已解出的帧。
@@ -467,16 +620,21 @@ impl MfH264Decoder {
         for _attempt in 0..2 {
             let mut provided: Option<IMFSample> = None;
             if !self.provides_samples {
-                let buffer = unsafe { MFCreateMemoryBuffer(self.out_buffer_size.max(1)) }
-                    .map_err(|e| DecodeError::DecodeFailure(format!("MFCreateMemoryBuffer(out): {e}")))?;
-                let sample = unsafe { MFCreateSample() }
-                    .map_err(|e| DecodeError::DecodeFailure(format!("MFCreateSample(out): {e}")))?;
-                unsafe {
+                provided = Some(if self.d3d.is_some() {
+                    // 硬解：输出样本必须由调用方提供 GPU 纹理（NV12，D3D11_BIND_DECODER）。
+                    self.make_gpu_output_sample()?
+                } else {
+                    let buffer = unsafe { MFCreateMemoryBuffer(self.out_buffer_size.max(1)) }
+                        .map_err(|e| DecodeError::DecodeFailure(format!("MFCreateMemoryBuffer(out): {e}")))?;
+                    let sample = unsafe { MFCreateSample() }
+                        .map_err(|e| DecodeError::DecodeFailure(format!("MFCreateSample(out): {e}")))?;
+                    unsafe {
+                        sample
+                            .AddBuffer(&buffer)
+                            .map_err(|e| DecodeError::DecodeFailure(format!("AddBuffer(out): {e}")))?;
+                    }
                     sample
-                        .AddBuffer(&buffer)
-                        .map_err(|e| DecodeError::DecodeFailure(format!("AddBuffer(out): {e}")))?;
-                }
-                provided = Some(sample);
+                });
             }
             let mut out = MFT_OUTPUT_DATA_BUFFER {
                 dwStreamID: 0,
@@ -522,10 +680,95 @@ impl MfH264Decoder {
         Ok(None)
     }
 
+    /// 构造 GPU NV12 输出样本（硬解路径）。
+    fn make_gpu_output_sample(&self) -> Result<IMFSample, DecodeError> {
+        let Some(binding) = self.d3d.as_ref() else {
+            return Err(DecodeError::DecodeFailure(
+                "未绑定 D3D11 设备管理器".to_owned(),
+            ));
+        };
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: self.width,
+            Height: self.height,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_NV12,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: D3D11_BIND_DECODER.0 as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+        let mut texture: Option<ID3D11Texture2D> = None;
+        unsafe {
+            binding
+                .device
+                .CreateTexture2D(&desc, None, Some(&mut texture))
+                .map_err(|e| {
+                    DecodeError::DecodeFailure(format!("CreateTexture2D(dec-out): {e}"))
+                })?;
+        }
+        let texture = texture
+            .ok_or_else(|| DecodeError::DecodeFailure("解码输出纹理为空".to_owned()))?;
+        let buffer: IMFMediaBuffer = unsafe {
+            MFCreateDXGISurfaceBuffer(&ID3D11Texture2D::IID, &texture, 0, FALSE).map_err(|e| {
+                DecodeError::DecodeFailure(format!("MFCreateDXGISurfaceBuffer: {e}"))
+            })?
+        };
+        let sample = unsafe { MFCreateSample() }
+            .map_err(|e| DecodeError::DecodeFailure(format!("MFCreateSample(gpu): {e}")))?;
+        unsafe {
+            sample
+                .AddBuffer(&buffer)
+                .map_err(|e| DecodeError::DecodeFailure(format!("AddBuffer(gpu): {e}")))?;
+            sample
+                .SetSampleTime(self.last_input_ts_100ns as i64)
+                .map_err(|e| DecodeError::DecodeFailure(format!("SetSampleTime(gpu): {e}")))?;
+            sample
+                .SetSampleDuration(self.duration_100ns as i64)
+                .map_err(|e| {
+                    DecodeError::DecodeFailure(format!("SetSampleDuration(gpu): {e}"))
+                })?;
+        }
+        Ok(sample)
+    }
+
     /// 把一个输出样本转成 NV12 帧。
-    fn extract_frame(&self, sample: &IMFSample) -> Result<DecodedFrame, DecodeError> {
+    fn extract_frame(&mut self, sample: &IMFSample) -> Result<DecodedFrame, DecodeError> {
         let buffer = unsafe { sample.ConvertToContiguousBuffer() }
             .map_err(|e| DecodeError::DecodeFailure(format!("ConvertToContiguousBuffer: {e}")))?;
+        // 硬解输出是 IMFDXGIBuffer：直接取底层 GPU 纹理，绝不回读系统内存。
+        if let Ok(dxgi) = buffer.cast::<IMFDXGIBuffer>() {
+            let mut raw: *mut core::ffi::c_void = std::ptr::null_mut();
+            unsafe {
+                dxgi.GetResource(&ID3D11Texture2D::IID, &mut raw).map_err(|e| {
+                    DecodeError::DecodeFailure(format!("IMFDXGIBuffer::GetResource: {e}"))
+                })?;
+            }
+            if raw.is_null() {
+                return Err(DecodeError::DecodeFailure(
+                    "IMFDXGIBuffer 资源为空".to_owned(),
+                ));
+            }
+            let texture = unsafe { ID3D11Texture2D::from_raw(raw) };
+            let array_slice = unsafe { dxgi.GetSubresourceIndex() }.unwrap_or(0);
+            self.output_kind = OutputKind::DxgiTexture;
+            return Ok(DecodedFrame {
+                ts_us: self.sample_ts_100ns(sample) / 10,
+                width: self.width,
+                height: self.height,
+                stride: self.width,
+                data: Vec::new(),
+                texture: Some(TextureFrame {
+                    texture,
+                    array_slice,
+                }),
+            });
+        }
+        self.output_kind = OutputKind::SystemMemory;
         let mut ptr: *mut u8 = std::ptr::null_mut();
         let mut len = 0u32;
         unsafe {
@@ -550,6 +793,7 @@ impl MfH264Decoder {
                 height: self.height,
                 stride: self.width,
                 data,
+                texture: None,
             })
         }
     }
@@ -635,6 +879,10 @@ impl MfH264Decoder {
 impl Drop for MfH264Decoder {
     fn drop(&mut self) {
         unsafe {
+            // 先解绑设备管理器，再结束流：否则 MFT 可能在释放时仍持有设备引用。
+            if self.d3d.is_some() {
+                let _ = self.transform.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, 0);
+            }
             let _ = self
                 .transform
                 .ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);

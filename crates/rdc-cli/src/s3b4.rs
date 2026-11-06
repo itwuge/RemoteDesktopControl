@@ -384,10 +384,20 @@ mod windows_impl {
         }
         window.set_probe_points(points);
 
-        let mut decoder = MfH264Decoder::open(WIDTH, HEIGHT, 60, true)?;
+        // 枚举证据 + 驱动侧 profile 证据（D28 需可复核）。
+        let (hardware_names, all_names) = rdc_decode::decoder_names();
+        println!("[ctrl] 硬件解码 MFT: {hardware_names:?}");
+        println!("[ctrl] 全部解码 MFT: {all_names:?}");
+        let h264_profiles = rdc_decode::h264_decoder_profile_count(window.device());
+        println!("[ctrl] 适配器 H.264 解码 profile 数: {h264_profiles}");
+        // 解码器与呈现窗口共用同一 D3D11 设备：硬解输出直接是 GPU 纹理（零拷贝）。
+        let mut decoder = MfH264Decoder::open_with_device(window.device(), WIDTH, HEIGHT, 60, true)?;
         let decoder_name = decoder.name().to_owned();
-        let decoder_hw = decoder.is_hardware();
         let decoder_dxva = decoder.dxva_aware();
+        let decoder_hw_mft = decoder.uses_hardware_mft();
+        println!(
+            "[ctrl] 解码器 {decoder_name}，dxva_aware={decoder_dxva}，独立硬件 MFT={decoder_hw_mft}"
+        );
         let mut reassembler = Reassembler::new(4);
         let mut samples: Vec<u64> = Vec::new();
         let mut records: Vec<SampleRecord> = Vec::new();
@@ -426,7 +436,11 @@ mod windows_impl {
             feed_times.push(feed_start.elapsed().as_micros() as u64);
             for frame in decoded {
                 let present_start = Instant::now();
-                window.present_nv12(&frame.data, frame.stride)?;
+                if let Some(gpu) = frame.texture.as_ref() {
+                    window.present_texture(&gpu.texture, gpu.array_slice)?;
+                } else {
+                    window.present_nv12(&frame.data, frame.stride)?;
+                }
                 let probe = window.take_probe_samples();
                 present_times.push(present_start.elapsed().as_micros() as u64);
                 if probe.len() != BITS {
@@ -466,6 +480,12 @@ mod windows_impl {
         drop(window);
 
         let elapsed = started.elapsed().as_secs_f64().max(0.001);
+        let decoder_output = decoder.output_kind().as_str();
+        // 硬件判定按「设备管理器绑定 + DXGI 纹理输出」双条件，而不是枚举命中。
+        let decoder_hw = decoder.hardware_active();
+        println!(
+            "[ctrl] decoder_hw={decoder_hw}，output={decoder_output}，h264_profiles={h264_profiles}"
+        );
         let (p50, p99) = (percentile(&samples, 0.50), percentile(&samples, 0.99));
         let mismatched = records.iter().filter(|r| r.tcode != r.expected).count();
         let fps = frames as f64 / elapsed;
@@ -479,8 +499,9 @@ mod windows_impl {
              \"e2e_p99_us\":{p99},\"fps\":{fps:.2},\"presented\":{},\"dropped\":{},\"skipped_stale\":{skipped_stale},\
              \"tcode_mismatch\":{mismatched},\"feed_p50_us\":{feed_p50},\"feed_p99_us\":{feed_p99},\
              \"present_p50_us\":{present_p50},\"present_p99_us\":{present_p99},\"retransmits\":0,\
-             \"decoder\":\"{decoder_name}\",\"decoder_hw\":{decoder_hw},\"decoder_dxva_aware\":{decoder_dxva},\
-             \"hung\":{hung}}}",
+             \"decoder\":\"{decoder_name}\",\"decoder_hw\":{decoder_hw},\"decoder_hw_mft\":{decoder_hw_mft},\
+             \"decoder_dxva_aware\":{decoder_dxva},\"decoder_output\":\"{decoder_output}\",\
+             \"h264_profiles\":{h264_profiles},\"hung\":{hung}}}",
             elapsed,
             bytes as f64 * 8.0 / elapsed,
             samples.len(),

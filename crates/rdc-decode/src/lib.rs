@@ -19,10 +19,12 @@ pub mod present;
 
 pub use error::DecodeError;
 pub use platform::MfH264Decoder;
+#[cfg(target_os = "windows")]
+pub use platform::{decoder_names, OutputKind};
 pub use queue::{DecodeQueue, DEFAULT_DEPTH, DEFAULT_WAIT_LIMIT_US};
 pub use stats::{DecodeSnapshot, DecodeStats, WINDOW_CAPACITY};
 
 #[cfg(target_os = "windows")]
 pub use platform::DecodedFrame;
 #[cfg(target_os = "windows")]
-pub use present::PresentWindow;
+pub use present::{h264_decoder_profile_count, PresentWindow};

@@ -99,7 +99,14 @@ mod windows_impl {
         // 1) 呈现窗口与解码器（硬件优先，失败显式回退并在报告里标注）。
         let mut window = PresentWindow::create(WIDTH, HEIGHT, "RDC S3b-2 解码与上屏")?;
         println!("呈现窗口             : 已创建（{}x{} 客户区）", window.client_size().0, window.client_size().1);
-        let mut decoder = MfH264Decoder::open(WIDTH, HEIGHT, TARGET_FPS, true)?;
+        // 与呈现窗口共用 D3D11 设备：解码走 DXVA 硬件路径（D28）。
+        let mut decoder = MfH264Decoder::open_with_device(
+            window.device(),
+            WIDTH,
+            HEIGHT,
+            TARGET_FPS,
+            true,
+        )?;
         println!(
             "解码器               : {}（硬件={}）",
             decoder.name(),

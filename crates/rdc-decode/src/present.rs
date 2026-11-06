@@ -17,11 +17,16 @@ use std::sync::OnceLock;
 use windows::core::Interface;
 use windows::Win32::Foundation::{HINSTANCE, HMODULE, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+use windows::Win32::Graphics::Direct3D10::ID3D10Multithread;
 use windows::Win32::Graphics::Direct3D11::{
     D3D11_BIND_DECODER, D3D11_CPU_ACCESS_READ, D3D11_CPU_ACCESS_WRITE,
-    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_READ, D3D11_MAP_WRITE, D3D11_MAPPED_SUBRESOURCE,
-    D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
+    D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_MAP_READ,
+    D3D11_MAP_WRITE, D3D11_MAPPED_SUBRESOURCE, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
     D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING, D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
+    D3D11_DECODER_PROFILE_H264_VLD_MULTIVIEW_NOFGT, D3D11_DECODER_PROFILE_H264_VLD_NOFGT,
+    D3D11_DECODER_PROFILE_H264_VLD_STEREO_NOFGT,
+    D3D11_DECODER_PROFILE_H264_VLD_STEREO_PROGRESSIVE_NOFGT,
+    D3D11_DECODER_PROFILE_H264_VLD_WITHFMOASO_NOFGT,
     D3D11_VIDEO_PROCESSOR_CONTENT_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC,
     D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC,
     D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0, D3D11_VIDEO_PROCESSOR_STREAM,
@@ -109,6 +114,38 @@ fn wide_string(text: &str) -> Vec<u16> {
     out
 }
 
+/// 适配器支持的 H.264 解码 profile 数量（硬解能力的驱动侧证据）。
+///
+/// # Arguments
+/// * `device` - 已创建的 D3D11 设备
+///
+/// # Returns
+/// `GetVideoDecoderProfileCount` 中匹配 H.264 VLD profile GUID 的数量；无视频设备则为 0。
+pub fn h264_decoder_profile_count(device: &ID3D11Device) -> u32 {
+    let Ok(video) = device.cast::<ID3D11VideoDevice>() else {
+        return 0;
+    };
+    const PROFILE_IDS: [windows::core::GUID; 5] = [
+        D3D11_DECODER_PROFILE_H264_VLD_NOFGT,
+        D3D11_DECODER_PROFILE_H264_VLD_WITHFMOASO_NOFGT,
+        D3D11_DECODER_PROFILE_H264_VLD_STEREO_PROGRESSIVE_NOFGT,
+        D3D11_DECODER_PROFILE_H264_VLD_STEREO_NOFGT,
+        D3D11_DECODER_PROFILE_H264_VLD_MULTIVIEW_NOFGT,
+    ];
+    let mut matched = 0u32;
+    unsafe {
+        let total = video.GetVideoDecoderProfileCount();
+        for index in 0..total {
+            if let Ok(id) = video.GetVideoDecoderProfile(index) {
+                if PROFILE_IDS.contains(&id) {
+                    matched += 1;
+                }
+            }
+        }
+    }
+    matched
+}
+
 // =====** PresentWindow =====**
 
 /// 原生窗口 + D3D11 交换链 + NV12 视频处理器。
@@ -151,6 +188,8 @@ pub struct PresentWindow {
     probe_points: Vec<(u32, u32)>,
     /// 最近一次呈现前采到的像素（BGR），与 `probe_points` 等长。
     probe_samples: Vec<[u8; 3]>,
+    /// GPU 解码纹理 → 输入视图缓存（键为纹理指针 + 数组切片），上限 16 个。
+    texture_views: Vec<(usize, u32, ID3D11VideoProcessorInputView)>,
 }
 
 impl PresentWindow {
@@ -218,7 +257,8 @@ impl PresentWindow {
                 None,
                 D3D_DRIVER_TYPE_HARDWARE,
                 HMODULE::default(),
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                // VIDEO_SUPPORT 是硬件解码 MFT 使用该设备的必要条件。
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_VIDEO_SUPPORT,
                 None,
                 D3D11_SDK_VERSION,
                 Some(&mut device),
@@ -230,6 +270,12 @@ impl PresentWindow {
         let device = device.ok_or_else(|| DecodeError::PresentFailure("没有 D3D11 设备".to_owned()))?;
         let context =
             context.ok_or_else(|| DecodeError::PresentFailure("没有 D3D11 上下文".to_owned()))?;
+        // MFT 会在自己的线程里调用该设备，必须打开多线程保护。
+        if let Ok(multithread) = device.cast::<ID3D10Multithread>() {
+            unsafe {
+                let _ = multithread.SetMultithreadProtected(true);
+            }
+        }
 
         let factory: IDXGIFactory2 = unsafe { CreateDXGIFactory1() }
             .map_err(|e| DecodeError::PresentFailure(format!("CreateDXGIFactory1: {e}")))?;
@@ -303,6 +349,7 @@ impl PresentWindow {
             readback: None,
             probe_points: Vec::new(),
             probe_samples: Vec::new(),
+            texture_views: Vec::new(),
         };
         // 源矩形与目标矩形只需设置一次；后续每帧只换输入视图。
         unsafe {
@@ -425,6 +472,73 @@ impl PresentWindow {
         }
 
         // 2) 视频处理器把 NV12 转到当前背缓冲。
+        let view = self.input_view.clone();
+        self.blit_and_present(view)
+    }
+
+    /// 直接呈现一帧 GPU NV12 解码纹理（硬解零拷贝路径，不做 CPU 回读）。
+    ///
+    /// # Arguments
+    /// * `texture` - 解码器输出的 NV12 纹理（与窗口同一 D3D11 设备）
+    /// * `array_slice` - 纹理数组切片（`IMFDXGIBuffer` 的 subresource 索引）
+    ///
+    /// # Errors
+    /// 创建输入视图或 Blt/Present 失败时返回 [`DecodeError::PresentFailure`]。
+    pub fn present_texture(
+        &mut self,
+        texture: &ID3D11Texture2D,
+        array_slice: u32,
+    ) -> Result<(), DecodeError> {
+        let view = self.input_view_for(texture, array_slice)?;
+        self.blit_and_present(view)
+    }
+
+    /// 取得（或创建）指定纹理的输入视图；同一纹理复用，避免每帧建视图。
+    fn input_view_for(
+        &mut self,
+        texture: &ID3D11Texture2D,
+        array_slice: u32,
+    ) -> Result<ID3D11VideoProcessorInputView, DecodeError> {
+        let key = texture.as_raw() as usize;
+        if let Some((_, _, view)) = self
+            .texture_views
+            .iter()
+            .find(|(k, s, _)| *k == key && *s == array_slice)
+        {
+            return Ok(view.clone());
+        }
+        let desc = D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC {
+            FourCC: 0,
+            ViewDimension: D3D11_VPIV_DIMENSION_TEXTURE2D,
+            Anonymous: D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0 {
+                Texture2D: D3D11_TEX2D_VPIV {
+                    MipSlice: 0,
+                    ArraySlice: array_slice,
+                },
+            },
+        };
+        let mut view: Option<ID3D11VideoProcessorInputView> = None;
+        unsafe {
+            self.video_device
+                .CreateVideoProcessorInputView(texture, &self.enumerator, &desc, Some(&mut view))
+                .map_err(|e| {
+                    DecodeError::PresentFailure(format!("CreateVideoProcessorInputView(gpu): {e}"))
+                })?;
+        }
+        let view =
+            view.ok_or_else(|| DecodeError::PresentFailure("GPU 输入视图为空".to_owned()))?;
+        if self.texture_views.len() >= 16 {
+            self.texture_views.remove(0);
+        }
+        self.texture_views.push((key, array_slice, view.clone()));
+        Ok(view)
+    }
+
+    /// 把输入视图 Blt 到背缓冲并 Present（含可选的呈现前回读）。
+    fn blit_and_present(
+        &mut self,
+        input: ID3D11VideoProcessorInputView,
+    ) -> Result<(), DecodeError> {
         let backbuffer: ID3D11Texture2D = unsafe { self.swapchain.GetBuffer(0) }
             .map_err(|e| DecodeError::PresentFailure(format!("GetBuffer: {e}")))?;
         let output_desc = D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC {
@@ -450,7 +564,7 @@ impl PresentWindow {
             PastFrames: 0,
             FutureFrames: 0,
             ppPastSurfaces: std::ptr::null_mut(),
-            pInputSurface: ManuallyDrop::new(Some(self.input_view.clone())),
+            pInputSurface: ManuallyDrop::new(Some(input)),
             ppFutureSurfaces: std::ptr::null_mut(),
             ppPastSurfacesRight: std::ptr::null_mut(),
             pInputSurfaceRight: ManuallyDrop::new(None),
