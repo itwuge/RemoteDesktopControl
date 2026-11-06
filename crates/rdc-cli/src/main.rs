@@ -12,6 +12,7 @@ use std::time::Duration;
 
 mod demo;
 mod s3a;
+mod s3b;
 
 // =====** 入口 =====**
 
@@ -32,9 +33,10 @@ async fn main() -> ExitCode {
         Some("demo") => run_demo().await,
         // 夹具窗口是可选的一次性测试件，只有显式 `--fixture` 才创建。
         Some("s3a") => run_s3a(args.any(|arg| arg == "--fixture")),
+        Some("s3b") => run_s3b(&mut args),
         Some(other) => {
             eprintln!("未知子命令: {other}");
-            eprintln!("可用: doctor | selftest | demo | s3a [--fixture]");
+            eprintln!("可用: doctor | selftest | demo | s3a [--fixture] | s3b [--frames N]");
             ExitCode::FAILURE
         }
     }
@@ -89,6 +91,26 @@ fn run_s3a(fixture: bool) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("S3a 失败: {err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// S3b-2 解码与上屏自检：合成码流 → MF 解码 → D3D11 窗口呈现。
+///
+/// # Arguments
+/// * `args` - `s3b` 之后的参数（支持 `--frames N`）。
+///
+/// # Returns
+/// 全部判据满足返回 SUCCESS，否则 FAILURE。
+///
+/// # Errors
+/// 不返回错误；通过退出码与 stderr 表达。
+fn run_s3b(args: &mut impl Iterator<Item = String>) -> ExitCode {
+    match s3b::run(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("S3b 失败: {err}");
             ExitCode::FAILURE
         }
     }

@@ -17,6 +17,7 @@ members = [
     "crates/rdc-transport",
     "crates/rdc-capture",
     "crates/rdc-codec",
+    "crates/rdc-decode",
     "crates/rdc-input",
     "crates/rdc-core",
     "crates/rdc-bridge",
@@ -102,6 +103,7 @@ rdc-connect = { path = "crates/rdc-connect" }
 rdc-transport = { path = "crates/rdc-transport" }
 rdc-capture = { path = "crates/rdc-capture" }
 rdc-codec = { path = "crates/rdc-codec" }
+rdc-decode = { path = "crates/rdc-decode" }
 rdc-input = { path = "crates/rdc-input" }
 rdc-core = { path = "crates/rdc-core" }
 rdc-bridge = { path = "crates/rdc-bridge" }

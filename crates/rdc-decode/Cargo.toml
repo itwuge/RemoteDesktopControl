@@ -1,0 +1,23 @@
+# ============================================================
+# rdc-decode · crate 清单
+#
+# 用途：H.264 解码（MF 硬件优先，失败显式回退）、解码队列与 D3D11 上屏。
+# 层级：L3 编解码层的下行半边，消费 rdc-transport 的码流，向呈现窗口交付 D3D11 纹理。
+# 依赖纪律：不依赖 UI 框架；平台 API 只出现在 src/platform/*.rs 与 present.rs。
+# ============================================================
+
+[package]
+name = "rdc-decode"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 视频解码、解码队列与 D3D11 上屏"
+
+[dependencies]
+rdc-protocol = { workspace = true }
+rdc-runtime = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true }
