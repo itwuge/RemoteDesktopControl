@@ -1377,7 +1377,7 @@ fn to_trust_dto(record: &DeviceRecord, passwordless_enabled: bool) -> TrustDevic
         true,
         passwordless_enabled,
     )
-    .unwrap_or_else(|_| rdc_core::s5::passwordless::PairingDecision {
+    .unwrap_or(rdc_core::s5::passwordless::PairingDecision {
         mode: rdc_core::s5::passwordless::PairingMode::PairingCode,
         requires_pairing_code: true,
         used_local_fallback: false,

@@ -9,19 +9,28 @@
 //! `DISPLAY=:0 cargo run -p rdc-input --example xtest_probe -- move --width 1280 --height 800`
 //! `DISPLAY=:0 cargo run -p rdc-input --example xtest_probe -- keys --text abcdefghijklmnopqrst`
 
+// 该示例只用 Linux/X11 的 XTest 与 Xlib 回读，非 Linux 目标下整份实现不参与编译，
+// 仅保留一个空壳 main，避免 cargo test / cargo clippy --all-targets 在 Windows 上失败。
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
 use rdc_input::{
     create_injector, InputEvent, KeyEvent, PointerEvent, Viewport,
 };
+#[cfg(target_os = "linux")]
 use tracing_subscriber::EnvFilter;
+#[cfg(target_os = "linux")]
 use x11rb::connection::Connection;
+#[cfg(target_os = "linux")]
 use x11rb::protocol::xproto::ConnectionExt as _;
+#[cfg(target_os = "linux")]
 use x11rb::rust_connection::RustConnection;
 
 // =====** 指针回读 =====**
 
 /// 用独立 X11 连接回读指针位置（不能用 XTest 连接自证）。
+#[cfg(target_os = "linux")]
 struct PointerReader {
     /// 独立连接。
     conn: RustConnection,
@@ -29,6 +38,7 @@ struct PointerReader {
     root: u32,
 }
 
+#[cfg(target_os = "linux")]
 impl PointerReader {
     /// 建立回读连接。
     ///
@@ -73,6 +83,7 @@ impl PointerReader {
 ///
 /// # Errors
 /// 不会失败。
+#[cfg(target_os = "linux")]
 fn letter_scan_code(ch: char) -> Option<u16> {
     Some(match ch {
         'q' => 0x10,
@@ -107,13 +118,14 @@ fn letter_scan_code(ch: char) -> Option<u16> {
 
 // =====** 入口 =====**
 
-/// 探针入口。
+/// 探针入口（仅 Linux/X11）。
 ///
 /// # Returns
 /// 判据满足返回 0，否则返回 2。
 ///
 /// # Errors
 /// 不会 panic；错误以退出码表达。
+#[cfg(target_os = "linux")]
 fn main() -> std::process::ExitCode {
     let _ = tracing_subscriber::fmt()
         .with_env_filter(
@@ -134,6 +146,11 @@ fn main() -> std::process::ExitCode {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("xtest_probe 仅支持 Linux/X11（XTest），当前平台不适用");
+}
+
 /// 解析 `--key value` 形式的参数。
 ///
 /// # Arguments
@@ -145,6 +162,7 @@ fn main() -> std::process::ExitCode {
 ///
 /// # Errors
 /// 缺失时返回 `None`。
+#[cfg(target_os = "linux")]
 fn arg_value<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
     args.iter()
         .position(|item| item == key)
@@ -162,6 +180,7 @@ fn arg_value<'a>(args: &'a [String], key: &str) -> Option<&'a str> {
 ///
 /// # Errors
 /// 注入或回读失败时返回 2。
+#[cfg(target_os = "linux")]
 fn run_move(args: &[String]) -> std::process::ExitCode {
     let width: u32 = arg_value(args, "--width")
         .and_then(|value| value.parse().ok())
@@ -253,6 +272,7 @@ fn run_move(args: &[String]) -> std::process::ExitCode {
 ///
 /// # Errors
 /// 创建注入器失败或字符无扫描码时返回 2。
+#[cfg(target_os = "linux")]
 fn run_keys(args: &[String]) -> std::process::ExitCode {
     let text = arg_value(args, "--text").unwrap_or("abcdefghijklmnopqrst");
     let gap_ms: u64 = arg_value(args, "--gap-ms")

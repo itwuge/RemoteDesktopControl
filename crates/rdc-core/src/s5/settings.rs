@@ -327,14 +327,16 @@ mod tests {
     /// 非法值被拉回合法区间，VIEW 位不可取消。
     #[test]
     fn sanitize_clamps() {
-        let mut settings = AppSettings::default();
-        settings.video_width = 300;
-        settings.video_height = 100;
-        settings.video_fps = 1;
-        settings.file_bandwidth_ratio = 0.95;
-        settings.takeover_timeout_s = 5;
-        settings.permission_bits = 0;
-        settings.audit_retention_days = 12;
+        let mut settings = AppSettings {
+            video_width: 300,
+            video_height: 100,
+            video_fps: 1,
+            file_bandwidth_ratio: 0.95,
+            takeover_timeout_s: 5,
+            permission_bits: 0,
+            audit_retention_days: 12,
+            ..AppSettings::default()
+        };
         settings.sanitize();
         assert_eq!(settings.video_width, 320);
         assert_eq!(settings.video_height, 180);

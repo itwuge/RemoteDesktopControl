@@ -1111,9 +1111,7 @@ impl DxgiCapturer {
             } else {
                 match gpu_pool {
                     Some(pool) => self.copy_to_pool(&frame_info, &resource, pool),
-                    None => self
-                        .read_frame(&frame_info, &resource)
-                        .map(|shot| Acquired::Cpu(shot)),
+                    None => self.read_frame(&frame_info, &resource).map(Acquired::Cpu),
                 }
             };
             let _ = self.duplication.ReleaseFrame();
@@ -1201,15 +1199,20 @@ impl DxgiCapturer {
     /// 失败不影响采集（探针只用于测量，失败即跳过）。
     unsafe fn prewarm(&mut self, texture: &ID3D11Texture2D) {
         if self.probe.is_none() {
-            let mut desc = D3D11_TEXTURE2D_DESC::default();
-            desc.Width = 1;
-            desc.Height = 1;
-            desc.MipLevels = 1;
-            desc.ArraySize = 1;
-            desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
-            desc.SampleDesc.Count = 1;
-            desc.Usage = D3D11_USAGE_STAGING;
-            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+            let desc = D3D11_TEXTURE2D_DESC {
+                Width: 1,
+                Height: 1,
+                MipLevels: 1,
+                ArraySize: 1,
+                Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
+                Usage: D3D11_USAGE_STAGING,
+                CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
+                ..Default::default()
+            };
             let mut tex = None;
             if self
                 .device

@@ -637,32 +637,27 @@ async fn viewer_loop(
     let mut last_pts = 0u64;
     let mut first = true;
 
-    loop {
-        match receiver.recv_next(&mut viewer.secure).await? {
-            Some(frame) => {
-                // 预热帧（Start 之前）只用于 CPU 测量，不计入判据。
-                if !receiver.is_started() {
-                    continue;
-                }
-                let recv_us = origin_us();
-                let latency_us = recv_us.saturating_sub(frame.pts_us);
-                if !first && frame.pts_us <= last_pts {
-                    monotonic = false;
-                }
-                first = false;
-                last_pts = frame.pts_us;
-                samples.push(FrameSample {
-                    frame_id: frame.frame_id,
-                    pts_us: frame.pts_us,
-                    recv_us,
-                    latency_us,
-                    bytes: frame.data.len(),
-                });
-                if let Ok(mut guard) = hub.lock() {
-                    guard.update(&frame);
-                }
-            }
-            None => break,
+    while let Some(frame) = receiver.recv_next(&mut viewer.secure).await? {
+        // 预热帧（Start 之前）只用于 CPU 测量，不计入判据。
+        if !receiver.is_started() {
+            continue;
+        }
+        let recv_us = origin_us();
+        let latency_us = recv_us.saturating_sub(frame.pts_us);
+        if !first && frame.pts_us <= last_pts {
+            monotonic = false;
+        }
+        first = false;
+        last_pts = frame.pts_us;
+        samples.push(FrameSample {
+            frame_id: frame.frame_id,
+            pts_us: frame.pts_us,
+            recv_us,
+            latency_us,
+            bytes: frame.data.len(),
+        });
+        if let Ok(mut guard) = hub.lock() {
+            guard.update(&frame);
         }
     }
 

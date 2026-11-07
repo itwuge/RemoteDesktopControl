@@ -25,7 +25,7 @@ struct Point {
     y: i32,
 }
 
-/// Win32 API 声明：Linux 上无对应符号，按平台门禁隔离。
+// Win32 API 声明：Linux 上无对应符号，按平台门禁隔离。
 #[cfg(target_os = "windows")]
 unsafe extern "system" {
     /// 取屏幕物理尺寸（0=宽，1=高）。

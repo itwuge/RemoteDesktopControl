@@ -537,16 +537,21 @@ struct PipelineParts {
     overlay: BarcodeOverlay,
 }
 
+/// 采集源、接收端与已初始化管线资源的组合。
+type PipelineSetup = (
+    Box<dyn rdc_capture::CaptureSource>,
+    Receiver<Frame>,
+    PipelineParts,
+);
+
 /// 在管线线程内创建采集源、D3D11 资源、编码器与解码器，并启动采集。
 ///
 /// # Returns
-/// 采集源、接收端与已初始化的管线资源。
+/// 采集源、接收端与已初始化管线资源的组合。
 ///
 /// # Errors
 /// 任一步失败时返回错误文本；此时已创建的资源随值析构自动回收。
-fn setup_pipeline(
-    stats: &Arc<Stats>,
-) -> Result<(Box<dyn rdc_capture::CaptureSource>, Receiver<Frame>, PipelineParts), String> {
+fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
     // 1) 采集源与显示器（用真实主显示器尺寸创建纹理）。
     let mut source = create_source().map_err(|error| format!("创建采集源失败: {error}"))?;
     let displays = source.enumerate();
@@ -1177,7 +1182,7 @@ fn create_shared_textures(
     };
     let mut textures: Vec<ID3D11Texture2D> = Vec::with_capacity(2);
     let mut handles = [0i64; 2];
-    for slot in 0..2 {
+    for (slot, handle_slot) in handles.iter_mut().enumerate() {
         let mut texture: Option<ID3D11Texture2D> = None;
         unsafe {
             device
@@ -1190,7 +1195,7 @@ fn create_shared_textures(
             .map_err(|error| format!("IDXGIResource: {error}"))?;
         let handle = unsafe { resource.GetSharedHandle() }
             .map_err(|error| format!("GetSharedHandle({slot}): {error}"))?;
-        handles[slot] = handle.0 as i64;
+        *handle_slot = handle.0 as i64;
         textures.push(texture);
     }
     let array: [ID3D11Texture2D; 2] = textures

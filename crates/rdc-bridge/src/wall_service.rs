@@ -14,7 +14,7 @@
 //! - 采集会话有线程亲和性，采集源在管线线程内创建/启动/停止。
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, SyncSender, TryRecvError};
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -378,11 +378,8 @@ fn run_pipeline(
         let tick_start = Instant::now();
         // 预览只要最新一帧：把通道里的积压读空，避免延迟随队列增长。
         let mut sample: Option<(Frame, u64)> = None;
-        loop {
-            match sampler.try_recv() {
-                Ok(next) => sample = Some(next),
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            }
+        while let Ok(next) = sampler.try_recv() {
+            sample = Some(next);
         }
         let Some((frame, pts_us)) = sample else {
             std::thread::sleep(TICK);
