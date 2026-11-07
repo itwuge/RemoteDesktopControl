@@ -26,6 +26,7 @@ members = [
     "crates/rdc-signal",
     "crates/rdc-relay",
     "crates/rdc-cli",
+    "crates/rdc-linux-e2e",
 ]
 
 [workspace.package]
