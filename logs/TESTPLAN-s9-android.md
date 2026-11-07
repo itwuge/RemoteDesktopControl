@@ -219,9 +219,16 @@ APK 复验见 §2.10。
 | 5 分钟空闲稳定性 | 见下方“稳定/性能”小节（仅空闲，非推流） |
 | **真实端到端（模拟器客户端连 VM 被控端）** | ❌ **无法执行**：Android 侧只有 `sessionStart` 回环实现，`app/lib` 中不存在任何 UDP/QUIC 客户端或主机地址输入；Rust 桥也仅暴露 `video_ingest_datagram` 而没有 socket 所有者。属“缺代码”，不是环境问题 |
 
-**稳定/性能（空闲）**：`dumpsys meminfo com.rdc.rdc` 基线 PSS 253,145 KB / RSS 324,424 KB；
-5 分钟后见 `/tmp/mem_t5.txt`（pid 不变、无 FATAL）。**fps/解码延迟 p50/p99、丢帧、触摸回读、
-中文 IME、textureId 稳定性全部依赖真实会话，本轮未覆盖，不写入通过项。**
+**稳定/性能（空闲，非推流）**：`dumpsys meminfo com.rdc.rdc`
+基线 PSS 253,145 KB / RSS 324,424 KB → 5 分钟后 PSS 262,475 KB / RSS 335,272 KB
+（+9.1 MB / +10.6 MB，pid 7204 未变，logcat 无 FATAL、无 ANR）。这只能证明“启动后空闲不泄漏”，
+**不能替代推流稳定性**。fps/解码延迟 p50/p99、丢帧、触摸回读、中文 IME、textureId 稳定性
+全部依赖真实会话，本轮未覆盖，不写入通过项。
+
+**构建产物清理（本轮收尾）**：删除 VM 侧 `target/` 3.56 GB、`app/build/` 0.75 GB、
+`app/android/.gradle/` 1.3 MB、`~/.gradle/caches/` 2.81 GB；根分区已用
+43,002,159,104 → 36,382,695,424 B，**释放 6,619,463,680 B（约 6.16 GiB）**。
+`jniLibs/{arm64-v8a,x86_64}/librdc_bridge.so` 保留。
 
 ---
 
