@@ -41,6 +41,35 @@ pub fn create_encoder(kind: CodecKind) -> Result<Box<dyn VideoEncoder>, CodecErr
     {
         // kind 在校验阶段过滤：Windows 后端 S3a 只实现 H.264。
         let _ = kind;
+        // 后端分层（docs/决策待办.md S7）：默认 MFT；`RDC_ENCODER=amf` 切到 AMF 原生编码，
+        // 打开失败则回退 MFT，并把「最终后端 + 理由」写日志（不静默降级）。
+        let requested = std::env::var("RDC_ENCODER")
+            .ok()
+            .and_then(|v| crate::backend::BackendKind::from_env_value(&v));
+        if requested == Some(crate::backend::BackendKind::Amf) {
+            match windows::amf::AmfEncoder::try_new() {
+                Some(enc) if !enc.probe(&[]).is_empty() => {
+                    tracing::info!("[enc] backend=amf reason=显式指定 RDC_ENCODER=amf");
+                    return Ok(Box::new(enc));
+                }
+                _ => {
+                    tracing::warn!(
+                        "[enc] backend=mf reason=AMF 不可用（rdc-amf.dll 或 AMF 组件探测失败），按回退链退到 MFT"
+                    );
+                }
+            }
+        } else if matches!(
+            requested,
+            Some(crate::backend::BackendKind::Nvenc)
+                | Some(crate::backend::BackendKind::OneVpl)
+                | Some(crate::backend::BackendKind::Software)
+        ) {
+            tracing::warn!(
+                "[enc] backend=mf reason=指定后端 {:?} 尚未接入，按回退链退到 MFT",
+                requested
+            );
+        }
+        tracing::info!("[enc] backend=mf reason=默认硬件后端（MFT）");
         Ok(Box::new(windows::PlatformEncoder::new()))
     }
 

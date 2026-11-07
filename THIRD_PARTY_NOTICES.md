@@ -41,13 +41,53 @@
 发行包内含 `msvcp140.dll`、`vcruntime140.dll`、`vcruntime140_1.dll`（app-local 部署），
 按 Microsoft Visual Studio 可再发行组件许可随应用分发；这些文件不属于本仓库源码。
 
-## FFmpeg（默认不包含）
+## FFmpeg（LGPL-2.1-or-later，动态链接）
 
-`rdc-decode` 的 FFmpeg 解码后端由 Cargo feature `ffmpeg` 控制，**默认关闭**，发行包
-不包含任何 FFmpeg DLL。若使用者自行以该 feature 构建，需自行提供 LGPL 共享构建的
-FFmpeg 动态库并遵守 LGPL-2.1-or-later；本仓库不分发该二进制。
+发行包内含自建的精简 FFmpeg 共享库 `avcodec-*.dll` 与 `avutil-*.dll`（n7.1），仅启用
+H.264 解码 / H.264 parser / d3d11va 硬解与 file 协议。构建参数：
+`--disable-everything --enable-decoder=h264 --enable-parser=h264 --enable-protocol=file
+--disable-gpl --disable-libx264 --disable-libx265 --enable-d3d11va
+--enable-hwaccel=h264_d3d11va --enable-hwaccel=h264_d3d11va2
+--enable-shared --disable-static --disable-programs --disable-doc --disable-network --disable-autodetect`。
+
+- 许可：**LGPL-2.1-or-later**（未启用 GPL 组件，不含 x264/x265/avformat/avfilter/swscale）。
+- 链接方式：动态链接，DLL 未修改；使用者可按 LGPL 2.1 第 6 节替换为兼容版本。
+- 许可文本随包：`COPYING.LGPLv2.1`、`FFmpeg-LICENSE.md`；构建参数与 SHA-256 记录在
+  `FFMPEG-BUILD-INFO.txt`。
+- 运行时还带 `libwinpthread-1.dll`（mingw-w64 winpthreads，MIT 风格许可，文本见
+  `libwinpthread-COPYING.txt`），它是 `avutil-*.dll` 的直接依赖。
+- 源码获取：<https://git.ffmpeg.org/ffmpeg.git>（tag `n7.1`），或向分发者索取对应源码包。
+
+若以未启用 `ffmpeg` feature 的配置构建，发行包不含任何 FFmpeg DLL，此时运行时只能使用
+Media Foundation 解码（回退路径）。
 
 ## 许可文本获取
 
 以上各组件的完整许可文本随其上游发行物提供（crates.io / pub.dev / 各自项目仓库）。
 如需离线归档，请以 `Cargo.lock`、`app/pubspec.lock` 的版本号从上游获取对应文本。
+
+## AMD AMF SDK（rdc-amf.dll）
+
+- 组件：`crates/rdc-codec/shim/`（C++ 薄 shim），编译产物 `rdc-amf.dll`。
+- 源码许可：AMD Advanced Media Framework SDK，MIT License，
+  Copyright (c) 2018 Advanced Micro Devices, Inc. All rights reserved.
+- 分发方式：本仓库不分发 AMF 头文件；运行期 `amfrt64.dll` 由显卡驱动安装提供，
+  通过 `LoadLibrary("amfrt64.dll")` + `AMFInit` 动态加载，不随安装包分发。
+- 未引入 x264 / x265 / GPL 组件。
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+and associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

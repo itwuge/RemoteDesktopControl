@@ -35,6 +35,9 @@ use crate::metrics::{EncodeSnapshot, EncodeStats};
 // Media Foundation H.264 会话封装（Rust 2018 允许 `windows.rs` + `windows/` 目录并存）。
 pub mod mf;
 
+// AMD AMF 原生编码后端（经 rdc-amf.dll 的 C ABI；MF 保留为回退）。
+pub mod amf;
+
 // =====** 常量 =====**
 
 /// 探测时尝试的分辨率候选（从大到小，取第一个协商成功的）。

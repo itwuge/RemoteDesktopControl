@@ -21,6 +21,7 @@
 #include <libavutil/time.h>
 
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,6 +59,7 @@ typedef struct RdcFfDec {
     AVBufferRef *hw_ctx;
     unsigned char *pack;
     int pack_cap;
+    int logged_fmt;
     RdcFfStats stats;
 } RdcFfDec;
 
@@ -88,8 +90,9 @@ static int emit_frame(RdcFfDec *d, const RdcFfFrame *frame, RdcFfFrameCb cb, voi
     return 0;
 }
 
-/* 把 AVFrame 的 NV12 两平面拷成紧密排列（Y 平面 + 交错 UV 平面，行距 = width）。
- * FFmpeg 的 linesize 通常等于 width，但仍按行拷贝以防对齐差异导致错位。 */
+/* 把 AVFrame 拷成紧密 NV12（Y 平面 + 交错 UV，行距 = width）。
+ * 软解默认输出 yuv420p（U/V 各自独立平面），必须显式交错；
+ * d3d11va 输出才是 NV12，可直接按行拷贝。两条都要支持，否则颜色会整体偏绿。 */
 static int pack_nv12(RdcFfDec *d, AVFrame *frame, char *err, int errlen) {
     int64_t t0 = av_gettime_relative();
     int w = frame->width;
@@ -109,9 +112,23 @@ static int pack_nv12(RdcFfDec *d, AVFrame *frame, char *err, int errlen) {
                (size_t)w);
     }
     unsigned char *uv = d->pack + (size_t)w * h;
-    for (int row = 0; row < h / 2; ++row) {
-        memcpy(uv + (size_t)row * w, frame->data[1] + (size_t)row * frame->linesize[1],
-               (size_t)w);
+    if (frame->format == AV_PIX_FMT_YUV420P || frame->format == AV_PIX_FMT_YUVJ420P) {
+        int cw = w / 2;
+        for (int row = 0; row < h / 2; ++row) {
+            const unsigned char *u = frame->data[1] + (size_t)row * frame->linesize[1];
+            const unsigned char *v = frame->data[2] + (size_t)row * frame->linesize[2];
+            unsigned char *dst = uv + (size_t)row * w;
+            for (int col = 0; col < cw; ++col) {
+                dst[col * 2] = u[col];
+                dst[col * 2 + 1] = v[col];
+            }
+        }
+    } else {
+        /* NV12：data[1] 已是交错 UV。 */
+        for (int row = 0; row < h / 2; ++row) {
+            memcpy(uv + (size_t)row * w, frame->data[1] + (size_t)row * frame->linesize[1],
+                   (size_t)w);
+        }
     }
     d->stats.pack_ms_total += (double)(av_gettime_relative() - t0) / 1000.0;
     return 0;
@@ -127,6 +144,12 @@ static int drain_frames(RdcFfDec *d, RdcFfFrameCb cb, void *cbctx, char *err, in
         out.height = d->frame->height;
         out.pts_us = d->frame->best_effort_timestamp;
 
+        if (!d->logged_fmt) {
+            d->logged_fmt = 1;
+            fprintf(stderr, "[ffdec] first frame format=%s hw_device_ctx=%s\n",
+                    av_get_pix_fmt_name((enum AVPixelFormat)d->frame->format),
+                    d->ctx->hw_device_ctx ? "yes" : "no");
+        }
         if (d->frame->format == AV_PIX_FMT_D3D11) {
             /* data[0] 是 ID3D11Texture2D*，data[1] 是数组下标；由 AVFrame 持有纹理引用，
              * 回调内同步使用即可，不做任何回读。 */
@@ -155,8 +178,28 @@ static int drain_frames(RdcFfDec *d, RdcFfFrameCb cb, void *cbctx, char *err, in
     if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
         return 0;
     }
+    static int logged_err = 0;
+    if (!logged_err) {
+        logged_err = 1;
+        fprintf(stderr,
+                "[ffdec] receive err=%d pix_fmt=%s sw_pix=%s hw_frames=%p coded=%dx%d\n",
+                ret, av_get_pix_fmt_name(d->ctx->pix_fmt),
+                av_get_pix_fmt_name(d->ctx->sw_pix_fmt), (void *)d->ctx->hw_frames_ctx,
+                d->ctx->coded_width, d->ctx->coded_height);
+    }
     set_av_err(err, errlen, "avcodec_receive_frame", ret);
     return ret;
+}
+
+/* FFmpeg 只保留 warning 及以下级别，直接写 stderr；用于诊断硬解/软解的实际选择。 */
+static void rdff_log_cb(void *avcl, int level, const char *fmt, va_list vl) {
+    (void)avcl;
+    if (level > AV_LOG_WARNING) {
+        return;
+    }
+    fprintf(stderr, "[ffav] ");
+    vfprintf(stderr, fmt, vl);
+    fprintf(stderr, "\n");
 }
 
 /* 创建解码器实例（未 open）。threads<=0 表示默认；low_delay!=0 打开低延迟标志。 */
@@ -186,6 +229,8 @@ int rdff_create(int32_t threads, int32_t low_delay, void **out, char *err, int e
     if (low_delay) {
         d->ctx->flags |= AV_CODEC_FLAG_LOW_DELAY;
     }
+    av_log_set_callback(rdff_log_cb);
+    av_log_set_level(AV_LOG_WARNING);
     d->ctx->thread_count = threads > 0 ? threads : 1;
     /* 单线程即无 frame-level 重排；多线程只允许 slice，绝不使用 frame 线程。 */
     d->ctx->thread_type = FF_THREAD_SLICE;
@@ -193,6 +238,27 @@ int rdff_create(int32_t threads, int32_t low_delay, void **out, char *err, int e
     d->stats.threads = d->ctx->thread_count;
     *out = d;
     return 0;
+}
+
+/* 显式优先 AV_PIX_FMT_D3D11。FFmpeg 默认 get_format 只取候选列表首项，
+ * 精简构建下不保证硬件格式排在前面，因此绑定 D3D11 时由我们自己选。 */
+static enum AVPixelFormat rdff_get_format(AVCodecContext *ctx, const enum AVPixelFormat *fmt) {
+    (void)ctx;
+    static int logged = 0;
+    if (!logged) {
+        logged = 1;
+        fprintf(stderr, "[ffdec] get_format choices:");
+        for (const enum AVPixelFormat *p = fmt; p && *p != AV_PIX_FMT_NONE; ++p) {
+            fprintf(stderr, " %s", av_get_pix_fmt_name(*p));
+        }
+        fprintf(stderr, "\n");
+    }
+    for (const enum AVPixelFormat *p = fmt; p && *p != AV_PIX_FMT_NONE; ++p) {
+        if (*p == AV_PIX_FMT_D3D11) {
+            return *p;
+        }
+    }
+    return fmt ? fmt[0] : AV_PIX_FMT_NONE;
 }
 
 /* 把解码器接到调用方已有的 D3D11 设备（硬解 d3d11va，输出 GPU 纹理，零回读）。
@@ -225,6 +291,7 @@ int rdff_bind_d3d11(RdcFfDec *d, void *device, char *err, int errlen) {
     }
     /* 输出表面池留出余量：呈现侧短暂持有纹理引用，池太浅会让解码器等表面回收。 */
     d->ctx->extra_hw_frames = 8;
+    d->ctx->get_format = rdff_get_format;
     return 0;
 }
 
@@ -265,6 +332,8 @@ int rdff_feed(RdcFfDec *d, const unsigned char *data, int32_t len, int64_t pts_u
     d->pkt->data = NULL;
     d->pkt->size = 0;
     if (ret < 0) {
+        fprintf(stderr, "[ffdec] send failed rc=%d pix_fmt=%s hw_frames=%p\n", ret,
+                av_get_pix_fmt_name(d->ctx->pix_fmt), (void *)d->ctx->hw_frames_ctx);
         set_av_err(err, errlen, "avcodec_send_packet", ret);
         return ret;
     }

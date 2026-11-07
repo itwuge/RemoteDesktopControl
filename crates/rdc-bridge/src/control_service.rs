@@ -15,8 +15,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use rdc_capture::{create_source, CaptureConfig, ChromaFormat, Frame, FrameSink};
-use rdc_codec::{create_encoder, CodecKind, VideoConfig, VideoChroma};
-use rdc_decode::{DecodedFrame, MfH264Decoder};
+use rdc_codec::{create_encoder, CodecKind, EncodedPacket, VideoChroma, VideoConfig};
+use rdc_decode::{open_video_decoder, DecodedFrame, VideoDecoder};
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HMODULE};
@@ -30,7 +30,8 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0,
     D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0,
     D3D11_VIDEO_PROCESSOR_STREAM, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL, D3D11_VPIV_DIMENSION_TEXTURE2D,
-    D3D11_VPOV_DIMENSION_TEXTURE2D, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+    D3D11_VPOV_DIMENSION_TEXTURE2D, ID3D11Device, ID3D11DeviceContext, ID3D11Resource,
+    ID3D11Texture2D,
     ID3D11VideoContext, ID3D11VideoDevice, ID3D11VideoProcessor,
     ID3D11VideoProcessorEnumerator, ID3D11VideoProcessorInputView, ID3D11VideoProcessorOutputView,
 };
@@ -39,6 +40,7 @@ use windows::Win32::Graphics::Dxgi::Common::{
 };
 use windows::Win32::Graphics::Dxgi::IDXGIResource;
 use windows::Win32::System::Threading::{CreateEventW, SetEvent};
+use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 
 // =====** 常量 =====**
 
@@ -134,7 +136,19 @@ struct Stats {
     latency_p50_us: AtomicU64,
     latency_p99_us: AtomicU64,
     pipeline_latency_us: AtomicU64,
+    /// 解码器内部积压帧数（已送输入 − 已取输出）：4C 用来看 MF 是否还会积压。
+    decoder_in_flight: AtomicU64,
     readback_count: AtomicU64,
+    /// 最近一帧采集耗时（微秒）：GPU 直出时是拷贝提交时间，CPU 路径含 staging 回读。
+    capture_us: AtomicU64,
+    /// 采集帧到手 → 编码入队耗时（微秒，含时间码覆盖/色彩交换）。
+    encode_us: AtomicU64,
+    /// 取编码输出耗时（微秒，本帧累计）。
+    poll_us: AtomicU64,
+    /// 解码喂入耗时（微秒，本帧累计）。
+    decode_us: AtomicU64,
+    /// 上屏（VideoProcessor Blit + SetEvent）耗时（微秒，本帧累计）。
+    present_us: AtomicU64,
     error: Mutex<Option<String>>,
     backend: Mutex<String>,
     encoder: Mutex<String>,
@@ -371,8 +385,146 @@ struct SetupInfo {
     decode_path: String,
 }
 
-/// 管线所需的全部原生资源（只在管线线程内创建、使用与释放）。
+/// GPU 时间码覆盖器。
+///
+/// 为什么需要它：纹理直出路径没有 CPU 像素可写，但画内时间码必须在编码前
+/// 进入画面。做法是把时间码画进一张 512×64 的小纹理（约 128KB 上传），
+/// 再用 `CopySubresourceRegion` 覆盖采集帧左上角的条带；整帧永不回读 CPU。
+struct BarcodeOverlay {
+    /// 覆盖用纹理（`DEFAULT`，每帧 `UpdateSubresource` 更新）；持有引用保证资源有效。
+    _texture: ID3D11Texture2D,
+    /// `ID3D11Resource` 视图（`UpdateSubresource`/拷贝源）。
+    resource: ID3D11Resource,
+    /// CPU 侧像素缓冲（`width × height BGRA`）。
+    pixels: Vec<u8>,
+    /// 行跨度（字节）。
+    stride: usize,
+    /// 覆盖纹理宽。
+    width: usize,
+    /// 覆盖纹理高。
+    height: usize,
+}
+
+impl BarcodeOverlay {
+    /// 覆盖纹理尺寸：覆盖时间码黑底带（x 8..504，y 8..40）即可。
+    const WIDTH: usize = 512;
+    /// 覆盖纹理高。
+    const HEIGHT: usize = 64;
+
+    /// 创建覆盖纹理。
+    ///
+    /// # Arguments
+    /// * `device` - 管线 D3D11 设备（与采集/编码器同一设备）。
+    ///
+    /// # Returns
+    /// 覆盖器。
+    ///
+    /// # Errors
+    /// 纹理创建失败时返回错误文本。
+    fn new(device: &ID3D11Device) -> Result<Self, String> {
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: Self::WIDTH as u32,
+            Height: Self::HEIGHT as u32,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: 0,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+        let mut texture: Option<ID3D11Texture2D> = None;
+        unsafe {
+            device
+                .CreateTexture2D(&desc, None, Some(&mut texture))
+                .map_err(|error| format!("创建时间码覆盖纹理失败: {error}"))?;
+        }
+        let texture = texture.ok_or_else(|| "没有时间码覆盖纹理".to_owned())?;
+        let resource: ID3D11Resource = texture
+            .cast()
+            .map_err(|error| format!("cast ID3D11Resource: {error}"))?;
+        Ok(Self {
+            _texture: texture,
+            resource,
+            pixels: vec![0u8; Self::WIDTH * Self::HEIGHT * 4],
+            stride: Self::WIDTH * 4,
+            width: Self::WIDTH,
+            height: Self::HEIGHT,
+        })
+    }
+
+    /// 把时间码画进覆盖纹理并覆盖到帧纹理左上角。
+    ///
+    /// # Arguments
+    /// * `context` - 管线立即上下文（与采集线程同一上下文，已开启多线程保护）。
+    /// * `frame_texture` - 采集帧纹理（`ID3D11Texture2D*`）。
+    /// * `array_slice` - 帧纹理数组层号。
+    /// * `elapsed_ms` - 已编码时间码值（毫秒）。
+    ///
+    /// # Returns
+    /// 成功返回 `Ok(())`。
+    ///
+    /// # Errors
+    /// 纹理句柄无效或类型不符时返回错误文本。
+    fn draw(
+        &mut self,
+        context: &ID3D11DeviceContext,
+        frame_texture: usize,
+        array_slice: u32,
+        elapsed_ms: u32,
+    ) -> Result<(), String> {
+        self.pixels.fill(0);
+        draw_barcode(&mut self.pixels, self.width, elapsed_ms);
+        // 只拷贝时间码黑底带（draw_barcode 已把该矩形填满，见函数内 band_* 计算）。
+        let band_left = (BARCODE_X0 - 8) as u32;
+        let band_top = (BARCODE_Y0 - 8) as u32;
+        let band_right = (BARCODE_X0 + BARCODE_BITS as usize * BARCODE_PITCH + 8) as u32;
+        let band_bottom = (BARCODE_Y0 + BARCODE_CELL + 8) as u32;
+        debug_assert!(band_right <= self.width as u32 && band_bottom <= self.height as u32);
+        unsafe {
+            context.UpdateSubresource(
+                &self.resource,
+                0,
+                None,
+                self.pixels.as_ptr() as *const std::ffi::c_void,
+                self.stride as u32,
+                0,
+            );
+            let raw = frame_texture as *mut std::ffi::c_void;
+            let dst = ID3D11Texture2D::from_raw_borrowed(&raw)
+                .ok_or_else(|| "时间码覆盖：帧纹理句柄为空".to_owned())?;
+            let dst_resource: ID3D11Resource = dst
+                .cast()
+                .map_err(|error| format!("cast ID3D11Resource: {error}"))?;
+            let bx = D3D11_BOX {
+                left: band_left,
+                top: band_top,
+                front: 0,
+                right: band_right,
+                bottom: band_bottom,
+                back: 1,
+            };
+            context.CopySubresourceRegion(
+                &dst_resource,
+                array_slice,
+                0,
+                0,
+                0,
+                &self.resource,
+                0,
+                Some(&bx),
+            );
+        }
+        Ok(())
+    }
+}
+
 struct PipelineParts {
+    /// 管线所需的全部原生资源（只在管线线程内创建、使用与释放）。
     info: SetupInfo,
     _device: ID3D11Device,
     context: ID3D11DeviceContext,
@@ -380,7 +532,9 @@ struct PipelineParts {
     events: [HANDLE; 2],
     converter: VideoConverter,
     encoder: Box<dyn rdc_codec::VideoEncoder>,
-    decoder: MfH264Decoder,
+    decoder: Box<dyn VideoDecoder>,
+    /// GPU 时间码覆盖器（纹理直出路径使用）。
+    overlay: BarcodeOverlay,
 }
 
 /// 在管线线程内创建采集源、D3D11 资源、编码器与解码器，并启动采集。
@@ -441,10 +595,49 @@ fn setup_pipeline(
 
     // 4) 视频处理器：解码 NV12 → 共享 BGRA，全程 GPU。
     let converter = VideoConverter::new(&device, &context, &textures, width, height)?;
+    // 时间码覆盖纹理（纹理直出路径使用；CPU 路径不碰它）。
+    let overlay = BarcodeOverlay::new(&device)?;
 
     // 5) 编码器 / 解码器。
     let mut encoder =
         create_encoder(CodecKind::H264).map_err(|error| format!("创建编码器失败: {error}"))?;
+    // 纹理直出（S7-3）：只有厂商后端（AMF）接受 D3D11 直入；MFT 只能吃系统内存。
+    // 采集侧与编码器必须共用同一设备，否则纹理跨适配器/跨设备不可用。
+    //
+    // 默认关闭：RX580 / 驱动 31.0.21912.14 实测，AMF 的 `CreateSurfaceFromDX11Native`
+    // 在本进程共享设备上每帧引入 30~140ms 的驱动侧同步（隔离 spike 只有 1.8ms），
+    // 整条管线从 60fps 掉到 5~10fps。保留实现，用 `RDC_CAPTURE_GPU=1` 显式启用并复测。
+    let want_gpu = std::env::var("RDC_CAPTURE_GPU")
+        .map(|v| v != "0")
+        .unwrap_or(false);
+    if !want_gpu {
+        eprintln!("[control] 纹理直出未启用（默认 host BGRA；RDC_CAPTURE_GPU=1 可启用实验路径）");
+    }
+    let mut gpu_pipeline = false;
+    if want_gpu
+        && encoder.attach_d3d11(
+            device.as_raw() as usize,
+            context.as_raw() as usize,
+            true,
+        )
+    {
+        if source.set_gpu_device(device.as_raw() as usize, context.as_raw() as usize) {
+            gpu_pipeline = true;
+        } else {
+            // 编码器已切到纹理模式但采集给不出纹理：显式退回 host 模式，不留半开状态。
+            encoder.attach_d3d11(0, 0, false);
+            eprintln!("[control] 采集侧拒绝纹理直出，编码器回退 host BGRA（非静默）");
+        }
+    }
+    eprintln!(
+        "[control] capture={} encoder={}",
+        if gpu_pipeline {
+            "dxgi-texture-direct"
+        } else {
+            "cpu-bgra"
+        },
+        encoder.backend_name()
+    );
     encoder
         .configure(VideoConfig {
             codec: CodecKind::H264,
@@ -457,22 +650,23 @@ fn setup_pipeline(
             low_latency: true,
         })
         .map_err(|error| format!("配置编码器失败: {error}"))?;
-    let decoder = match MfH264Decoder::open_with_device(&device, width, height, TARGET_FPS, true) {
-        Ok(decoder) => decoder,
-        Err(error) => {
-            stats.set_error(format!("硬件解码不可用，转系统内存路径: {error}"));
-            MfH264Decoder::open(width, height, TARGET_FPS, false)
-                .map_err(|error| format!("打开解码器失败: {error}"))?
-        }
-    };
-    let decoder_name = decoder.name().to_owned();
-    let decode_path = if decoder.is_hardware() {
-        "dxgi-texture"
-    } else {
-        "system-memory"
-    };
+    // 解码后端按构建 feature 与 `RDC_DECODER` 选择：默认 FFmpeg（d3d11va 直出纹理），
+    // 打开失败自动回退 MF，最终值反映在 `DecoderInfo` 里。
+    let decoder = open_video_decoder(Some(&device), width, height, TARGET_FPS, true)
+        .map_err(|error| format!("打开解码器失败: {error}"))?;
+    let decoder_info = decoder.info();
+    let decoder_name = format!("{}/{}", decoder_info.backend, decoder_info.name);
+    let decode_path = format!(
+        "{}/{}",
+        decoder_info.backend,
+        decoder_info.output.as_str()
+    );
+    eprintln!(
+        "[control] decoder={} ({})；输出类型待首帧确定",
+        decoder_info.backend, decoder_info.name
+    );
     Stats::set_text(&stats.decoder, decoder_name.clone());
-    Stats::set_text(&stats.decode_path, decode_path);
+    Stats::set_text(&stats.decode_path, decode_path.clone());
     let encoder_name = rdc_codec::probe_encoders()
         .hardware
         .first()
@@ -504,7 +698,7 @@ fn setup_pipeline(
         backend,
         encoder: encoder_name,
         decoder: decoder_name,
-        decode_path: decode_path.to_owned(),
+        decode_path,
     };
     let parts = PipelineParts {
         info,
@@ -515,11 +709,37 @@ fn setup_pipeline(
         converter,
         encoder,
         decoder,
+        overlay,
     };
     Ok((source, rx, parts))
 }
 
 // =====** 管线线程 =====**
+
+/// 单帧在管线内的关键时间戳（同一帧一路带下去，抖动归因才可加和）。
+#[derive(Clone, Copy, Default)]
+struct FrameTiming {
+    /// 采集瞬间 QPC（微秒；与 [`qpc_us`] 同源）。
+    capture_qpc: u64,
+    /// 采集段耗时（微秒）。
+    capture_us: u64,
+    /// 捕获瞬间 → 主线程取到帧的排队时长（微秒）。
+    rx_queue_us: u64,
+    /// 采集帧到手 → 编码入队耗时（微秒）。
+    push_us: u64,
+    /// 提交完成瞬间 QPC（微秒）。
+    submit_qpc: u64,
+    /// 提交 → 出包耗时（微秒，编码器内部时延）。
+    enc_wait_us: u64,
+}
+
+/// 取包结果（把出包与它的时间戳绑在一起，供解码侧与明细日志使用）。
+struct EncodeOut {
+    packet: EncodedPacket,
+    timing: FrameTiming,
+    /// `poll_packet` 的耗时（微秒）。
+    poll_us: u64,
+}
 
 /// 单线程管线：采集 → 编码 → 解码 → 共享纹理 → 通知 Flutter。
 fn run_pipeline(
@@ -536,9 +756,11 @@ fn run_pipeline(
         textures,
         events,
         converter,
-        mut encoder,
+        encoder,
         mut decoder,
+        mut overlay,
     } = parts;
+    let mut encoder = encoder;
     let start = Instant::now();
     let mut index = 0usize;
     let mut displayed_window = 0u64;
@@ -548,89 +770,191 @@ fn run_pipeline(
     let mut latency_samples: Vec<u64> = Vec::with_capacity(64);
     let mut frame_views: HashMap<usize, ID3D11VideoProcessorInputView> = HashMap::new();
     let mut log_file = open_log();
-    // 每帧采集时刻（按编码顺序入队，解码输出按顺序出队）。
-    let mut pending_capture_ms: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
-    // 编码器输出时刻诊断：capture → packet，用来区分编码积压与解码积压。
-    let mut pending_packet_ms: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
+    // 逐帧时间戳（采集 → 提交 → 出包 → 解出），按编码顺序入队、按解出顺序出队。
+    // S7-5 块 1：抖动归因需要「同一帧」的完整分段，不能用并行队列近似。
+    let mut pending_submit: std::collections::VecDeque<FrameTiming> =
+        std::collections::VecDeque::with_capacity(4);
+    let mut pending_decode: std::collections::VecDeque<FrameTiming> =
+        std::collections::VecDeque::with_capacity(4);
     let mut enc_latency_us: u64 = 0;
+    // 纹理直出路径下延迟归还的帧（租约保护：编码器可能异步持有纹理）。
+    let mut held_gpu_frames: std::collections::VecDeque<Frame> =
+        std::collections::VecDeque::with_capacity(4);
+    // 一次送入可能解出 0..N 帧，复用缓冲避免每包分配。
+    let mut decoded_frames: Vec<DecodedFrame> = Vec::new();
+    // 抖动归因（S7-5 块 1）：`RDC_FRAME_TRACE=1` 时逐解出帧落一行明细，默认关闭。
+    let mut trace = open_frame_trace();
+    let mut trace_seq: u64 = 0;
+    let mut last_drops: u64 = 0;
     loop {
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        let frame = match rx.recv_timeout(Duration::from_millis(100)) {
-            Ok(frame) => frame,
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
+        // 等采集帧：事件驱动（无帧就阻塞），不做轮询，避免定时器粒度吃掉吞吐。
+        let frame_opt = match rx.recv_timeout(Duration::from_millis(100)) {
+            Ok(frame) => Some(frame),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
             // 采集线程已退出（源停止时发送端被丢弃）。
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         };
+        if let Some(frame) = frame_opt {
+            // 用带标签块代替早退 `continue`：本轮仍必须继续排空出包。
+            'frame: {
+                let elapsed_ms = start.elapsed().as_millis() as u32 % 1_000_000;
+                let mut bgra = frame;
+                // 捕获瞬间 → 主线程取到帧 的排队时长（与采集同源 QPC，可直接相减）。
+                let rx_queue_us = qpc_us().saturating_sub(bgra.meta.qpc_us);
+                let (width, height) = (bgra.width, bgra.height);
+                if width != converter.width || height != converter.height {
+                    stats.set_error(format!(
+                        "采集尺寸变化 {width}x{height}，当前纹理 {}x{}",
+                        converter.width, converter.height
+                    ));
+                    break 'frame;
+                }
+                stats.captured.fetch_add(1, Ordering::Relaxed);
+                stats
+                    .capture_us
+                    .store(u64::from(bgra.capture_cost_us), Ordering::Relaxed);
+                let cap_us = u64::from(bgra.capture_cost_us);
+                let cap_qpc = bgra.meta.qpc_us;
 
-        let elapsed_ms = start.elapsed().as_millis() as u32 % 1_000_000;
-        let mut bgra = frame;
-        let (width, height) = (bgra.width, bgra.height);
-        if width != converter.width || height != converter.height {
-            stats.set_error(format!(
-                "采集尺寸变化 {width}x{height}，当前纹理 {}x{}",
-                converter.width, converter.height
-            ));
-            continue;
+                // BGRA → RGBA 原地交换，并把时间码画进左上角（编码前）。
+                let pts_ns = bgra.meta.pts_ns;
+                let force_key = stats.captured.load(Ordering::Relaxed) == 1;
+                let timing = FrameTiming {
+                    capture_qpc: cap_qpc,
+                    capture_us: cap_us,
+                    rx_queue_us,
+                    ..FrameTiming::default()
+                };
+                let gpu = bgra.gpu.as_ref().map(|g| (g.texture, g.array_slice));
+                // 段计时 1/5：采集帧到手 → 编码器入队（含时间码覆盖/色彩交换）。
+                let t_encode = Instant::now();
+                if let Some((texture, array_slice)) = gpu {
+                    // 纹理直出：时间码用 GPU 小纹理覆盖，像素从不回读 CPU。
+                    if let Err(error) =
+                        overlay.draw(&context, texture, array_slice, elapsed_ms)
+                    {
+                        stats.set_error(error);
+                        break 'frame;
+                    }
+                    if let Err(error) =
+                        encoder.push_texture(texture, array_slice, pts_ns, force_key)
+                    {
+                        stats.set_error(format!("编码入队失败（纹理）: {error}"));
+                        break 'frame;
+                    }
+                    // 租约延迟 3 帧归还：AMF 可能在 SubmitInput 返回后仍持有纹理直到出包。
+                    held_gpu_frames.push_back(bgra);
+                    if held_gpu_frames.len() > 3 {
+                        held_gpu_frames.pop_front();
+                    }
+                } else {
+                    let len = width as usize * height as usize * 4;
+                    if bgra.buffer.as_slice().len() < len {
+                        stats.set_error("采集帧缓冲小于整帧长度".to_owned());
+                        break 'frame;
+                    }
+                    let slice = &mut bgra.buffer.as_mut_slice()[..len];
+                    // 编解码层的像素契约是 RGBA8（rdc-protocol/rdc-codec、nv12.rs、AMF shim
+                    // 的 push_rgba 都按 RGBA8 收），所以这里必须做 B↔R 交换。
+                    // 块 4 B 实测：删掉交换后 push 段 4.66 → 4.34~6.93 ms（噪声内，无收益），
+                    // 且 AMF shim 的 AMF_SURFACE_BGRA 标签与层契约不一致，故保留交换。
+                    swap_rb(slice);
+                    draw_barcode(slice, width as usize, elapsed_ms);
+                    let push_us = t_encode.elapsed().as_micros() as u64;
+                    if let Err(error) = encoder.push(bgra.buffer, pts_ns, force_key) {
+                        stats.set_error(format!("编码入队失败: {error}"));
+                        break 'frame;
+                    }
+                    // push 段 = 颜色交换 + 时间码 + 提交。
+                    pending_submit.push_back(FrameTiming {
+                        push_us,
+                        submit_qpc: qpc_us(),
+                        ..timing
+                    });
+                    // 32 帧仍未出包说明编码器失速，清空避免时间戳错位放大误差。
+                    if pending_submit.len() > 32 {
+                        pending_submit.clear();
+                    }
+                }
+            }
         }
-        stats.captured.fetch_add(1, Ordering::Relaxed);
-
-        // BGRA → RGBA 原地交换，并把时间码画进左上角（编码前）。
-        let len = width as usize * height as usize * 4;
-        if bgra.buffer.as_slice().len() < len {
-            stats.set_error("采集帧缓冲小于整帧长度".to_owned());
-            continue;
-        }
-        let slice = &mut bgra.buffer.as_mut_slice()[..len];
-        swap_rb(slice);
-        draw_barcode(slice, width as usize, elapsed_ms);
-        let pts_ns = bgra.meta.pts_ns;
-        let force_key = stats.captured.load(Ordering::Relaxed) == 1;
-        if let Err(error) = encoder.push(bgra.buffer, pts_ns, force_key) {
-            stats.set_error(format!("编码入队失败: {error}"));
-            continue;
-        }
-        pending_capture_ms.push_back(elapsed_ms);
-        pending_packet_ms.push_back(elapsed_ms);
 
         // 取编码输出并喂给解码器。
-        while let Some(packet) = encoder.poll_packet() {
+        let mut poll_us: u64 = 0;
+        let mut decode_us: u64 = 0;
+        let mut present_us: u64 = 0;
+        loop {
+            let t_poll = Instant::now();
+            let packet = encoder.poll_packet();
+            let poll_one = t_poll.elapsed().as_micros() as u64;
+            let out = packet.map(|packet| {
+                let now_qpc = qpc_us();
+                let mut timing = pending_submit.pop_front().unwrap_or_default();
+                timing.enc_wait_us = now_qpc.saturating_sub(timing.submit_qpc);
+                EncodeOut {
+                    packet,
+                    timing,
+                    poll_us: poll_one,
+                }
+            });
+            let Some(out) = out else {
+                poll_us += poll_one;
+                break;
+            };
+            poll_us += out.poll_us;
+            if pending_submit.len() > 32 {
+                pending_submit.clear();
+            }
+            let packet = out.packet;
             stats.encoded.fetch_add(1, Ordering::Relaxed);
             let packet_bytes = packet.data.len() as u64;
             stats
                 .encoded_bytes
                 .fetch_add(packet_bytes, Ordering::Relaxed);
             bytes_window += packet_bytes;
-            if let Some(capture_ms) = pending_packet_ms.pop_front() {
-                let now_ms = start.elapsed().as_millis() as u64 % 1_000_000;
-                let diff = now_ms.wrapping_sub(capture_ms as u64) % 1_000_000;
-                if diff < 1_000 {
-                    enc_latency_us = diff * 1000;
-                }
+            // push 段在编码线程里补全，按出包时刻落地。
+            stats
+                .encode_us
+                .store(out.timing.push_us, Ordering::Relaxed);
+            let now_qpc = qpc_us();
+            let diff = now_qpc.saturating_sub(out.timing.capture_qpc) / 1000;
+            if diff < 1_000 {
+                enc_latency_us = diff * 1000;
             }
-            if pending_packet_ms.len() > 32 {
-                pending_packet_ms.clear();
-            }
-            match decoder.feed(&packet.data, packet.pts_ns / 1000) {
-                Ok(frames) => {
-                    for decoded in frames {
+            pending_decode.push_back(out.timing);
+            decoded_frames.clear();
+            let t_decode = Instant::now();
+            let feed_result = decoder.feed_each(
+                &packet.data,
+                packet.pts_ns / 1000,
+                &mut |frame| {
+                    decoded_frames.push(frame);
+                    Ok(())
+                },
+            );
+            decode_us += t_decode.elapsed().as_micros() as u64;
+            match feed_result {
+                Ok(()) => {
+                    for decoded in decoded_frames.drain(..) {
                         stats.decoded.fetch_add(1, Ordering::Relaxed);
                         // 编解码管线时延（不含 Flutter 合成），用于与画内回读互相校验。
-                        if let Some(capture_ms) = pending_capture_ms.pop_front() {
-                            let now_ms =
-                                start.elapsed().as_millis() as u64 % 1_000_000;
-                            let diff =
-                                now_ms.wrapping_sub(capture_ms as u64) % 1_000_000;
+                        let timing = pending_decode.pop_front();
+                        let decode_qpc = qpc_us();
+                        if let Some(t) = timing {
+                            let diff = decode_qpc.saturating_sub(t.capture_qpc) / 1000;
                             if diff < 1_000 {
                                 stats
                                     .pipeline_latency_us
                                     .store(diff * 1000, Ordering::Relaxed);
                             }
                         }
-                        if pending_capture_ms.len() > 32 {
-                            pending_capture_ms.clear();
+                        if pending_decode.len() > 32 {
+                            pending_decode.clear();
                         }
+                        let t_present = Instant::now();
                         let result = if let Some(texture) = decoded.texture.as_ref() {
                             present_gpu(
                                 &context,
@@ -648,9 +972,35 @@ fn run_pipeline(
                                 &decoded,
                             )
                         };
+                        present_us += t_present.elapsed().as_micros() as u64;
+                        let present_one_us = t_present.elapsed().as_micros() as u64;
                         if let Err(error) = result {
                             stats.set_error(error);
                             continue;
+                        }
+                        // 抖动归因明细（同一帧的分段加和，残差 = AMF 内部/系统调度）。
+                        if let (Some(file), Some(t)) = (trace.as_mut(), timing) {
+                            use std::io::Write;
+                            let pipeline_us = decode_qpc.saturating_sub(t.capture_qpc);
+                            let drops_now = stats.dropped.load(Ordering::Relaxed);
+                            let drops_delta = drops_now.saturating_sub(last_drops);
+                            last_drops = drops_now;
+                            let sum = t.rx_queue_us
+                                + t.capture_us
+                                + t.push_us
+                                + t.enc_wait_us
+                                + decode_us;
+                            let residual_us = pipeline_us.saturating_sub(sum);
+                            let _ = writeln!(
+                                file,
+                                "{trace_seq},{},{pipeline_us},{},{},{},{},{decode_us},{present_one_us},{residual_us},{drops_delta}",
+                                start.elapsed().as_millis(),
+                                t.capture_us,
+                                t.rx_queue_us,
+                                t.push_us,
+                                t.enc_wait_us,
+                            );
+                            trace_seq += 1;
                         }
                         unsafe {
                             let _ = SetEvent(events[index]);
@@ -663,6 +1013,12 @@ fn run_pipeline(
                 Err(error) => stats.set_error(format!("解码失败: {error}")),
             }
         }
+        stats.poll_us.store(poll_us, Ordering::Relaxed);
+        stats.decode_us.store(decode_us, Ordering::Relaxed);
+        stats.present_us.store(present_us, Ordering::Relaxed);
+        stats
+            .decoder_in_flight
+            .store(decoder.in_flight(), Ordering::Relaxed);
 
         // 帧率窗口（1 秒）。
         if window_start.elapsed() >= Duration::from_secs(1) {
@@ -672,11 +1028,19 @@ fn run_pipeline(
             // bits/ms 即 kbit/s：窗口内编码字节数 × 8 ÷ 窗口毫秒数。
             let kbps = bytes_window * 8 / millis;
             stats.bitrate_kbps.store(kbps, Ordering::Relaxed);
+            // 输出类型要等首帧解出后才能确定（启动时是 unknown），每窗口刷新一次，
+            // 使控制页与 CSV 都反映真实路径（如 ffmpeg/dxgi-texture）。
+            let decode_info = decoder.info();
+            Stats::set_text(&stats.decoder, format!("{}/{}", decode_info.backend, decode_info.name));
+            Stats::set_text(
+                &stats.decode_path,
+                format!("{}/{}", decode_info.backend, decode_info.output.as_str()),
+            );
             if let Some(file) = log_file.as_mut() {
                 use std::io::Write;
                 let _ = writeln!(
                     file,
-                    "{},{:.2},{},{},{},{},{},{},{},{},{},{}",
+                    "{},{:.2},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     start.elapsed().as_millis(),
                     fps_milli as f64 / 1000.0,
                     stats.captured.load(Ordering::Relaxed),
@@ -689,6 +1053,12 @@ fn run_pipeline(
                     stats.pipeline_latency_us.load(Ordering::Relaxed),
                     enc_latency_us,
                     Stats::text(&stats.decode_path),
+                    stats.capture_us.load(Ordering::Relaxed),
+                    stats.encode_us.load(Ordering::Relaxed),
+                    stats.poll_us.load(Ordering::Relaxed),
+                    stats.decode_us.load(Ordering::Relaxed),
+                    stats.present_us.load(Ordering::Relaxed),
+                    stats.decoder_in_flight.load(Ordering::Relaxed),
                 );
             }
             displayed_window = 0;
@@ -697,8 +1067,10 @@ fn run_pipeline(
         }
 
         // 时间码回读：每 500ms 一次，只拷左上角小区域，避免逐帧整帧回读。
+        let mut readback_us: u64 = 0;
         if last_readback.elapsed() >= Duration::from_millis(READBACK_INTERVAL_MS) {
             last_readback = Instant::now();
+            let t_readback = Instant::now();
             let read_index = index ^ 1;
             if let Some(value) = read_barcode(&context, &converter, &textures[read_index]) {
                 let now_ms = start.elapsed().as_millis() as u64 % 1_000_000;
@@ -719,7 +1091,9 @@ fn run_pipeline(
                     stats.readback_count.fetch_add(1, Ordering::Relaxed);
                 }
             }
+            readback_us = t_readback.elapsed().as_micros() as u64;
         }
+        let _ = readback_us;
     }
 
     // 先停采集（它会丢弃发送端，从而让下一次 recv 返回 Disconnected）。
@@ -1114,6 +1488,20 @@ fn read_barcode(
                 value |= 1 << (cell - 1);
             }
         }
+        // 颜色核对（块 4 C1）：`RDC_COLOR_PROBE=1` 时打印两个色块的回读值。
+        if std::env::var("RDC_COLOR_PROBE").map(|v| v != "0").unwrap_or(false) {
+            let y = 46usize;
+            let read = |x: usize| {
+                let o = y * pitch + x * 4;
+                let p = (mapped.pData as *const u8).add(o);
+                (*p, *p.add(1), *p.add(2))
+            };
+            let (lb, lg, lr) = read(12);
+            let (rb, rg, rr) = read(26);
+            eprintln!(
+                "[color] left(BGR)=({lb},{lg},{lr}) right(BGR)=({rb},{rg},{rr}) expected left=(0,0,255) right=(255,0,0)"
+            );
+        }
         context.Unmap(&converter.readback, 0);
     }
     if aligned {
@@ -1124,6 +1512,49 @@ fn read_barcode(
 }
 
 // =====** 日志落盘 =====**
+
+/// 本机单调时钟（微秒）：与采集侧 `FrameMeta::qpc_us` 同源，可直接相减算排队时长。
+fn qpc_us() -> u64 {
+    static FREQ: OnceLock<i64> = OnceLock::new();
+    let freq = *FREQ.get_or_init(|| {
+        let mut value = 0i64;
+        unsafe {
+            let _ = QueryPerformanceFrequency(&mut value);
+        }
+        value
+    });
+    let mut counter = 0i64;
+    unsafe {
+        let _ = QueryPerformanceCounter(&mut counter);
+    }
+    if freq > 0 {
+        (counter as u128 * 1_000_000 / freq as u128) as u64
+    } else {
+        0
+    }
+}
+
+/// 打开逐帧明细 CSV（`RDC_FRAME_TRACE=1` 时启用，默认关闭）。
+///
+/// 用途：S7-5 抖动归因。逐迭代记录各段耗时与 pipeline 时延，
+/// 让分析脚本能对「超过 30ms 的帧」按段求和找出主导段，而不是只看每秒中位数。
+fn open_frame_trace() -> Option<std::fs::File> {
+    use std::io::Write;
+    if std::env::var("RDC_FRAME_TRACE").ok().as_deref() != Some("1") {
+        return None;
+    }
+    let dir = std::env::var_os("RDC_CONTROL_LOG_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("rdc-control-logs"));
+    std::fs::create_dir_all(&dir).ok()?;
+    // 每次运行覆盖，避免多次运行的行混在一起。
+    let mut file = std::fs::File::create(dir.join("frames-detail.csv")).ok()?;
+    let _ = writeln!(
+        file,
+        "seq,t_ms,pipeline_us,capture_us,rx_queue_us,push_us,enc_wait_us,decode_us,present_us,residual_us,drops_delta"
+    );
+    Some(file)
+}
 
 /// 打开逐秒指标 CSV（`RDC_CONTROL_LOG_DIR` 或进程当前目录下的 `rdc-control-logs`）。
 fn open_log() -> Option<std::fs::File> {
@@ -1141,7 +1572,7 @@ fn open_log() -> Option<std::fs::File> {
     if std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0) == 0 {
         let _ = writeln!(
             file,
-            "elapsed_ms,fps,captured,encoded,decoded,dropped,latency_last_us,latency_p50_us,latency_p99_us,pipeline_latency_us,enc_latency_us,decode_path"
+            "elapsed_ms,fps,captured,encoded,decoded,dropped,latency_last_us,latency_p50_us,latency_p99_us,pipeline_latency_us,enc_latency_us,decode_path,capture_us,encode_us,poll_us,decode_us,present_us,decoder_in_flight"
         );
     }
     Some(file)
@@ -1149,7 +1580,10 @@ fn open_log() -> Option<std::fs::File> {
 
 // =====** 像素处理 =====**
 
-/// BGRA ↔ RGBA 原地交换（编码器要求 RGBA 输入）。
+/// BGRA ↔ RGBA 原地交换（只给声明 RGBA 输入的后端用，见 `input_is_bgra`）。
+///
+/// # Arguments
+/// * `data` - 整帧 BGRA8 缓冲（原地修改）。
 fn swap_rb(data: &mut [u8]) {
     for pixel in data.chunks_exact_mut(4) {
         pixel.swap(0, 2);
@@ -1196,6 +1630,22 @@ fn draw_barcode(data: &mut [u8], width: usize, elapsed_ms: u32) {
                     data[offset] = value;
                     data[offset + 1] = value;
                     data[offset + 2] = value;
+                    data[offset + 3] = 255;
+                }
+            }
+        }
+    }
+    // 颜色核对色块（块 4 C1）：左纯红、右纯蓝，画在回读区下缘（y 44..50），
+    // 不占 barcode 采样行。缓冲是 BGRA 字节序 → 红=(0,0,255)、蓝=(255,0,0)。
+    // 若编码链路里还残留 B↔R 交换，回读时会看到左右互换。
+    for (px, rgb) in [(12usize, (0u8, 0u8, 255u8)), (26usize, (255u8, 0u8, 0u8))] {
+        for y in 44..50 {
+            for x in px..px + 8 {
+                let offset = y * width * 4 + x * 4;
+                if offset + 3 < data.len() {
+                    data[offset] = rgb.0;
+                    data[offset + 1] = rgb.1;
+                    data[offset + 2] = rgb.2;
                     data[offset + 3] = 255;
                 }
             }

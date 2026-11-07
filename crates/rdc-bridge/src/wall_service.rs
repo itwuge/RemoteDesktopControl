@@ -532,14 +532,14 @@ fn decode_frame(
     }))
 }
 
-/// 编译期选择的解码句柄：Windows 用 Media Foundation，其余平台不可用。
+/// 编译期选择的解码句柄：Windows 用统一解码后端（默认 FFmpeg，MF 回退），其余平台不可用。
 #[cfg(target_os = "windows")]
-type DecoderHandle = rdc_decode::MfH264Decoder;
+type DecoderHandle = Box<dyn rdc_decode::VideoDecoder>;
 
 /// 打开解码器（软件路径，不持有 D3D11 设备）。
 #[cfg(target_os = "windows")]
 fn open_decoder() -> Result<DecoderHandle, String> {
-    rdc_decode::MfH264Decoder::open(WALL_WIDTH, WALL_HEIGHT, WALL_FPS, false)
+    rdc_decode::open_video_decoder(None, WALL_WIDTH, WALL_HEIGHT, WALL_FPS, false)
         .map_err(|error| format!("H.264 解码器创建失败：{error}"))
 }
 
