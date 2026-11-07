@@ -12,6 +12,8 @@
 // =====** 模块声明 =====**
 
 pub mod api;
+// Android 启动自检：纯 C ABI 出口，不经过 flutter_rust_bridge。
+pub mod android_selfcheck;
 #[cfg(windows)]
 mod control_service;
 #[cfg(target_os = "linux")]

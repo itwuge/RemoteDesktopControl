@@ -19,6 +19,7 @@ import 'controller/shell_controller.dart';
 import 'controller/wall_controller.dart';
 import 'core/utils/logger.dart';
 import 'model/account/account_repository.dart';
+import 'model/gateway/android_selfcheck.dart';
 import 'model/gateway/rust_gateway.dart';
 import 'model/settings/settings_repository.dart';
 import 'view/pages/permission_page.dart';
@@ -29,6 +30,17 @@ import 'view/theme/app_theme.dart';
 Future<void> main() async {
   // 必须在任何异步 IO 前初始化绑定（FRB 的默认加载器依赖平台通道）。
   WidgetsFlutterBinding.ensureInitialized();
+
+  // =====** Android 动态库自检（独立于 FRB，证据落 logcat） =====**
+  // 真机启动后 `adb logcat -s flutter` 应能看到 `rdc.AndroidSelfCheck: PASS: ...`。
+  final selfCheck = runAndroidSelfCheck();
+  if (selfCheck != null) {
+    RdcLogger.log(
+      'AndroidSelfCheck',
+      selfCheck.toString(),
+      level: selfCheck.passed ? LogLevel.info : LogLevel.error,
+    );
+  }
 
   // =====** Model 组装 =====**
   final gateway = RustGateway();

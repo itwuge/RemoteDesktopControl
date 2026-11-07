@@ -365,7 +365,7 @@ class _SessionPageState extends State<SessionPage> {
                   builder: (context, textureId, _) {
                     return ValueListenableBuilder<ControlFrameInfo?>(
                       valueListenable: controller.frame,
-                      builder: (context, frame, __) {
+                      builder: (context, frame, _) {
                         if (textureId == null && frame == null) {
                           return _buildPlaceholder();
                         }

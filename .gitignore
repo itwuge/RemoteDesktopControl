@@ -21,6 +21,8 @@ app/pubspec_overrides.yaml
 app/android/local.properties
 app/android/.gradle/
 app/android/key.properties
+# Rust 动态库由 packaging/android/build_apk.sh 用 cargo-ndk 生成，属构建产物不入库。
+app/android/app/src/main/jniLibs/
 app/ios/Pods/
 app/ios/Flutter/Generated.xcconfig
 app/ios/Flutter/flutter_export_environment.sh
