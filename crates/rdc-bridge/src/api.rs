@@ -667,9 +667,13 @@ pub fn control_start() -> Result<ControlStatusDto, String> {
     {
         crate::control_service::start().map(to_control_status)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
     {
-        Err("控制页外部纹理仅支持 Windows 桌面".to_owned())
+        crate::control_service_linux::start().map(to_control_status_linux)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        Err("控制页实时画面前仅支持 Windows / Linux 桌面".to_owned())
     }
 }
 
@@ -685,7 +689,11 @@ pub fn control_stop() -> Result<ControlStatusDto, String> {
     {
         crate::control_service::stop().map(to_control_status)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        crate::control_service_linux::stop().map(to_control_status_linux)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         Ok(ControlStatusDto::default())
     }
@@ -703,10 +711,63 @@ pub fn control_status() -> Result<ControlStatusDto, String> {
     {
         crate::control_service::status().map(to_control_status)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        crate::control_service_linux::status().map(to_control_status_linux)
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         Ok(ControlStatusDto::default())
     }
+}
+
+/// 控制页最新一帧 RGBA 画面（S8-3 Linux 降级上屏通道）。
+///
+/// Windows 走外部纹理，不使用本接口，恒返回 `None`。
+/// Linux 上 `control_start` 成功后由解码线程更新，Dart 侧按 15~30Hz 轮询。
+///
+/// # Returns
+/// 已有解码帧返回 `Some`；尚未出首帧或未启动返回 `None`。
+///
+/// # Errors
+/// 内部锁异常或平台未实现时返回错误文本。
+pub fn control_frame() -> Result<Option<ControlFrameDto>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::control_service_linux::latest_frame().map(|frame| {
+            frame.map(|frame| ControlFrameDto {
+                frame_id: frame.frame_id,
+                width: frame.width,
+                height: frame.height,
+                pts_us: frame.pts_us,
+                latency_us: frame.latency_us,
+                bytes: frame.bytes,
+            })
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(None)
+    }
+}
+
+/// 一帧 RGBA 画面。
+///
+/// `bytes` 为 RGBA8888，长度必须为 `width * height * 4`。
+#[derive(Debug, Clone)]
+pub struct ControlFrameDto {
+    /// 帧序号（单调递增，Dart 侧据此跳过重复帧）。
+    pub frame_id: u64,
+    /// 宽（像素）。
+    pub width: u32,
+    /// 高（像素）。
+    pub height: u32,
+    /// 采集时间戳（微秒，单调时钟）。
+    pub pts_us: u64,
+    /// 端到端延迟（微秒）。
+    pub latency_us: u64,
+    /// RGBA8888 像素。
+    pub bytes: Vec<u8>,
 }
 
 /// 控制快照转 DTO。
@@ -737,6 +798,39 @@ fn to_control_status(snapshot: crate::control_service::ControlSnapshot) -> Contr
         event_a: snapshot.event_a,
         event_b: snapshot.event_b,
         last_error: snapshot.last_error,
+    }
+}
+
+/// 控制快照转 DTO（Linux：外部纹理句柄不适用，恒为 0，画面走 `control_frame`）。
+#[cfg(target_os = "linux")]
+fn to_control_status_linux(
+    snapshot: crate::control_service_linux::ControlSnapshot,
+) -> ControlStatusDto {
+    ControlStatusDto {
+        running: snapshot.running,
+        backend: snapshot.backend,
+        encoder: snapshot.encoder,
+        decoder: snapshot.decoder,
+        texture_path: snapshot.texture_path,
+        decode_path: snapshot.decode_path,
+        width: snapshot.width,
+        height: snapshot.height,
+        fps: snapshot.fps,
+        captured_frames: snapshot.captured_frames,
+        encoded_frames: snapshot.encoded_frames,
+        decoded_frames: snapshot.decoded_frames,
+        dropped_frames: snapshot.dropped_frames,
+        encoded_bytes: snapshot.encoded_bytes,
+        bitrate_kbps: snapshot.bitrate_kbps,
+        latency_last_us: snapshot.latency_last_us,
+        latency_p50_us: snapshot.latency_p50_us,
+        latency_p99_us: snapshot.latency_p99_us,
+        readback_count: snapshot.readback_count,
+        share_handle_a: snapshot.share_handle_a,
+        share_handle_b: snapshot.share_handle_b,
+        event_a: snapshot.event_a,
+        event_b: snapshot.event_b,
+        last_error: (!snapshot.last_error.is_empty()).then_some(snapshot.last_error),
     }
 }
 

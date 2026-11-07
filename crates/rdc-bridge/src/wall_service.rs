@@ -141,6 +141,21 @@ fn service_slot() -> &'static Mutex<Option<ServiceState>> {
 /// # Errors
 /// 编码器或解码器创建失败时返回错误文本，且不留下运行中的线程。
 pub fn start() -> Result<WallSnapshot, String> {
+    // Linux 分支：采集与编码已具备，但缩略流解码后端尚未接入（rdc-decode 无 Linux 实现）。
+    // 明确返回「不支持」，而不是启动线程后异步失败或返回假帧；接口与 DTO 保持不变。
+    #[cfg(not(windows))]
+    {
+        Err("屏幕墙缩略预览暂不支持当前平台：缩略流解码仅 Windows 已实现（接口保留）".to_owned())
+    }
+    #[cfg(windows)]
+    {
+        start_windows()
+    }
+}
+
+/// Windows 实现：启动缩略流采集/编码/解码线程。
+#[cfg(windows)]
+fn start_windows() -> Result<WallSnapshot, String> {
     {
         let slot = service_slot().lock().map_err(|error| error.to_string())?;
         if let Some(state) = slot.as_ref() {

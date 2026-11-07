@@ -403,12 +403,30 @@ fn stop_control_step() -> TeardownStepDto {
             },
         }
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        match crate::control_service_linux::stop() {
+            Ok(snapshot) => TeardownStepDto {
+                name: "control_stop".to_owned(),
+                ok: !snapshot.running,
+                detail: format!(
+                    "采集 {} 帧 / 解码 {} 帧",
+                    snapshot.captured_frames, snapshot.decoded_frames
+                ),
+            },
+            Err(error) => TeardownStepDto {
+                name: "control_stop".to_owned(),
+                ok: false,
+                detail: error,
+            },
+        }
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         TeardownStepDto {
             name: "control_stop".to_owned(),
             ok: true,
-            detail: "非 Windows 平台无画面管线".to_owned(),
+            detail: "当前平台无画面管线".to_owned(),
         }
     }
 }
@@ -449,6 +467,13 @@ fn running_services() -> u32 {
     }
     #[cfg(windows)]
     if crate::control_service::status()
+        .map(|s| s.running)
+        .unwrap_or(false)
+    {
+        running += 1;
+    }
+    #[cfg(target_os = "linux")]
+    if crate::control_service_linux::status()
         .map(|s| s.running)
         .unwrap_or(false)
     {

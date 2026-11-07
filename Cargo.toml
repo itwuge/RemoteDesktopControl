@@ -122,6 +122,8 @@ rdc-filetransfer = { path = "crates/rdc-filetransfer" }
 rdc-core = { path = "crates/rdc-core" }
 rdc-bridge = { path = "crates/rdc-bridge" }
 rdc-signal = { path = "crates/rdc-signal" }
+# Linux 本机回环链路复用 S8-2 的协议/解码实现，避免桥接层再复制一份（仅 Linux 编译）。
+rdc-linux-e2e = { path = "crates/rdc-linux-e2e" }
 
 # 性能敏感路径统一开启优化，Debug 构建也保证 S1 自检不被拖慢（无业务逻辑，仅留约定）。
 [profile.dev.package."*"]
