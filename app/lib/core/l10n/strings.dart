@@ -224,6 +224,15 @@ class AppStrings {
   /// 纹理待接线说明。
   static const sessionTexturePending = '外部纹理待接线：内核尚未注册 Windows 纹理，当前不显示假画面。';
 
+  /// 真实画面启动中。
+  static const sessionTextureStarting = '正在启动被控端真实桌面采集…';
+
+  /// 真实画面启动失败前缀。
+  static const sessionTextureFailed = '真实画面启动失败：';
+
+  /// 锁屏采集说明。
+  static const sessionLockedHint = '画面来自被控端真实桌面采集；如被控端处于锁屏，采集内容即锁屏画面。';
+
   /// 断开。
   static const disconnect = '断开';
 

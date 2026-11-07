@@ -1106,9 +1106,12 @@ name = "rdc-bridge"
 version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
+ "rdc-capture",
+ "rdc-codec",
  "rdc-core",
  "rdc-decode",
  "rdc-protocol",
+ "windows",
 ]
 
 [[package]]

@@ -569,3 +569,137 @@ fn to_wall_status(snapshot: wall_service::WallSnapshot) -> WallStatusDto {
         last_error: snapshot.last_error,
     }
 }
+
+// =====** 控制页真实画面（外部纹理） =====**
+
+/// 控制页预览状态。
+#[derive(Debug, Clone)]
+pub struct ControlStatusDto {
+    /// 是否运行。
+    pub running: bool,
+    /// 采集后端。
+    pub backend: String,
+    /// 编码器名称。
+    pub encoder: String,
+    /// 解码器名称。
+    pub decoder: String,
+    /// 上屏通道（`dxgi-shared-texture`）。
+    pub texture_path: String,
+    /// 解码输出路径（`dxgi-texture` / `system-memory`）。
+    pub decode_path: String,
+    /// 画面宽。
+    pub width: u32,
+    /// 画面高。
+    pub height: u32,
+    /// 实测帧率。
+    pub fps: f64,
+    /// 采集帧数。
+    pub captured_frames: u64,
+    /// 编码包数。
+    pub encoded_frames: u64,
+    /// 解码帧数。
+    pub decoded_frames: u64,
+    /// 采集丢帧数。
+    pub dropped_frames: u64,
+    /// 最近端到端延迟（微秒）。
+    pub latency_last_us: u64,
+    /// 延迟 p50（微秒）。
+    pub latency_p50_us: u64,
+    /// 延迟 p99（微秒）。
+    pub latency_p99_us: u64,
+    /// 时间码回读次数。
+    pub readback_count: u64,
+    /// 共享纹理句柄 A。
+    pub share_handle_a: i64,
+    /// 共享纹理句柄 B。
+    pub share_handle_b: i64,
+    /// 新帧事件 A。
+    pub event_a: i64,
+    /// 新帧事件 B。
+    pub event_b: i64,
+    /// 最近错误。
+    pub last_error: Option<String>,
+}
+
+/// 启动控制页真实画面预览。
+///
+/// # Returns
+/// 启动后的状态（含共享纹理句柄与事件句柄，供 runner 注册外部纹理）。
+///
+/// # Errors
+/// 非 Windows 平台或采集/编解码资源创建失败时返回错误文本。
+pub fn control_start() -> Result<ControlStatusDto, String> {
+    #[cfg(windows)]
+    {
+        crate::control_service::start().map(to_control_status)
+    }
+    #[cfg(not(windows))]
+    {
+        Err("控制页外部纹理仅支持 Windows 桌面".to_owned())
+    }
+}
+
+/// 停止控制页预览。
+///
+/// # Returns
+/// 停止后的状态。
+///
+/// # Errors
+/// 内部锁异常时返回错误文本。
+pub fn control_stop() -> Result<ControlStatusDto, String> {
+    #[cfg(windows)]
+    {
+        crate::control_service::stop().map(to_control_status)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(ControlStatusDto::default())
+    }
+}
+
+/// 读取控制页预览状态。
+///
+/// # Returns
+/// 实时状态快照。
+///
+/// # Errors
+/// 内部锁异常时返回错误文本。
+pub fn control_status() -> Result<ControlStatusDto, String> {
+    #[cfg(windows)]
+    {
+        crate::control_service::status().map(to_control_status)
+    }
+    #[cfg(not(windows))]
+    {
+        Ok(ControlStatusDto::default())
+    }
+}
+
+/// 控制快照转 DTO。
+#[cfg(windows)]
+fn to_control_status(snapshot: crate::control_service::ControlSnapshot) -> ControlStatusDto {
+    ControlStatusDto {
+        running: snapshot.running,
+        backend: snapshot.backend,
+        encoder: snapshot.encoder,
+        decoder: snapshot.decoder,
+        texture_path: snapshot.texture_path,
+        decode_path: snapshot.decode_path,
+        width: snapshot.width,
+        height: snapshot.height,
+        fps: snapshot.fps,
+        captured_frames: snapshot.captured_frames,
+        encoded_frames: snapshot.encoded_frames,
+        decoded_frames: snapshot.decoded_frames,
+        dropped_frames: snapshot.dropped_frames,
+        latency_last_us: snapshot.latency_last_us,
+        latency_p50_us: snapshot.latency_p50_us,
+        latency_p99_us: snapshot.latency_p99_us,
+        readback_count: snapshot.readback_count,
+        share_handle_a: snapshot.share_handle_a,
+        share_handle_b: snapshot.share_handle_b,
+        event_a: snapshot.event_a,
+        event_b: snapshot.event_b,
+        last_error: snapshot.last_error,
+    }
+}

@@ -144,6 +144,101 @@ class WallStatusInfo {
   final String? lastError;
 }
 
+/// 控制页真实画面状态（外部纹理 + 实测指标）。
+class ControlPreviewInfo {
+  /// 创建状态快照。
+  const ControlPreviewInfo({
+    required this.running,
+    required this.backend,
+    required this.encoder,
+    required this.decoder,
+    required this.texturePath,
+    required this.decodePath,
+    required this.width,
+    required this.height,
+    required this.fps,
+    required this.capturedFrames,
+    required this.encodedFrames,
+    required this.decodedFrames,
+    required this.droppedFrames,
+    required this.latencyLastUs,
+    required this.latencyP50Us,
+    required this.latencyP99Us,
+    required this.readbackCount,
+    required this.shareHandleA,
+    required this.shareHandleB,
+    required this.eventA,
+    required this.eventB,
+    required this.lastError,
+  });
+
+  /// 是否运行。
+  final bool running;
+
+  /// 采集后端。
+  final String backend;
+
+  /// 编码器名。
+  final String encoder;
+
+  /// 解码器名。
+  final String decoder;
+
+  /// 上屏通道。
+  final String texturePath;
+
+  /// 解码输出路径。
+  final String decodePath;
+
+  /// 画面宽。
+  final int width;
+
+  /// 画面高。
+  final int height;
+
+  /// 实测帧率。
+  final double fps;
+
+  /// 采集帧数。
+  final int capturedFrames;
+
+  /// 编码包数。
+  final int encodedFrames;
+
+  /// 解码帧数。
+  final int decodedFrames;
+
+  /// 采集丢帧数。
+  final int droppedFrames;
+
+  /// 最近端到端延迟（微秒）。
+  final int latencyLastUs;
+
+  /// 延迟 p50（微秒）。
+  final int latencyP50Us;
+
+  /// 延迟 p99（微秒）。
+  final int latencyP99Us;
+
+  /// 时间码回读次数。
+  final int readbackCount;
+
+  /// 共享纹理句柄 A。
+  final int shareHandleA;
+
+  /// 共享纹理句柄 B。
+  final int shareHandleB;
+
+  /// 新帧事件 A。
+  final int eventA;
+
+  /// 新帧事件 B。
+  final int eventB;
+
+  /// 最近错误。
+  final String? lastError;
+}
+
 /// 设置快照（FFI 边界值对象，由 SettingsRepository 转成 AppSettings）。
 class SettingsSnapshot {
   /// 创建设置快照。

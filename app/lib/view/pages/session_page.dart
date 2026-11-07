@@ -3,8 +3,8 @@
 //
 // 层级：view/pages
 // 被谁组装：shell_page.dart
-// 数据来源：SessionController（角色权限来自 Rust；画面纹理待接线）
-// 边界：视频必须走外部纹理，不允许逐帧转 Image；纹理未接通时显示明确待接线说明
+// 数据来源：SessionController（角色权限来自 Rust；画面来自 Rust 管线注册的外部纹理）
+// 边界：视频必须走外部纹理，不允许逐帧转 Image；纹理未接通时显示明确说明
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -13,11 +13,12 @@ import '../../controller/session_controller.dart';
 import '../../controller/shell_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
+import '../../model/gateway/rust_types.dart';
 import '../components/info_row.dart';
 import '../components/rdc_button.dart';
 
 /// 远程控制页。
-class SessionPage extends StatelessWidget {
+class SessionPage extends StatefulWidget {
   /// 创建控制页。
   ///
   /// [controller] 角色与全屏状态；[shell] 当前设备与断开返回。
@@ -33,10 +34,138 @@ class SessionPage extends StatelessWidget {
   /// 壳控制器。
   final ShellController shell;
 
+  @override
+  State<SessionPage> createState() => _SessionPageState();
+}
+
+/// 远程控制页状态。
+class _SessionPageState extends State<SessionPage> {
+  /// 会话控制器。
+  SessionController get controller => widget.controller;
+
+  /// 壳控制器。
+  ShellController get shell => widget.shell;
+
+  @override
+  void initState() {
+    super.initState();
+    // 进入控制页即启动真实画面管线（幂等，由控制器内部去重）。
+    controller.startPreview();
+  }
+
+  @override
+  void dispose() {
+    // 离开页面时释放纹理与采集管线。
+    controller.stopPreview();
+    super.dispose();
+  }
+
   /// 提示某功能待接线。
   void _pending(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text(AppStrings.pendingWiring)),
+    );
+  }
+
+  // =====** 组件：视频区 + 悬浮工具条 =====**
+
+  /// 真实纹理画面或明确的待接通说明。
+  Widget _buildSurface() {
+    return ValueListenableBuilder<int?>(
+      valueListenable: controller.textureId,
+      builder: (context, textureId, _) {
+        if (textureId != null) {
+          return ValueListenableBuilder<ControlPreviewInfo?>(
+            valueListenable: controller.preview,
+            builder: (context, info, _) {
+              final width = info?.width ?? 1920;
+              final height = info?.height ?? 1080;
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
+                child: ColoredBox(
+                  color: Colors.black,
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: SizedBox(
+                      width: width.toDouble(),
+                      height: height.toDouble(),
+                      child: Texture(
+                        textureId: textureId,
+                        filterQuality: FilterQuality.low,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+          );
+        }
+        return ValueListenableBuilder<String?>(
+          valueListenable: controller.previewError,
+          builder: (context, error, _) {
+            return Container(
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
+                border: Border.all(color: RdcTokens.border),
+              ),
+              alignment: Alignment.center,
+              child: Padding(
+                padding: const EdgeInsets.all(RdcTokens.spaceXl),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      error == null
+                          ? Icons.videocam_outlined
+                          : Icons.videocam_off_outlined,
+                      size: 38,
+                      color: RdcTokens.textMuted,
+                    ),
+                    const SizedBox(height: RdcTokens.spaceMd),
+                    Text(
+                      error == null
+                          ? AppStrings.sessionTextureStarting
+                          : '${AppStrings.sessionTextureFailed}$error',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: RdcTokens.fontBody,
+                        color: RdcTokens.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// 画面上的实时指标（fps / 端到端延迟 / 丢帧）。
+  Widget _buildStatsPill() {
+    return ValueListenableBuilder<ControlPreviewInfo?>(
+      valueListenable: controller.preview,
+      builder: (context, info, _) {
+        if (info == null || !info.running) return const SizedBox.shrink();
+        final latencyMs = info.latencyLastUs / 1000.0;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: RdcTokens.background.withValues(alpha: 0.72),
+            borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
+          ),
+          child: Text(
+            '${info.fps.toStringAsFixed(1)} fps · '
+            '${latencyMs.toStringAsFixed(0)} ms · 丢 ${info.droppedFrames}',
+            style: const TextStyle(
+              fontSize: RdcTokens.fontCaption,
+              color: RdcTokens.textPrimary,
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -57,41 +186,13 @@ class SessionPage extends StatelessWidget {
               return Stack(
                 fit: StackFit.expand,
                 children: [
-                  // 视频占位：明确说明外部纹理未接通，不画假画面。
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
-                      border: Border.all(color: RdcTokens.border),
-                    ),
-                    alignment: Alignment.center,
-                    child: Padding(
-                      padding: const EdgeInsets.all(RdcTokens.spaceXl),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.videocam_off_outlined,
-                            size: 38,
-                            color: RdcTokens.textMuted,
-                          ),
-                          const SizedBox(height: RdcTokens.spaceMd),
-                          const Text(
-                            AppStrings.sessionTexturePending,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: RdcTokens.fontBody,
-                              color: RdcTokens.textMuted,
-                            ),
-                          ),
-                          const SizedBox(height: RdcTokens.spaceSm),
-                          RdcStatusPill(
-                            text: AppStrings.pendingBadge,
-                            color: RdcTokens.danger,
-                          ),
-                        ],
-                      ),
-                    ),
+                  // 真实画面：外部纹理直接上屏，不做逐帧 RGBA 拷贝。
+                  _buildSurface(),
+                  // 右上角：实测帧率 / 端到端延迟 / 丢帧
+                  Positioned(
+                    right: RdcTokens.spaceLg,
+                    top: RdcTokens.spaceLg,
+                    child: _buildStatsPill(),
                   ),
                   // 左上角：设备名 + 角色
                   Positioned(

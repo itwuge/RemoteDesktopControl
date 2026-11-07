@@ -8,6 +8,7 @@
 
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import '../../core/utils/logger.dart';
@@ -336,6 +337,81 @@ class RustGateway {
       height: dto.height,
       latencyUs: dto.latencyUs.toInt(),
       latestPtsUs: dto.latestPtsUs.toInt(),
+      lastError: dto.lastError,
+    );
+  }
+
+  // =========** 控制页真实画面（外部纹理） =========
+
+  /// Windows runner 的纹理桥方法通道。
+  static const MethodChannel _controlTextureChannel =
+      MethodChannel('rdc/control_texture');
+
+  /// 启动控制页真实画面管线（被控端真实桌面采集）。
+  Future<ControlPreviewInfo> startControlPreview() async {
+    _ensureInitialized();
+    return _toControlPreviewInfo(await rust_api.controlStart());
+  }
+
+  /// 停止控制页画面管线。
+  Future<ControlPreviewInfo> stopControlPreview() async {
+    _ensureInitialized();
+    return _toControlPreviewInfo(await rust_api.controlStop());
+  }
+
+  /// 读取控制页画面状态。
+  Future<ControlPreviewInfo> controlPreviewStatus() async {
+    _ensureInitialized();
+    return _toControlPreviewInfo(await rust_api.controlStatus());
+  }
+
+  /// 把共享纹理句柄注册为 Flutter 外部纹理。
+  ///
+  /// 返回：Flutter 纹理 ID；非 Windows 或注册失败时为 `null`。
+  Future<int?> registerControlTexture(ControlPreviewInfo info) async {
+    if (!Platform.isWindows) return null;
+    final reply = await _controlTextureChannel
+        .invokeMapMethod<String, Object?>('register', <String, Object?>{
+      'handle_a': info.shareHandleA,
+      'handle_b': info.shareHandleB,
+      'event_a': info.eventA,
+      'event_b': info.eventB,
+      'width': info.width,
+      'height': info.height,
+    });
+    return (reply?['texture_id'] as num?)?.toInt();
+  }
+
+  /// 注销外部纹理（必须在停止 Rust 管线之前调用，避免句柄被提前释放）。
+  Future<void> unregisterControlTexture() async {
+    if (!Platform.isWindows) return;
+    await _controlTextureChannel.invokeMethod<void>('unregister');
+  }
+
+  /// 把 Rust 控制 DTO 转成值对象。
+  ControlPreviewInfo _toControlPreviewInfo(rust_api.ControlStatusDto dto) {
+    return ControlPreviewInfo(
+      running: dto.running,
+      backend: dto.backend,
+      encoder: dto.encoder,
+      decoder: dto.decoder,
+      texturePath: dto.texturePath,
+      decodePath: dto.decodePath,
+      width: dto.width,
+      height: dto.height,
+      fps: dto.fps,
+      capturedFrames: dto.capturedFrames.toInt(),
+      encodedFrames: dto.encodedFrames.toInt(),
+      decodedFrames: dto.decodedFrames.toInt(),
+      droppedFrames: dto.droppedFrames.toInt(),
+      latencyLastUs: dto.latencyLastUs.toInt(),
+      latencyP50Us: dto.latencyP50Us.toInt(),
+      latencyP99Us: dto.latencyP99Us.toInt(),
+      readbackCount: dto.readbackCount.toInt(),
+      shareHandleA: dto.shareHandleA,
+      shareHandleB: dto.shareHandleB,
+      eventA: dto.eventA,
+      eventB: dto.eventB,
       lastError: dto.lastError,
     );
   }

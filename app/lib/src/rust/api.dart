@@ -7,8 +7,8 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `config_dir`, `device_path`, `from_settings_dto`, `parse_role`, `settings_path`, `to_device_dto`, `to_settings_dto`, `to_wall_status`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `config_dir`, `device_path`, `from_settings_dto`, `parse_role`, `settings_path`, `to_control_status`, `to_device_dto`, `to_settings_dto`, `to_wall_status`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// 返回 Rust 核心版本号。
 ///
@@ -225,6 +225,183 @@ Future<WallStatusDto> wallStatus() => RustLib.instance.api.crateApiWallStatus();
 /// 内部锁异常时返回错误文本。
 Future<WallPreviewDto?> wallLatest() =>
     RustLib.instance.api.crateApiWallLatest();
+
+/// 启动控制页真实画面预览。
+///
+/// # Returns
+/// 启动后的状态（含共享纹理句柄与事件句柄，供 runner 注册外部纹理）。
+///
+/// # Errors
+/// 非 Windows 平台或采集/编解码资源创建失败时返回错误文本。
+Future<ControlStatusDto> controlStart() =>
+    RustLib.instance.api.crateApiControlStart();
+
+/// 停止控制页预览。
+///
+/// # Returns
+/// 停止后的状态。
+///
+/// # Errors
+/// 内部锁异常时返回错误文本。
+Future<ControlStatusDto> controlStop() =>
+    RustLib.instance.api.crateApiControlStop();
+
+/// 读取控制页预览状态。
+///
+/// # Returns
+/// 实时状态快照。
+///
+/// # Errors
+/// 内部锁异常时返回错误文本。
+Future<ControlStatusDto> controlStatus() =>
+    RustLib.instance.api.crateApiControlStatus();
+
+/// 控制页预览状态。
+class ControlStatusDto {
+  /// 是否运行。
+  final bool running;
+
+  /// 采集后端。
+  final String backend;
+
+  /// 编码器名称。
+  final String encoder;
+
+  /// 解码器名称。
+  final String decoder;
+
+  /// 上屏通道（`dxgi-shared-texture`）。
+  final String texturePath;
+
+  /// 解码输出路径（`dxgi-texture` / `system-memory`）。
+  final String decodePath;
+
+  /// 画面宽。
+  final int width;
+
+  /// 画面高。
+  final int height;
+
+  /// 实测帧率。
+  final double fps;
+
+  /// 采集帧数。
+  final BigInt capturedFrames;
+
+  /// 编码包数。
+  final BigInt encodedFrames;
+
+  /// 解码帧数。
+  final BigInt decodedFrames;
+
+  /// 采集丢帧数。
+  final BigInt droppedFrames;
+
+  /// 最近端到端延迟（微秒）。
+  final BigInt latencyLastUs;
+
+  /// 延迟 p50（微秒）。
+  final BigInt latencyP50Us;
+
+  /// 延迟 p99（微秒）。
+  final BigInt latencyP99Us;
+
+  /// 时间码回读次数。
+  final BigInt readbackCount;
+
+  /// 共享纹理句柄 A。
+  final PlatformInt64 shareHandleA;
+
+  /// 共享纹理句柄 B。
+  final PlatformInt64 shareHandleB;
+
+  /// 新帧事件 A。
+  final PlatformInt64 eventA;
+
+  /// 新帧事件 B。
+  final PlatformInt64 eventB;
+
+  /// 最近错误。
+  final String? lastError;
+
+  const ControlStatusDto({
+    required this.running,
+    required this.backend,
+    required this.encoder,
+    required this.decoder,
+    required this.texturePath,
+    required this.decodePath,
+    required this.width,
+    required this.height,
+    required this.fps,
+    required this.capturedFrames,
+    required this.encodedFrames,
+    required this.decodedFrames,
+    required this.droppedFrames,
+    required this.latencyLastUs,
+    required this.latencyP50Us,
+    required this.latencyP99Us,
+    required this.readbackCount,
+    required this.shareHandleA,
+    required this.shareHandleB,
+    required this.eventA,
+    required this.eventB,
+    this.lastError,
+  });
+
+  @override
+  int get hashCode =>
+      running.hashCode ^
+      backend.hashCode ^
+      encoder.hashCode ^
+      decoder.hashCode ^
+      texturePath.hashCode ^
+      decodePath.hashCode ^
+      width.hashCode ^
+      height.hashCode ^
+      fps.hashCode ^
+      capturedFrames.hashCode ^
+      encodedFrames.hashCode ^
+      decodedFrames.hashCode ^
+      droppedFrames.hashCode ^
+      latencyLastUs.hashCode ^
+      latencyP50Us.hashCode ^
+      latencyP99Us.hashCode ^
+      readbackCount.hashCode ^
+      shareHandleA.hashCode ^
+      shareHandleB.hashCode ^
+      eventA.hashCode ^
+      eventB.hashCode ^
+      lastError.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ControlStatusDto &&
+          runtimeType == other.runtimeType &&
+          running == other.running &&
+          backend == other.backend &&
+          encoder == other.encoder &&
+          decoder == other.decoder &&
+          texturePath == other.texturePath &&
+          decodePath == other.decodePath &&
+          width == other.width &&
+          height == other.height &&
+          fps == other.fps &&
+          capturedFrames == other.capturedFrames &&
+          encodedFrames == other.encodedFrames &&
+          decodedFrames == other.decodedFrames &&
+          droppedFrames == other.droppedFrames &&
+          latencyLastUs == other.latencyLastUs &&
+          latencyP50Us == other.latencyP50Us &&
+          latencyP99Us == other.latencyP99Us &&
+          readbackCount == other.readbackCount &&
+          shareHandleA == other.shareHandleA &&
+          shareHandleB == other.shareHandleB &&
+          eventA == other.eventA &&
+          eventB == other.eventB &&
+          lastError == other.lastError;
+}
 
 /// 设备条目（跨 FFI 的可复制快照）。
 class DeviceDto {

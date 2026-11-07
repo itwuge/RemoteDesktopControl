@@ -798,13 +798,15 @@ impl DxgiCapturer {
         let mapped: windows::Win32::Graphics::Direct3D11::D3D11_MAPPED_SUBRESOURCE = mapped;
 
         let mut pixels = vec![0u8; PixelFormat::Bgra8.buffer_size(w, h)];
-        // 逐行拷贝：源行距可能大于宽度*4（GPU 对齐），目标使用紧凑排布。
+        // 逐行拷贝：源行距可能大于宽度*4（GPU 对齐），目标使用紧凑排布；
+        // 每行字节数必须是 宽度*4，之前误传像素数导致每行只拷到左侧 1/4 画面。
+        let row_bytes = w as usize * 4;
         copy_rows(
             mapped.pData as *const u8,
             mapped.RowPitch as usize,
             &mut pixels,
-            w as usize * 4,
-            w as usize,
+            row_bytes,
+            row_bytes,
             h as usize,
         );
         self.context.Unmap(staging, 0);
