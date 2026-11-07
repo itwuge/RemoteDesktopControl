@@ -163,6 +163,34 @@ pub trait CaptureSource: Send {
     /// 不会失败。
     fn set_sink(&mut self, sink: Arc<dyn FrameSink>);
 
+    /// 请求「纹理直出」：采集侧把帧写到调用方提供的 D3D11 设备上的纹理。
+    ///
+    /// 为什么用设备而不是共享句柄：共享句柄需要 keyed mutex 与跨设备打开，
+    /// 每帧多两次同步；直接把管线设备交给采集线程，纹理在同一设备上即取即用。
+    ///
+    /// 约束（实现方必须保证）：
+    /// - 设备必须与目标输出属于同一适配器，否则 DDA 建立失败；
+    /// - 设备的立即上下文会由采集线程与管线线程共同使用，调用方必须先
+    ///   `ID3D10Multithread::SetMultithreadProtected(true)`；
+    /// - 传入的纹理由采集侧池化管理，租约随 [`crate::Frame::gpu`] 交还。
+    ///
+    /// 调用线程：rdc-ctl（会话建立前一次性调用）。
+    ///
+    /// # Arguments
+    /// * `device` - `ID3D11Device*`（以 `usize` 传递）；传 0 表示关闭纹理直出。
+    /// * `context` - `ID3D11DeviceContext*`；当前实现由采集侧从设备取立即上下文，
+    ///   该参数保留给需要独立上下文的平台。
+    ///
+    /// # Returns
+    /// 后端接受该设备时返回 `true`；不支持纹理直出（GDI 回退、非 Windows）返回 `false`，
+    /// 调用方据此继续走 CPU BGRA 路径。
+    ///
+    /// # Errors
+    /// 不会失败。
+    fn set_gpu_device(&mut self, _device: usize, _context: usize) -> bool {
+        false
+    }
+
     /// 运行期重配（分辨率、帧率或显示器拓扑变化）。
     ///
     /// 调用线程：rdc-ctl。

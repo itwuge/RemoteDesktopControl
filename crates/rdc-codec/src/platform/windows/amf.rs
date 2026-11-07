@@ -34,6 +34,7 @@ use crate::error::CodecError;
 
 type OpenFn = unsafe extern "C" fn(i32, i32, i32, i32, i32, i32, *mut c_void) -> i32;
 type PushRgbaFn = unsafe extern "C" fn(*const u8, i32, i64) -> i32;
+type PushTextureFn = unsafe extern "C" fn(*mut c_void, u32, i64) -> i32;
 type PollFn = unsafe extern "C" fn(*mut u8, i32, *mut i32, *mut i64, *mut i32) -> i32;
 type DrainFn = unsafe extern "C" fn() -> i32;
 type CloseFn = unsafe extern "C" fn();
@@ -48,6 +49,7 @@ pub struct AmfEncoder {
     _lib: HMODULE,
     open: OpenFn,
     push_rgba: PushRgbaFn,
+    push_tex: PushTextureFn,
     poll: PollFn,
     drain: DrainFn,
     close: CloseFn,
@@ -59,6 +61,10 @@ pub struct AmfEncoder {
     out_buf: Vec<u8>,
     name: &'static str,
     warned_keyframe: bool,
+    /// 纹理直入时使用的调用方设备（`ID3D11Device*` 的 `usize`）；`0` 表示 host BGRA。
+    d3d_device: usize,
+    /// 实际生效的输入模式（0=host BGRA，1=DX11 BGRA，2=DX11→VP→NV12）。
+    input_mode: i32,
 }
 
 // AMF 会话由单线程独占（与 MF 后端同一约定）；库句柄本身可跨线程持有。
@@ -71,6 +77,7 @@ impl AmfEncoder {
         unsafe {
             let open = symbol::<OpenFn>(lib, b"rdcamf_open\0")?;
             let push_rgba = symbol::<PushRgbaFn>(lib, b"rdcamf_push_rgba\0")?;
+            let push_tex = symbol::<PushTextureFn>(lib, b"rdcamf_push_texture\0")?;
             let poll = symbol::<PollFn>(lib, b"rdcamf_poll\0")?;
             let drain = symbol::<DrainFn>(lib, b"rdcamf_drain\0")?;
             let close = symbol::<CloseFn>(lib, b"rdcamf_close\0")?;
@@ -80,6 +87,7 @@ impl AmfEncoder {
                 _lib: lib,
                 open,
                 push_rgba,
+                push_tex,
                 poll,
                 drain,
                 close,
@@ -90,6 +98,8 @@ impl AmfEncoder {
                 out_buf: vec![0u8; 4 * 1024 * 1024],
                 name: "amf-h264-d3d11",
                 warned_keyframe: false,
+                d3d_device: 0,
+                input_mode: 0,
             })
         }
     }
@@ -171,6 +181,13 @@ impl VideoEncoder for AmfEncoder {
         }]
     }
 
+    fn attach_d3d11(&mut self, device: usize, _context: usize, prefer_texture: bool) -> bool {
+        // 只接受纹理直入请求：设备由管线线程创建并持有，这里仅记录裸指针；
+        // 生命周期由调用方保证长于编码器（会话销毁后才释放设备）。
+        self.d3d_device = if prefer_texture { device } else { 0 };
+        self.d3d_device != 0
+    }
+
     fn configure(&mut self, config: VideoConfig) -> Result<(), CodecError> {
         if config.codec != CodecKind::H264 {
             return Err(CodecError::Unsupported);
@@ -185,8 +202,20 @@ impl VideoEncoder for AmfEncoder {
             unsafe { (self.close)() };
             self.config = None;
         }
-        // input_mode=0：host BGRA（采集帧为 BGRA8）。纹理直入路径已由 spike 实测
-        // （DX11 BGRA p50 1.8ms / VP→NV12 p50 1.9ms），待采集侧交付 D3D11 纹理后启用。
+        // 输入模式：调用方绑定了 D3D11 设备就走纹理直入（默认 2 = DX11 BGRA→VideoProcessor→NV12，
+        // spike 实测 p99 2.958ms 优于直入 BGRA 的 3.495ms）；否则 host BGRA。
+        // `RDC_AMF_INPUT` 可覆盖纹理模式（1 = BGRA 直入，2 = VP→NV12），便于 A/B。
+        let (mode, device) = if self.d3d_device != 0 {
+            let mode = std::env::var("RDC_AMF_INPUT")
+                .ok()
+                .and_then(|v| v.parse::<i32>().ok())
+                .unwrap_or(2)
+                .clamp(1, 2);
+            (mode, self.d3d_device as *mut c_void)
+        } else {
+            (0, std::ptr::null_mut())
+        };
+        self.input_mode = mode;
         let rc = unsafe {
             (self.open)(
                 config.width as i32,
@@ -194,21 +223,27 @@ impl VideoEncoder for AmfEncoder {
                 config.fps as i32,
                 config.bitrate_bps as i32,
                 0,
-                0,
-                std::ptr::null_mut(),
+                mode,
+                device,
             )
         };
         if rc != 0 {
             let msg = self.error_text();
-            tracing::error!("[amf] 打开失败: {}", msg);
+            tracing::error!("[amf] 打开失败（input_mode={}）: {}", mode, msg);
             return Err(CodecError::HardwareUnsupported);
         }
+        self.name = if mode == 0 {
+            "amf-h264-d3d11-host"
+        } else {
+            "amf-h264-d3d11-tex"
+        };
         tracing::info!(
-            "[amf] 后端已打开 {}x{}@{} bitrate={} queue_depth={} usage_effective=probed",
+            "[amf] 后端已打开 {}x{}@{} bitrate={} input_mode={} queue_depth={}",
             config.width,
             config.height,
             config.fps,
             config.bitrate_bps,
+            mode,
             QUEUE_DEPTH
         );
         self.config = Some(config);
@@ -248,6 +283,37 @@ impl VideoEncoder for AmfEncoder {
         if rc != 0 {
             return Err(CodecError::EncoderFailure(format!(
                 "AMF SubmitInput 失败: {}",
+                self.error_text()
+            )));
+        }
+        Ok(())
+    }
+
+    fn push_texture(
+        &mut self,
+        texture: usize,
+        array_slice: u32,
+        pts_ns: u64,
+        force_keyframe: bool,
+    ) -> Result<(), CodecError> {
+        if self.config.is_none() || self.input_mode == 0 {
+            return Err(CodecError::HardwareUnsupported);
+        }
+        if force_keyframe && !self.warned_keyframe {
+            self.warned_keyframe = true;
+            tracing::warn!("[amf] shim 未暴露强制 IDR 接口，关键帧请求按 GOP 周期生效");
+        }
+        // 纹理必须与 open 时传入的设备同源；调用方持有租约直到编码器取走该帧。
+        let rc = unsafe {
+            (self.push_tex)(
+                texture as *mut c_void,
+                array_slice,
+                (pts_ns / 1000) as i64,
+            )
+        };
+        if rc != 0 {
+            return Err(CodecError::EncoderFailure(format!(
+                "AMF SubmitInput(texture) 失败: {}",
                 self.error_text()
             )));
         }

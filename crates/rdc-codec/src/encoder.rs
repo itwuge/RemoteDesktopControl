@@ -201,6 +201,57 @@ pub trait VideoEncoder: Send {
         force_keyframe: bool,
     ) -> Result<(), CodecError>;
 
+    /// 绑定调用方的 D3D11 设备，启用「纹理直入」。
+    ///
+    /// 为什么在 trait 上而不是各后端私有：管线需要在会话建立前一次性决定
+    /// 「采集出纹理还是出 CPU 缓冲」，这个决定必须由编码器能力参与。
+    ///
+    /// 调用线程：rdc-ctl（`configure` 之前）。
+    /// 阻塞性：不阻塞。
+    ///
+    /// # Arguments
+    /// * `device` - `ID3D11Device*`（`usize`）；调用方保证生命周期长于编码器会话。
+    /// * `context` - `ID3D11DeviceContext*`（当前实现由后端自行获取立即上下文）。
+    /// * `prefer_texture` - 是否希望纹理直入；后端不支持时返回 `false`。
+    ///
+    /// # Returns
+    /// 接受纹理直入返回 `true`；否则返回 `false`（调用方继续走 CPU 缓冲）。
+    ///
+    /// # Errors
+    /// 不会失败。
+    fn attach_d3d11(&mut self, _device: usize, _context: usize, _prefer_texture: bool) -> bool {
+        false
+    }
+
+    /// 提交一帧 GPU 纹理（不做 CPU 拷贝）。
+    ///
+    /// 前置：`attach_d3d11` 返回 `true` 且已 `configure`。
+    /// 约束：纹理必须与绑定的设备同源；调用方必须持有纹理租约直到该帧出包。
+    ///
+    /// 调用线程：编码线程。
+    /// 阻塞性：短阻塞（提交到编码器，排队深度 1 时为微秒级）。
+    ///
+    /// # Arguments
+    /// * `texture` - 纹理裸句柄（`usize`）。
+    /// * `array_slice` - 数组层号。
+    /// * `pts_ns` - 采集时间戳（纳秒）。
+    /// * `force_keyframe` - 是否请求关键帧。
+    ///
+    /// # Returns
+    /// 入队成功返回 `Ok(())`。
+    ///
+    /// # Errors
+    /// 后端不支持纹理输入、未配置或提交失败时返回 [`CodecError`]。
+    fn push_texture(
+        &mut self,
+        _texture: usize,
+        _array_slice: u32,
+        _pts_ns: u64,
+        _force_keyframe: bool,
+    ) -> Result<(), CodecError> {
+        Err(CodecError::Unsupported)
+    }
+
     /// 非阻塞取出一包编码结果。
     ///
     /// 调用线程：编码线程。

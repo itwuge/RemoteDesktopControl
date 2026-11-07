@@ -30,7 +30,8 @@ use windows::Win32::Graphics::Direct3D11::{
     D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_INPUT_VIEW_DESC_0,
     D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC, D3D11_VIDEO_PROCESSOR_OUTPUT_VIEW_DESC_0,
     D3D11_VIDEO_PROCESSOR_STREAM, D3D11_VIDEO_USAGE_PLAYBACK_NORMAL, D3D11_VPIV_DIMENSION_TEXTURE2D,
-    D3D11_VPOV_DIMENSION_TEXTURE2D, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+    D3D11_VPOV_DIMENSION_TEXTURE2D, ID3D11Device, ID3D11DeviceContext, ID3D11Resource,
+    ID3D11Texture2D,
     ID3D11VideoContext, ID3D11VideoDevice, ID3D11VideoProcessor,
     ID3D11VideoProcessorEnumerator, ID3D11VideoProcessorInputView, ID3D11VideoProcessorOutputView,
 };
@@ -135,6 +136,16 @@ struct Stats {
     latency_p99_us: AtomicU64,
     pipeline_latency_us: AtomicU64,
     readback_count: AtomicU64,
+    /// 最近一帧采集耗时（微秒）：GPU 直出时是拷贝提交时间，CPU 路径含 staging 回读。
+    capture_us: AtomicU64,
+    /// 采集帧到手 → 编码入队耗时（微秒，含时间码覆盖/色彩交换）。
+    encode_us: AtomicU64,
+    /// 取编码输出耗时（微秒，本帧累计）。
+    poll_us: AtomicU64,
+    /// 解码喂入耗时（微秒，本帧累计）。
+    decode_us: AtomicU64,
+    /// 上屏（VideoProcessor Blit + SetEvent）耗时（微秒，本帧累计）。
+    present_us: AtomicU64,
     error: Mutex<Option<String>>,
     backend: Mutex<String>,
     encoder: Mutex<String>,
@@ -371,8 +382,146 @@ struct SetupInfo {
     decode_path: String,
 }
 
-/// 管线所需的全部原生资源（只在管线线程内创建、使用与释放）。
+/// GPU 时间码覆盖器。
+///
+/// 为什么需要它：纹理直出路径没有 CPU 像素可写，但画内时间码必须在编码前
+/// 进入画面。做法是把时间码画进一张 512×64 的小纹理（约 128KB 上传），
+/// 再用 `CopySubresourceRegion` 覆盖采集帧左上角的条带；整帧永不回读 CPU。
+struct BarcodeOverlay {
+    /// 覆盖用纹理（`DEFAULT`，每帧 `UpdateSubresource` 更新）；持有引用保证资源有效。
+    _texture: ID3D11Texture2D,
+    /// `ID3D11Resource` 视图（`UpdateSubresource`/拷贝源）。
+    resource: ID3D11Resource,
+    /// CPU 侧像素缓冲（`width × height BGRA`）。
+    pixels: Vec<u8>,
+    /// 行跨度（字节）。
+    stride: usize,
+    /// 覆盖纹理宽。
+    width: usize,
+    /// 覆盖纹理高。
+    height: usize,
+}
+
+impl BarcodeOverlay {
+    /// 覆盖纹理尺寸：覆盖时间码黑底带（x 8..504，y 8..40）即可。
+    const WIDTH: usize = 512;
+    /// 覆盖纹理高。
+    const HEIGHT: usize = 64;
+
+    /// 创建覆盖纹理。
+    ///
+    /// # Arguments
+    /// * `device` - 管线 D3D11 设备（与采集/编码器同一设备）。
+    ///
+    /// # Returns
+    /// 覆盖器。
+    ///
+    /// # Errors
+    /// 纹理创建失败时返回错误文本。
+    fn new(device: &ID3D11Device) -> Result<Self, String> {
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: Self::WIDTH as u32,
+            Height: Self::HEIGHT as u32,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            SampleDesc: DXGI_SAMPLE_DESC {
+                Count: 1,
+                Quality: 0,
+            },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: 0,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+        let mut texture: Option<ID3D11Texture2D> = None;
+        unsafe {
+            device
+                .CreateTexture2D(&desc, None, Some(&mut texture))
+                .map_err(|error| format!("创建时间码覆盖纹理失败: {error}"))?;
+        }
+        let texture = texture.ok_or_else(|| "没有时间码覆盖纹理".to_owned())?;
+        let resource: ID3D11Resource = texture
+            .cast()
+            .map_err(|error| format!("cast ID3D11Resource: {error}"))?;
+        Ok(Self {
+            _texture: texture,
+            resource,
+            pixels: vec![0u8; Self::WIDTH * Self::HEIGHT * 4],
+            stride: Self::WIDTH * 4,
+            width: Self::WIDTH,
+            height: Self::HEIGHT,
+        })
+    }
+
+    /// 把时间码画进覆盖纹理并覆盖到帧纹理左上角。
+    ///
+    /// # Arguments
+    /// * `context` - 管线立即上下文（与采集线程同一上下文，已开启多线程保护）。
+    /// * `frame_texture` - 采集帧纹理（`ID3D11Texture2D*`）。
+    /// * `array_slice` - 帧纹理数组层号。
+    /// * `elapsed_ms` - 已编码时间码值（毫秒）。
+    ///
+    /// # Returns
+    /// 成功返回 `Ok(())`。
+    ///
+    /// # Errors
+    /// 纹理句柄无效或类型不符时返回错误文本。
+    fn draw(
+        &mut self,
+        context: &ID3D11DeviceContext,
+        frame_texture: usize,
+        array_slice: u32,
+        elapsed_ms: u32,
+    ) -> Result<(), String> {
+        self.pixels.fill(0);
+        draw_barcode(&mut self.pixels, self.width, elapsed_ms);
+        // 只拷贝时间码黑底带（draw_barcode 已把该矩形填满，见函数内 band_* 计算）。
+        let band_left = (BARCODE_X0 - 8) as u32;
+        let band_top = (BARCODE_Y0 - 8) as u32;
+        let band_right = (BARCODE_X0 + BARCODE_BITS as usize * BARCODE_PITCH + 8) as u32;
+        let band_bottom = (BARCODE_Y0 + BARCODE_CELL + 8) as u32;
+        debug_assert!(band_right <= self.width as u32 && band_bottom <= self.height as u32);
+        unsafe {
+            context.UpdateSubresource(
+                &self.resource,
+                0,
+                None,
+                self.pixels.as_ptr() as *const std::ffi::c_void,
+                self.stride as u32,
+                0,
+            );
+            let raw = frame_texture as *mut std::ffi::c_void;
+            let dst = ID3D11Texture2D::from_raw_borrowed(&raw)
+                .ok_or_else(|| "时间码覆盖：帧纹理句柄为空".to_owned())?;
+            let dst_resource: ID3D11Resource = dst
+                .cast()
+                .map_err(|error| format!("cast ID3D11Resource: {error}"))?;
+            let bx = D3D11_BOX {
+                left: band_left,
+                top: band_top,
+                front: 0,
+                right: band_right,
+                bottom: band_bottom,
+                back: 1,
+            };
+            context.CopySubresourceRegion(
+                &dst_resource,
+                array_slice,
+                0,
+                0,
+                0,
+                &self.resource,
+                0,
+                Some(&bx),
+            );
+        }
+        Ok(())
+    }
+}
+
 struct PipelineParts {
+    /// 管线所需的全部原生资源（只在管线线程内创建、使用与释放）。
     info: SetupInfo,
     _device: ID3D11Device,
     context: ID3D11DeviceContext,
@@ -381,6 +530,8 @@ struct PipelineParts {
     converter: VideoConverter,
     encoder: Box<dyn rdc_codec::VideoEncoder>,
     decoder: Box<dyn VideoDecoder>,
+    /// GPU 时间码覆盖器（纹理直出路径使用）。
+    overlay: BarcodeOverlay,
 }
 
 /// 在管线线程内创建采集源、D3D11 资源、编码器与解码器，并启动采集。
@@ -441,10 +592,49 @@ fn setup_pipeline(
 
     // 4) 视频处理器：解码 NV12 → 共享 BGRA，全程 GPU。
     let converter = VideoConverter::new(&device, &context, &textures, width, height)?;
+    // 时间码覆盖纹理（纹理直出路径使用；CPU 路径不碰它）。
+    let overlay = BarcodeOverlay::new(&device)?;
 
     // 5) 编码器 / 解码器。
     let mut encoder =
         create_encoder(CodecKind::H264).map_err(|error| format!("创建编码器失败: {error}"))?;
+    // 纹理直出（S7-3）：只有厂商后端（AMF）接受 D3D11 直入；MFT 只能吃系统内存。
+    // 采集侧与编码器必须共用同一设备，否则纹理跨适配器/跨设备不可用。
+    //
+    // 默认关闭：RX580 / 驱动 31.0.21912.14 实测，AMF 的 `CreateSurfaceFromDX11Native`
+    // 在本进程共享设备上每帧引入 30~140ms 的驱动侧同步（隔离 spike 只有 1.8ms），
+    // 整条管线从 60fps 掉到 5~10fps。保留实现，用 `RDC_CAPTURE_GPU=1` 显式启用并复测。
+    let want_gpu = std::env::var("RDC_CAPTURE_GPU")
+        .map(|v| v != "0")
+        .unwrap_or(false);
+    if !want_gpu {
+        eprintln!("[control] 纹理直出未启用（默认 host BGRA；RDC_CAPTURE_GPU=1 可启用实验路径）");
+    }
+    let mut gpu_pipeline = false;
+    if want_gpu
+        && encoder.attach_d3d11(
+            device.as_raw() as usize,
+            context.as_raw() as usize,
+            true,
+        )
+    {
+        if source.set_gpu_device(device.as_raw() as usize, context.as_raw() as usize) {
+            gpu_pipeline = true;
+        } else {
+            // 编码器已切到纹理模式但采集给不出纹理：显式退回 host 模式，不留半开状态。
+            encoder.attach_d3d11(0, 0, false);
+            eprintln!("[control] 采集侧拒绝纹理直出，编码器回退 host BGRA（非静默）");
+        }
+    }
+    eprintln!(
+        "[control] capture={} encoder={}",
+        if gpu_pipeline {
+            "dxgi-texture-direct"
+        } else {
+            "cpu-bgra"
+        },
+        encoder.backend_name()
+    );
     encoder
         .configure(VideoConfig {
             codec: CodecKind::H264,
@@ -516,6 +706,7 @@ fn setup_pipeline(
         converter,
         encoder,
         decoder,
+        overlay,
     };
     Ok((source, rx, parts))
 }
@@ -539,6 +730,7 @@ fn run_pipeline(
         converter,
         mut encoder,
         mut decoder,
+        mut overlay,
     } = parts;
     let start = Instant::now();
     let mut index = 0usize;
@@ -554,6 +746,9 @@ fn run_pipeline(
     // 编码器输出时刻诊断：capture → packet，用来区分编码积压与解码积压。
     let mut pending_packet_ms: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
     let mut enc_latency_us: u64 = 0;
+    // 纹理直出路径下延迟归还的帧（租约保护：编码器可能异步持有纹理）。
+    let mut held_gpu_frames: std::collections::VecDeque<Frame> =
+        std::collections::VecDeque::with_capacity(4);
     // 一次送入可能解出 0..N 帧，复用缓冲避免每包分配。
     let mut decoded_frames: Vec<DecodedFrame> = Vec::new();
     loop {
@@ -578,27 +773,64 @@ fn run_pipeline(
             continue;
         }
         stats.captured.fetch_add(1, Ordering::Relaxed);
+        stats
+            .capture_us
+            .store(u64::from(bgra.capture_cost_us), Ordering::Relaxed);
 
         // BGRA → RGBA 原地交换，并把时间码画进左上角（编码前）。
-        let len = width as usize * height as usize * 4;
-        if bgra.buffer.as_slice().len() < len {
-            stats.set_error("采集帧缓冲小于整帧长度".to_owned());
-            continue;
-        }
-        let slice = &mut bgra.buffer.as_mut_slice()[..len];
-        swap_rb(slice);
-        draw_barcode(slice, width as usize, elapsed_ms);
         let pts_ns = bgra.meta.pts_ns;
         let force_key = stats.captured.load(Ordering::Relaxed) == 1;
-        if let Err(error) = encoder.push(bgra.buffer, pts_ns, force_key) {
-            stats.set_error(format!("编码入队失败: {error}"));
-            continue;
+        // 段计时 1/5：采集帧到手 → 编码器入队（含时间码覆盖/色彩交换）。
+        let t_encode = Instant::now();
+        if let Some(gpu) = bgra.gpu.as_ref() {
+            // 纹理直出：时间码用 GPU 小纹理覆盖，像素从不回读 CPU。
+            if let Err(error) = overlay.draw(&context, gpu.texture, gpu.array_slice, elapsed_ms) {
+                stats.set_error(error);
+                continue;
+            }
+            if let Err(error) =
+                encoder.push_texture(gpu.texture, gpu.array_slice, pts_ns, force_key)
+            {
+                stats.set_error(format!("编码入队失败（纹理）: {error}"));
+                continue;
+            }
+            // 租约延迟 3 帧归还：AMF 可能在 SubmitInput 返回后仍持有纹理直到出包。
+            held_gpu_frames.push_back(bgra);
+            if held_gpu_frames.len() > 3 {
+                held_gpu_frames.pop_front();
+            }
+        } else {
+            let len = width as usize * height as usize * 4;
+            if bgra.buffer.as_slice().len() < len {
+                stats.set_error("采集帧缓冲小于整帧长度".to_owned());
+                continue;
+            }
+            let slice = &mut bgra.buffer.as_mut_slice()[..len];
+            swap_rb(slice);
+            draw_barcode(slice, width as usize, elapsed_ms);
+            if let Err(error) = encoder.push(bgra.buffer, pts_ns, force_key) {
+                stats.set_error(format!("编码入队失败: {error}"));
+                continue;
+            }
         }
+        // 段计时 1/5（采集→编码入队）落地。
+        stats
+            .encode_us
+            .store(t_encode.elapsed().as_micros() as u64, Ordering::Relaxed);
         pending_capture_ms.push_back(elapsed_ms);
         pending_packet_ms.push_back(elapsed_ms);
 
         // 取编码输出并喂给解码器。
-        while let Some(packet) = encoder.poll_packet() {
+        let mut poll_us: u64 = 0;
+        let mut decode_us: u64 = 0;
+        let mut present_us: u64 = 0;
+        loop {
+            let t_poll = Instant::now();
+            let Some(packet) = encoder.poll_packet() else {
+                poll_us += t_poll.elapsed().as_micros() as u64;
+                break;
+            };
+            poll_us += t_poll.elapsed().as_micros() as u64;
             stats.encoded.fetch_add(1, Ordering::Relaxed);
             let packet_bytes = packet.data.len() as u64;
             stats
@@ -616,6 +848,7 @@ fn run_pipeline(
                 pending_packet_ms.clear();
             }
             decoded_frames.clear();
+            let t_decode = Instant::now();
             let feed_result = decoder.feed_each(
                 &packet.data,
                 packet.pts_ns / 1000,
@@ -624,6 +857,7 @@ fn run_pipeline(
                     Ok(())
                 },
             );
+            decode_us += t_decode.elapsed().as_micros() as u64;
             match feed_result {
                 Ok(()) => {
                     for decoded in decoded_frames.drain(..) {
@@ -643,6 +877,7 @@ fn run_pipeline(
                         if pending_capture_ms.len() > 32 {
                             pending_capture_ms.clear();
                         }
+                        let t_present = Instant::now();
                         let result = if let Some(texture) = decoded.texture.as_ref() {
                             present_gpu(
                                 &context,
@@ -660,6 +895,7 @@ fn run_pipeline(
                                 &decoded,
                             )
                         };
+                        present_us += t_present.elapsed().as_micros() as u64;
                         if let Err(error) = result {
                             stats.set_error(error);
                             continue;
@@ -675,6 +911,9 @@ fn run_pipeline(
                 Err(error) => stats.set_error(format!("解码失败: {error}")),
             }
         }
+        stats.poll_us.store(poll_us, Ordering::Relaxed);
+        stats.decode_us.store(decode_us, Ordering::Relaxed);
+        stats.present_us.store(present_us, Ordering::Relaxed);
 
         // 帧率窗口（1 秒）。
         if window_start.elapsed() >= Duration::from_secs(1) {
@@ -696,7 +935,7 @@ fn run_pipeline(
                 use std::io::Write;
                 let _ = writeln!(
                     file,
-                    "{},{:.2},{},{},{},{},{},{},{},{},{},{}",
+                    "{},{:.2},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     start.elapsed().as_millis(),
                     fps_milli as f64 / 1000.0,
                     stats.captured.load(Ordering::Relaxed),
@@ -709,6 +948,11 @@ fn run_pipeline(
                     stats.pipeline_latency_us.load(Ordering::Relaxed),
                     enc_latency_us,
                     Stats::text(&stats.decode_path),
+                    stats.capture_us.load(Ordering::Relaxed),
+                    stats.encode_us.load(Ordering::Relaxed),
+                    stats.poll_us.load(Ordering::Relaxed),
+                    stats.decode_us.load(Ordering::Relaxed),
+                    stats.present_us.load(Ordering::Relaxed),
                 );
             }
             displayed_window = 0;
@@ -1161,7 +1405,7 @@ fn open_log() -> Option<std::fs::File> {
     if std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0) == 0 {
         let _ = writeln!(
             file,
-            "elapsed_ms,fps,captured,encoded,decoded,dropped,latency_last_us,latency_p50_us,latency_p99_us,pipeline_latency_us,enc_latency_us,decode_path"
+            "elapsed_ms,fps,captured,encoded,decoded,dropped,latency_last_us,latency_p50_us,latency_p99_us,pipeline_latency_us,enc_latency_us,decode_path,capture_us,encode_us,poll_us,decode_us,present_us"
         );
     }
     Some(file)

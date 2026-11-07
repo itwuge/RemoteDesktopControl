@@ -163,11 +163,79 @@ pub struct FrameMeta {
     pub display_id: u32,
 }
 
+// =====** GpuFrame =====**
+
+/// GPU 帧租约：具体实现（平台后端）在 `Drop` 时把纹理归还池。
+///
+/// 为什么用 trait 而不是回调：租约对象随 `Frame` 跨线程移动，
+/// 只有 `Drop` 语义能保证「无论消费方正常处理还是提前丢弃都归还」。
+pub trait GpuLease: Send {}
+
+/// GPU 帧描述（Windows 下为 `ID3D11Texture2D`）。
+///
+/// 生命周期与线程约束：
+/// - `texture` 是裸句柄的 `usize` 形式，只在创建它的 `ID3D11Device` 上有效；
+///   消费方必须确认自己用的设备与采集设备是同一个（同适配器）。
+/// - 纹理由 [`GpuLease`] 租约保护：消费方 drop 后采集侧才允许复写。
+///   编码器可能异步持有纹理直到对应码流包出队，消费方需要延迟释放（见桥接层）。
+/// - 本结构 `Send`，但纹理操作（`CopySubresourceRegion`/编码器输入）必须在
+///   设备所属的、受 `ID3D10Multithread` 保护的线程上串行执行。
+pub struct GpuFrame {
+    /// `ID3D11Texture2D*`（以 `usize` 传递，避免平台类型泄漏到跨平台抽象层）。
+    pub texture: usize,
+    /// 纹理数组层号；单层纹理为 0。
+    pub array_slice: u32,
+    /// 纹理宽（像素）。
+    pub width: u32,
+    /// 纹理高（像素）。
+    pub height: u32,
+    /// 纹理像素格式。
+    pub format: PixelFormat,
+    /// 租约；drop 时归还纹理池。
+    _lease: Option<Box<dyn GpuLease>>,
+}
+
+impl GpuFrame {
+    /// 构造 GPU 帧。
+    ///
+    /// # Arguments
+    /// * `texture` - 纹理裸句柄（`usize`）。
+    /// * `array_slice` - 数组层号。
+    /// * `width` / `height` / `format` - 纹理几何与格式。
+    /// * `lease` - 租约对象。
+    ///
+    /// # Returns
+    /// GPU 帧描述。
+    ///
+    /// # Errors
+    /// 不会失败。
+    pub fn new(
+        texture: usize,
+        array_slice: u32,
+        width: u32,
+        height: u32,
+        format: PixelFormat,
+        lease: Box<dyn GpuLease>,
+    ) -> Self {
+        Self {
+            texture,
+            array_slice,
+            width,
+            height,
+            format,
+            _lease: Some(lease),
+        }
+    }
+}
+
 // =====** Frame =====**
 
 /// 一帧采集结果：池化像素缓冲 + 统一元数据。
 pub struct Frame {
     /// 帧像素数据；来自 [`rdc_runtime::FramePool`]，drop 时自动归还。
+    ///
+    /// GPU 直出路径下该缓冲仍占用一个池块以维持类型契约，但不写入像素
+    ///（纹理内容才是真实帧），因此不产生 CPU 拷贝。
     pub buffer: PooledBuffer,
     /// 帧时间戳与归属信息。
     pub meta: FrameMeta,
@@ -181,10 +249,12 @@ pub struct Frame {
     pub dirty_rects: Vec<FrameRect>,
     /// 移动矩形；平台后端不提供时为空。
     pub move_rects: Vec<MoveRect>,
-    /// 采集耗时（微秒）：从帧到手到像素拷贝完成。
+    /// 采集耗时（微秒）：从帧到手到 GPU 拷贝提交/像素拷贝完成。
     pub capture_cost_us: u32,
     /// 距上一帧的间隔（微秒）；首帧为 0。
     pub interval_us: u32,
+    /// GPU 纹理帧；`None` 表示像素在 [`Frame::buffer`] 中。
+    pub gpu: Option<GpuFrame>,
 }
 
 impl Frame {
@@ -264,6 +334,7 @@ mod tests {
             move_rects: Vec::new(),
             capture_cost_us: 0,
             interval_us: 0,
+            gpu: None,
         };
         assert!(frame.is_full_frame());
         frame.dirty_rects.push(FrameRect::new(0, 0, 4, 4));
