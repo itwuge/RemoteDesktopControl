@@ -150,6 +150,15 @@ foreach ($doc in @("LICENSE", "THIRD_PARTY_NOTICES.md", "README.md")) {
     if (Test-Path $candidate) { Copy-Item $candidate $ReleaseDir -Force }
 }
 
+# 诊断说明（RDR-001 错误码表 + 三步自助排查）：安装目录内可直接打开，
+# 与保底窗口的「查看诊断说明」链接指向同一份文件。
+$diagnosticsPage = Join-Path $PSScriptRoot "diagnostics.html"
+if (Test-Path $diagnosticsPage) {
+    Copy-Item $diagnosticsPage (Join-Path $ReleaseDir "诊断说明.html") -Force
+} else {
+    throw "缺少诊断资源：$diagnosticsPage（安装包必须附带「诊断说明.html」）"
+}
+
 # =====** FFmpeg 运行库与许可（S7：默认解码器，仅 avcodec/avutil） =====**
 $ffmpegInfo = "ffmpeg=off"
 if ($withFfmpeg) {

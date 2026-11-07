@@ -7,6 +7,8 @@
 // 布局规矩：上下单栏、分组框；标签在上控件在下；用按钮态替代开关
 // ============================================================
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../controller/account_controller.dart';
@@ -576,6 +578,60 @@ class _SettingsPageState extends State<SettingsPage> {
     await widget.account.signIn(email);
   }
 
+  // =====** 组件：渲染模式 =====**
+
+  /// 是否为「兼容模式」：用户点过保底窗口的「用兼容渲染重试」，或上次启动
+  /// 已把选择持久化到 %APPDATA%\RDC\render_mode.txt。
+  bool _isCompatRenderMode() {
+    if (!Platform.isWindows) return false;
+    if (Platform.environment['RDC_COMPAT'] == '1') return true;
+    try {
+      final appData = Platform.environment['APPDATA'];
+      if (appData == null || appData.isEmpty) return false;
+      final file = File('$appData\\RDC\\render_mode.txt');
+      if (!file.existsSync()) return false;
+      return file.readAsStringSync().trim() == 'compat';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Widget _buildRenderModeSection() {
+    final compat = _isCompatRenderMode();
+    return RdcSectionCard(
+      title: '渲染模式',
+      trailing: RdcStatusPill(
+        text: compat ? '兼容模式' : '标准模式',
+        color: compat ? RdcTokens.danger : RdcTokens.success,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            compat ? '当前渲染：兼容模式' : '当前渲染：标准模式',
+            style: TextStyle(
+              fontSize: RdcTokens.fontBody,
+              color: RdcTokens.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: RdcTokens.spaceSm),
+          Text(
+            compat
+                ? '已关闭 Impeller，改用 Skia（ANGLE / D3D11）。若界面仍然显示异常，'
+                    '请回到启动时的保底窗口按三步排查。'
+                : '默认使用 Skia（ANGLE / D3D11）。如果主窗口显示异常，'
+                    '可在启动时的保底窗口点「用兼容渲染重试」。',
+            style: TextStyle(
+              fontSize: RdcTokens.fontCaption,
+              color: RdcTokens.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // =====** 组件：页面骨架 =====**
 
   @override
@@ -602,6 +658,8 @@ class _SettingsPageState extends State<SettingsPage> {
               _buildDegradationSection(settings.autoReconnect),
               const SizedBox(height: RdcTokens.spaceLg),
               _buildQuickSection(),
+              const SizedBox(height: RdcTokens.spaceLg),
+              _buildRenderModeSection(),
             ],
           );
         },

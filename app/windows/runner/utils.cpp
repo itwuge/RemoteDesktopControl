@@ -6,8 +6,10 @@
 #include <windows.h>
 
 #include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -82,7 +84,7 @@ std::mutex& StartupLogMutex() {
   return mutex;
 }
 
-std::wstring StartupLogPath() {
+std::wstring ResolveUserDataDirectory() {
   constexpr DWORD kAppDataCapacity = MAX_PATH * 2;
   wchar_t appdata[kAppDataCapacity];
   DWORD appdata_length = ::GetEnvironmentVariableW(L"APPDATA", appdata, kAppDataCapacity);
@@ -96,14 +98,203 @@ std::wstring StartupLogPath() {
     }
     base = buffer;
   }
-  return (base / L"RDC" / L"logs" / L"startup.log").wstring();
+  return (base / L"RDC").wstring();
+}
+
+// Reads a REG_SZ (or expandable string) value. Returns an empty string on
+// failure; diagnostics code prefers "未知" over throwing.
+std::wstring ReadRegistryString(HKEY root, const std::wstring& subkey,
+                                const std::wstring& name) {
+  wchar_t buffer[1024] = {0};
+  DWORD size = static_cast<DWORD>(sizeof(buffer));
+  DWORD type = 0;
+  const LONG status = ::RegGetValueW(
+      root, subkey.c_str(), name.c_str(),
+      RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ, &type, buffer, &size);
+  if (status != ERROR_SUCCESS) {
+    return std::wstring();
+  }
+  return std::wstring(buffer);
+}
+
+// Some GPU BIOS values are REG_MULTI_SZ (one entry per line). Join them with
+// "; " so the clipboard text stays single-line-friendly.
+std::wstring ReadRegistryMultiString(HKEY root, const std::wstring& subkey,
+                                     const std::wstring& name) {
+  wchar_t buffer[2048] = {0};
+  DWORD size = static_cast<DWORD>(sizeof(buffer));
+  DWORD type = 0;
+  const LONG status = ::RegGetValueW(root, subkey.c_str(), name.c_str(),
+                                     RRF_RT_REG_MULTI_SZ, &type, buffer, &size);
+  if (status != ERROR_SUCCESS) {
+    return std::wstring();
+  }
+  std::wstring joined;
+  for (const wchar_t* item = buffer; *item != L'\0'; item += wcslen(item) + 1) {
+    if (!joined.empty()) {
+      joined += L"; ";
+    }
+    joined += item;
+  }
+  return joined;
+}
+
+std::wstring DisplayClassKey() {
+  const std::wstring base =
+      L"SYSTEM\\CurrentControlSet\\Control\\Class\\"
+      L"{4d36e968-e325-11ce-bfc1-08002be10318}";
+  for (int index = 0; index < 16; ++index) {
+    wchar_t subkey[256] = {0};
+    std::swprintf(subkey, 256, L"%s\\%04d", base.c_str(), index);
+    if (!ReadRegistryString(HKEY_LOCAL_MACHINE, subkey, L"DriverVersion").empty()) {
+      return subkey;
+    }
+  }
+  return std::wstring();
+}
+
+std::string OrUnknown(const std::wstring& value) {
+  return value.empty() ? std::string("未知") : Utf8FromUtf16(value.c_str());
 }
 
 }  // namespace
 
+std::wstring StartupLogDirectoryWide() {
+  const std::wstring base = ResolveUserDataDirectory();
+  if (base.empty()) {
+    return std::wstring();
+  }
+  return (std::filesystem::path(base) / L"logs").wstring();
+}
+
+std::wstring StartupLogFilePathWide() {
+  const std::wstring dir = StartupLogDirectoryWide();
+  if (dir.empty()) {
+    return std::wstring();
+  }
+  return (std::filesystem::path(dir) / L"startup.log").wstring();
+}
+
+std::string ReadRenderModeSetting() {
+  const std::wstring base = ResolveUserDataDirectory();
+  if (base.empty()) {
+    return "standard";
+  }
+  const std::filesystem::path path =
+      std::filesystem::path(base) / L"render_mode.txt";
+  std::ifstream in(path.c_str());
+  if (!in.is_open()) {
+    return "standard";
+  }
+  std::string value;
+  std::getline(in, value);
+  if (value == "compat") {
+    return "compat";
+  }
+  return "standard";
+}
+
+bool WriteRenderModeSetting(const std::string& mode) {
+  const std::wstring base = ResolveUserDataDirectory();
+  if (base.empty()) {
+    return false;
+  }
+  try {
+    const std::filesystem::path dir(base);
+    std::filesystem::create_directories(dir);
+    std::ofstream out((dir / L"render_mode.txt").c_str(), std::ios::trunc);
+    if (!out.is_open()) {
+      return false;
+    }
+    out << (mode == "compat" ? "compat" : "standard") << "\n";
+    out.flush();
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+std::string DescribeGpuVendor() {
+  const std::string adapter = DescribePrimaryAdapter();
+  if (adapter.find("Radeon") != std::string::npos ||
+      adapter.find("AMD") != std::string::npos) {
+    return "AMD";
+  }
+  if (adapter.find("NVIDIA") != std::string::npos ||
+      adapter.find("GeForce") != std::string::npos) {
+    return "NVIDIA";
+  }
+  if (adapter.find("Intel") != std::string::npos) {
+    return "Intel";
+  }
+  return "未知";
+}
+
+std::string DescribeDriverVersion() {
+  const std::wstring key = DisplayClassKey();
+  if (key.empty()) {
+    return "未知";
+  }
+  return OrUnknown(ReadRegistryString(HKEY_LOCAL_MACHINE, key, L"DriverVersion"));
+}
+
+std::string DescribeDriverDate() {
+  const std::wstring key = DisplayClassKey();
+  if (key.empty()) {
+    return "未知";
+  }
+  return OrUnknown(ReadRegistryString(HKEY_LOCAL_MACHINE, key, L"DriverDate"));
+}
+
+std::string DescribeVideoBiosVersion() {
+  const std::wstring key = DisplayClassKey();
+  if (key.empty()) {
+    return "未知";
+  }
+  const std::wstring multi =
+      ReadRegistryMultiString(HKEY_LOCAL_MACHINE, key, L"VideoBIOSVersion");
+  if (!multi.empty()) {
+    return Utf8FromUtf16(multi.c_str());
+  }
+  return OrUnknown(ReadRegistryString(HKEY_LOCAL_MACHINE, key, L"VideoBIOSVersion"));
+}
+
+std::string DescribeWddmVersion() {
+  DWORD value = 0;
+  DWORD size = static_cast<DWORD>(sizeof(value));
+  DWORD type = 0;
+  const LONG status = ::RegGetValueW(
+      HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Control\\GraphicsDrivers",
+      L"WddmVersion", RRF_RT_REG_DWORD, &type, &value, &size);
+  if (status != ERROR_SUCCESS) {
+    return "未知（注册表无 WddmVersion）";
+  }
+  char buffer[64] = {0};
+  std::snprintf(buffer, sizeof(buffer), "0x%08X（注册表原始值）",
+                static_cast<unsigned int>(value));
+  return std::string(buffer);
+}
+
+std::string DescribeWindowsVersion() {
+  const std::wstring product = ReadRegistryString(
+      HKEY_LOCAL_MACHINE,
+      L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"ProductName");
+  const std::wstring build = ReadRegistryString(
+      HKEY_LOCAL_MACHINE,
+      L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", L"CurrentBuildNumber");
+  std::string result = product.empty() ? "Windows" : Utf8FromUtf16(product.c_str());
+  if (!build.empty()) {
+    result += " (build ";
+    result += Utf8FromUtf16(build.c_str());
+    result += ")";
+  }
+  result += " x64";
+  return result;
+}
+
 void AppendStartupLog(const std::string& line) {
   std::lock_guard<std::mutex> lock(StartupLogMutex());
-  const std::wstring path = StartupLogPath();
+  const std::wstring path = StartupLogFilePathWide();
   if (path.empty()) {
     return;
   }

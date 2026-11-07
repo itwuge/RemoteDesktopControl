@@ -27,4 +27,23 @@ std::string DescribePrimaryAdapter();
 // True when the process is running inside a remote desktop session.
 bool IsRemoteSession();
 
+// Absolute path of the startup log file (empty when unavailable).
+std::wstring StartupLogFilePathWide();
+
+// Directory that contains the startup log (empty when unavailable).
+std::wstring StartupLogDirectoryWide();
+
+// Persisted render mode: "compat" 表示上一次用户选择了兼容渲染，其余为 "standard".
+// 文件位置：%APPDATA%\RDC\render_mode.txt。
+std::string ReadRenderModeSetting();
+bool WriteRenderModeSetting(const std::string& mode);
+
+// 诊断信息（尽力而为，失败时返回 "未知"，绝不抛异常）。
+std::string DescribeGpuVendor();
+std::string DescribeDriverVersion();
+std::string DescribeDriverDate();
+std::string DescribeVideoBiosVersion();
+std::string DescribeWddmVersion();
+std::string DescribeWindowsVersion();
+
 #endif  // RUNNER_UTILS_H_

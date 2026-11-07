@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RDC 诊断说明 · 错误码与自助排查</title>
+<style>
+  :root {
+    --ink: #101828; --muted: #667085; --line: #e4e7ec;
+    --bg: #ffffff; --panel: #f9fafb; --accent: #1d4ed8; --danger: #b42318;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 20px 64px;
+    font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+    color: var(--ink); background: var(--bg); line-height: 1.75;
+  }
+  main { max-width: 880px; margin: 0 auto; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 20px; margin-bottom: 28px; }
+  .kicker { color: var(--muted); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+  h1 { font-size: 26px; margin: 8px 0 6px; }
+  .meta { color: var(--muted); font-size: 13px; }
+  h2 { font-size: 19px; margin: 36px 0 12px; }
+  h3 { font-size: 15px; margin: 24px 0 8px; }
+  p { margin: 8px 0; }
+  .code {
+    display: inline-block; padding: 1px 8px; border-radius: 6px;
+    background: #fef3f2; color: var(--danger); font-weight: 700;
+    font-family: Consolas, "Cascadia Mono", monospace; font-size: 13px;
+  }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 8px; font-size: 14px; }
+  th, td { border: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); font-weight: 600; white-space: nowrap; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; margin: 16px 0; }
+  .card strong { color: var(--danger); }
+  ol, ul { padding-left: 22px; margin: 8px 0; }
+  li { margin: 8px 0; }
+  code { font-family: Consolas, "Cascadia Mono", monospace; background: #f2f4f7; padding: 1px 6px; border-radius: 4px; font-size: 13px; }
+  footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="kicker">RDC 远程桌面 · 诊断说明</div>
+    <h1>错误码与自助排查</h1>
+    <div class="meta">适用版本 0.1.1 及以后 · 页面关键字：RDR-001、白屏、渲染初始化失败、被控端黑屏</div>
+  </header>
+
+  <h2>一、错误码表</h2>
+  <table>
+    <thead>
+      <tr><th>错误码</th><th>用户可读名称</th><th>触发条件</th><th>表现</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="code">RDR-001</span></td>
+        <td>渲染初始化失败</td>
+        <td>
+          进程启动后 3 秒内没有完成首帧呈现。具体分三种：
+          <ul>
+            <li><code>no_frame</code>：3 秒内没有收到首帧；</li>
+            <li><code>blank</code>：收到了首帧，但画面是全白或纯色；</li>
+            <li><code>init_failed</code>：Flutter 渲染控制器没有创建成功。</li>
+          </ul>
+        </td>
+        <td>主窗口不显示或只有一片白，软件仍在运行，保底窗口接管显示。</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="meta">错误码是稳定编号，用于检索与反馈；诊断文本里的触发条件只写中文原因，不出现英文异常名或 HRESULT 原值。</p>
+
+  <h2>二、看到 RDR-001 时，按这三步处理</h2>
+  <div class="card">
+    <strong>被控端显示器请保持开启。</strong>
+    显示器关闭、拔掉线缆或进入睡眠时，被控端会采集不到画面而黑屏。这不是渲染错误，
+    但用户通常想不到。本版本不提供虚拟屏，请让被控端显示器保持开启。
+  </div>
+  <ol>
+    <li>
+      先点保底窗口里的<strong>「用兼容渲染重试」</strong>。它会关闭 Impeller、改用
+      Skia（ANGLE / D3D11）并在当前进程内重新初始化渲染，不需要重装、不需要重启电脑。
+      成功后设置页的「渲染模式」会显示<strong>当前渲染：兼容模式</strong>。
+    </li>
+    <li>
+      更新或回滚显卡驱动后重启。打开「设备管理器 → 显示适配器 → 右键显卡 → 更新驱动程序」；
+      如果这个问题是刚更新过显卡驱动才出现的，请回滚到上一个版本的驱动。
+    </li>
+    <li>
+      点<strong>「复制诊断」</strong>把内容发给我们，或点<strong>「打开日志目录」</strong>自己查看。
+      诊断文本包含显卡型号、驱动版本、WDDM、渲染后端、错误码和日志路径，不包含密码、配对码或屏幕内容。
+    </li>
+  </ol>
+
+  <h2>三、诊断文本里各项的含义</h2>
+  <table>
+    <thead><tr><th>字段</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>错误码 / 触发条件</td><td><span class="code">RDR-001</span> 与对应的 no_frame / blank / init_failed。</td></tr>
+      <tr><td>渲染后端</td><td>当前使用的是 <code>skia</code>、<code>impeller</code> 还是 <code>skia(compat)</code>，以及第几次尝试。</td></tr>
+      <tr><td>显卡 / 驱动版本 / 驱动日期</td><td>取自 DXGI 与注册表，用于核对驱动是否为已知问题版本。</td></tr>
+      <tr><td>显卡 BIOS</td><td>部分改版 BIOS 会导致「D3D11 正常但显示输出异常」，可与官方 BIOS 对比。</td></tr>
+      <tr><td>WDDM</td><td>注册表 <code>GraphicsDrivers\WddmVersion</code> 的原始值。</td></tr>
+      <tr><td>会话类型</td><td>本地会话还是远程会话，用于排除远程桌面显卡限制。</td></tr>
+      <tr><td>最近 5 条事件</td><td>启动日志的末尾 5 行，含渲染初始化与重试记录。</td></tr>
+    </tbody>
+  </table>
+
+  <h2>四、边界与常见误判</h2>
+  <ul>
+    <li>白屏不等于软件崩溃：进程仍在运行、日志仍在写入，保底窗口就是为此准备的。</li>
+    <li>保底窗口由 Win32 原生控件绘制，不经过 Flutter；主界面白屏时它仍然可以显示和截图。</li>
+    <li>「被控端黑屏」是显示器状态问题，不是 RDR-001；不要把两者混为一个原因。</li>
+    <li>远程工具（ToDesk、向日葵等）自身捕获失败也会表现为黑屏，可用本机截图交叉验证。</li>
+  </ul>
+
+  <footer>
+    RDC 远程桌面 · 诊断说明 · 错误码 RDR-001 ·
+    日志位置 <code>%APPDATA%\RDC\logs\startup.log</code>
+  </footer>
+</main>
+</body>
+</html>
