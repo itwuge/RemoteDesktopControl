@@ -12,6 +12,7 @@ resolver = "2"
 members = [
     "crates/rdc-protocol",
     "crates/rdc-runtime",
+    "crates/rdc-diag",
     "crates/rdc-security",
     "crates/rdc-connect",
     "crates/rdc-transport",
@@ -47,6 +48,8 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "sync", "time", "macros"] }
 # 日志门面：库代码只依赖 tracing，不直接 println，便于被 Flutter/CLI 重定向。
 tracing = "0.1"
+# 日志订阅器：只有进程入口经由 rdc-diag 使用；env-filter 负责 RDC_LOG 别名过滤。
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # FFI 桥接：仅 rdc-bridge 依赖，版本必须与 app/pubspec.yaml 中 Dart 依赖严格一致。
 flutter_rust_bridge = "=2.13.0"
 
@@ -111,6 +114,7 @@ libc = "0.2"
 # --- 内部 crate 依赖（统一在此声明，crate 内用 workspace = true 引用）---
 rdc-protocol = { path = "crates/rdc-protocol" }
 rdc-runtime = { path = "crates/rdc-runtime" }
+rdc-diag = { path = "crates/rdc-diag" }
 rdc-security = { path = "crates/rdc-security" }
 rdc-connect = { path = "crates/rdc-connect" }
 rdc-transport = { path = "crates/rdc-transport" }

@@ -1,0 +1,19 @@
+# ============================================================
+# rdc-diag · crate 清单
+#
+# 用途：统一诊断基础设施（日志初始化、RDC_LOG 过滤、人读格式、崩溃环形缓冲）。
+# 层级：L1 基础设施，不依赖任何业务 crate（docs/16 §2.6）。
+# 依赖纪律：只依赖 tracing / tracing-subscriber，不得反向依赖 rdc-* 业务 crate。
+# ============================================================
+
+[package]
+name = "rdc-diag"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 统一诊断日志、过滤与崩溃取证基础设施"
+
+[dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }

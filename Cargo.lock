@@ -1272,6 +1272,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rdc-diag"
+version = "0.1.1"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "rdc-filetransfer"
 version = "0.1.1"
 dependencies = [
