@@ -1190,6 +1190,7 @@ dependencies = [
 name = "rdc-decode"
 version = "0.1.0"
 dependencies = [
+ "cc",
  "rdc-protocol",
  "rdc-runtime",
  "thiserror",

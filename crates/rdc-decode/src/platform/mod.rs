@@ -11,6 +11,9 @@ pub mod windows;
 #[cfg(target_os = "windows")]
 pub use windows::{decoder_names, DecodedFrame, MfH264Decoder, OutputKind, TextureFrame};
 
+#[cfg(all(target_os = "windows", feature = "ffmpeg"))]
+pub use windows::FfmpegH264Decoder;
+
 /// 非 Windows 平台的解码器占位：S3b 只交付 Windows 后端。
 #[cfg(not(target_os = "windows"))]
 pub struct MfH264Decoder;

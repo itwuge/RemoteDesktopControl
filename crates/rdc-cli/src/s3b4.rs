@@ -1,4 +1,4 @@
-﻿//! rdc-cli / S3b-4 端到端玻璃到玻璃实测
+//! rdc-cli / S3b-4 端到端玻璃到玻璃实测
 //!
 //! 层级：L4 验证入口（Windows）
 //! 用途：本机两进程（host / ctrl）经 UDP 回环传 1080p H.264 码流；
@@ -103,13 +103,15 @@ mod windows_impl {
     use std::time::{Duration, Instant};
 
     use rdc_codec::{create_encoder, CodecKind, VideoChroma, VideoConfig};
-    use rdc_decode::{MfH264Decoder, PresentWindow};
+    use rdc_decode::{open_video_decoder, MfH264Decoder, PresentWindow};
     use rdc_protocol::{PacketHeader, StreamKind};
     use rdc_runtime::pool::FramePool;
     use rdc_transport::{FragmentHeader, Pacer, Reassembler, UdpTransport};
+    use windows::Win32::Foundation::FILETIME;
     use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
+    use windows::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
 
-    use super::{Options, CTRL_PORT, HOST_PORT, S3bResult, TARGET_BITRATE};
+    use super::{Options, S3bResult, CTRL_PORT, HOST_PORT, TARGET_BITRATE};
 
     /// 帧尺寸。
     const WIDTH: u32 = 1920;
@@ -194,6 +196,16 @@ mod windows_impl {
         now24: u64,
         /// 端到端延迟（微秒）。
         e2e_us: u64,
+        /// 从送入该访问单元到解出该帧的耗时（微秒）：解码 + 整理拷贝。
+        feed_to_out_us: u64,
+        /// 采集时刻 → 完整访问单元重组完成的耗时（微秒）：编码排队 + 打包 + 传输 + 重组。
+        transport_us: u64,
+        /// 本帧的上屏耗时（微秒）。
+        present_us: u64,
+        /// 本帧的回读耗时（微秒，含 GPU 回读与时间码解码）。
+        probe_us: u64,
+        /// 回读时间码相对解码帧 pts 的偏移（微秒，有符号）：反映呈现/回读的固定滞后。
+        readback_lag_us: i64,
     }
 
     /// 本机单调时钟（微秒）：QueryPerformanceCounter 同机跨进程同源。
@@ -210,14 +222,42 @@ mod windows_impl {
         (counter as u128 * 1_000_000 / frequency as u128) as u64
     }
 
+    /// 进程累计 CPU 时间（微秒，所有核累加）；失败时返回 0。
+    fn process_cpu_us() -> u64 {
+        let mut create = FILETIME::default();
+        let mut exit = FILETIME::default();
+        let mut kernel = FILETIME::default();
+        let mut user = FILETIME::default();
+        let process = unsafe { GetCurrentProcess() };
+        let ok =
+            unsafe { GetProcessTimes(process, &mut create, &mut exit, &mut kernel, &mut user) };
+        if ok.is_err() {
+            return 0;
+        }
+        let to_u64 =
+            |time: FILETIME| (u64::from(time.dwHighDateTime) << 32) | u64::from(time.dwLowDateTime);
+        // FILETIME 以 100ns 为单位。
+        (to_u64(kernel) + to_u64(user)) / 10
+    }
+
     /// 驱动：拉起 host 与 ctrl 两个子进程，各自落日志。
     pub(super) fn run_driver(options: &Options) -> S3bResult<()> {
         let _ = std::fs::create_dir_all(&options.out);
         let exe = std::env::current_exe()?;
-        println!("== RDC S3b-4 端到端实测（UDP 回环，1080p，{} s）==", options.secs);
+        println!(
+            "== RDC S3b-4 端到端实测（UDP 回环，1080p，{} s）==",
+            options.secs
+        );
         println!("日志目录             : {}", options.out);
         let host = std::process::Command::new(&exe)
-            .args(["s3b4", "host", "--secs", &options.secs.to_string(), "--out", &options.out])
+            .args([
+                "s3b4",
+                "host",
+                "--secs",
+                &options.secs.to_string(),
+                "--out",
+                &options.out,
+            ])
             .spawn()?;
         // ctrl 多跑 2 s，等 host 收尾后再退，避免截断尾部样本。
         let ctrl = std::process::Command::new(&exe)
@@ -297,15 +337,14 @@ mod windows_impl {
 
         // 实验 1：连续送入，直到需要更多输入。
         let mut decoder = MfH264Decoder::open_with_device(&device, WIDTH, HEIGHT, 60, true)?;
-        let mut feeds = 0u64;
         let mut outputs = 0u64;
         let mut first_out_feeds = 0u64;
         let mut first_out_ms = 0f64;
         let mut feed_ms: Vec<u64> = Vec::new();
         let mut max_in_flight = 0u64;
         let exp_start = Instant::now();
-        for au in aus.iter() {
-            feeds += 1;
+        for (index, au) in aus.iter().enumerate() {
+            let feeds = index as u64 + 1;
             let feed_start = Instant::now();
             decoder.feed_each(au, ts_us, |_frame| {
                 if outputs == 0 {
@@ -347,8 +386,8 @@ mod windows_impl {
         let mut stall_message = String::new();
         let serial_start = Instant::now();
         let serial_result: S3bResult<()> = (|decoder: &mut MfH264Decoder| -> S3bResult<()> {
-            for au in aus.iter().take(60) {
-                feeds += 1;
+            for (index, au) in aus.iter().take(60).enumerate() {
+                feeds = index as u64 + 1;
                 let before_feed = serial_outputs;
                 let feed_start = Instant::now();
                 decoder.feed_each(au, ts_us, |_frame| {
@@ -366,8 +405,7 @@ mod windows_impl {
                     if serial_outputs > before_feed {
                         if first_out_feeds_serial == 0 {
                             first_out_feeds_serial = feeds;
-                            first_out_ms_serial =
-                                serial_start.elapsed().as_secs_f64() * 1000.0;
+                            first_out_ms_serial = serial_start.elapsed().as_secs_f64() * 1000.0;
                         }
                         break;
                     }
@@ -667,6 +705,11 @@ mod windows_impl {
             return Err("等待 host 握手确认超时".into());
         }
         println!("[ctrl] 已握手 {peer}，开始接收");
+        println!(
+            "[ctrl] 解码选择 RDC_DECODER={:?} RDC_FFMPEG_MODE={:?}",
+            std::env::var("RDC_DECODER").unwrap_or_default(),
+            std::env::var("RDC_FFMPEG_MODE").unwrap_or_default()
+        );
 
         let mut window = PresentWindow::create(WIDTH, HEIGHT, "RDC S3b-4 端到端")?;
         let scale = window.client_size().0 as f32 / WIDTH as f32;
@@ -688,19 +731,27 @@ mod windows_impl {
         println!("[ctrl] 全部解码 MFT: {all_names:?}");
         let h264_profiles = rdc_decode::h264_decoder_profile_count(window.device());
         println!("[ctrl] 适配器 H.264 解码 profile 数: {h264_profiles}");
+        // 解码后端按 RDC_DECODER 选择（默认 MF；ffmpeg 需以 ffmpeg feature 构建）。
         // 解码器与呈现窗口共用同一 D3D11 设备：硬解输出直接是 GPU 纹理（零拷贝）。
-        let mut decoder = MfH264Decoder::open_with_device(window.device(), WIDTH, HEIGHT, 60, true)?;
-        let decoder_name = decoder.name().to_owned();
-        let decoder_dxva = decoder.dxva_aware();
-        let decoder_hw_mft = decoder.uses_hardware_mft();
+        let mut decoder = open_video_decoder(Some(window.device()), WIDTH, HEIGHT, 60, true)?;
+        let decoder_info = decoder.info();
+        let decoder_name = decoder_info.name.clone();
+        let decoder_dxva = decoder_info.dxva_aware;
+        let decoder_hw_mft = decoder_info.hw_mft;
         println!(
-            "[ctrl] 解码器 {decoder_name}，dxva_aware={decoder_dxva}，独立硬件 MFT={decoder_hw_mft}"
+            "[ctrl] 解码后端 {}：{}，hw={}，output={}，{}",
+            decoder_info.backend,
+            decoder_name,
+            decoder_info.hardware,
+            decoder_info.output.as_str(),
+            decoder_info.detail
         );
         let mut reassembler = Reassembler::new(4);
         let mut samples: Vec<u64> = Vec::new();
         let mut records: Vec<SampleRecord> = Vec::new();
         let mut feed_times: Vec<u64> = Vec::new();
         let mut present_times: Vec<u64> = Vec::new();
+        let mut probe_times: Vec<u64> = Vec::new();
         let mut skipped_stale = 0u64;
         let mut inflight_peak = 0u64;
         let mut decoded_frames = 0u64;
@@ -709,9 +760,14 @@ mod windows_impl {
         let mut packets = 0u64;
         let mut bytes = 0u64;
         let mut frames = 0u64;
+        // 首帧输出延迟（送入第一个访问单元 → 拿到第一帧输出），E1 的核心判据。
+        let mut first_feed_at: Option<Instant> = None;
+        let mut first_output_at: Option<Instant> = None;
+        let mut first_output_after_feeds = 0u64;
         // 真实接收窗口：首帧到末帧。帧率必须以它为分母，不能混入握手/开窗/收尾时间。
         let mut stream_start: Option<Instant> = None;
         let mut stream_end = Instant::now();
+        let cpu_start_us = process_cpu_us();
         let started = Instant::now();
 
         while started.elapsed().as_secs() < options.secs {
@@ -734,6 +790,8 @@ mod windows_impl {
             }
             stream_end = Instant::now();
             let now_us = qpc_us();
+            // 采集时刻 → 完整 AU 到达，这一段包含 host 编码排队/打包/UDP/重组。
+            let transport_us = now_us.saturating_sub(header.ts_us);
             // 只丢「到达即已过期」的访问单元（编码/传输堵住时会触发）；
             // 本轮不实现丢帧追赶，解码器积压会如实反映在端到端延迟里。
             if now_us.saturating_sub(header.ts_us) > STALE_US {
@@ -741,12 +799,20 @@ mod windows_impl {
                 continue;
             }
             let feed_start = Instant::now();
+            if first_feed_at.is_none() {
+                first_feed_at = Some(feed_start);
+            }
             // 逐帧上屏：解码器每解出一帧，立刻按呈现顺序上屏并释放输出样本。
             // 不能先攒成一批再上屏——in-box MFT 的输出表面池很浅，同时持有 4 帧会永久
             // MF_E_NOTACCEPTING（D1 诊断实测 fed=19 后停摆）。
             let frame_id_for_show = header.frame_id;
-            decoder.feed_each(&annexb, header.ts_us, |frame| {
+            decoder.feed_each(&annexb, header.ts_us, &mut |frame| {
                 decoded_frames += 1;
+                if first_output_at.is_none() {
+                    first_output_at = Some(Instant::now());
+                    first_output_after_feeds = frames;
+                }
+                let feed_to_out_us = feed_start.elapsed().as_micros() as u64;
                 let present_start = Instant::now();
                 if let Some(gpu) = frame.texture.as_ref() {
                     window.present_texture(&gpu.texture, gpu.array_slice)?;
@@ -754,7 +820,11 @@ mod windows_impl {
                     window.present_nv12(&frame.data, frame.stride)?;
                 }
                 present_times.push(present_start.elapsed().as_micros() as u64);
+                let present_us = present_start.elapsed().as_micros() as u64;
+                let probe_start = Instant::now();
                 let probe = window.take_probe_samples();
+                let probe_us = probe_start.elapsed().as_micros() as u64;
+                probe_times.push(probe_us);
                 if probe.len() != BITS {
                     return Ok(());
                 }
@@ -771,6 +841,11 @@ mod windows_impl {
                 let diff = (now24 as i64 - value as i64 + (1 << 23)) & 0xFF_FFFF;
                 let e2e = (diff - (1 << 23)).max(0) as u64;
                 samples.push(e2e);
+                // 回读时间码相对「刚解出的这一帧」的偏移：负值表示回读到的是更早的帧，
+                // 即呈现/回读链路的固定落后量（报告把它作为分段证据，不改 e2e 口径）。
+                let lag24 =
+                    ((frame.ts_us & 0xFF_FFFF) as i64 - value as i64 + (1 << 23)) & 0xFF_FFFF;
+                let readback_lag_us = lag24 - (1 << 23);
                 records.push(SampleRecord {
                     frame_id: frame_id_for_show,
                     au_ts_us: header.ts_us,
@@ -780,6 +855,11 @@ mod windows_impl {
                     expected: frame.ts_us & 0xFF_FFFF,
                     now24,
                     e2e_us: e2e,
+                    feed_to_out_us,
+                    transport_us,
+                    present_us,
+                    probe_us,
+                    readback_lag_us,
                 });
                 Ok(())
             })?;
@@ -802,19 +882,31 @@ mod windows_impl {
         // 接收窗口到此结束：耗时必须在销毁窗口/等收尾之前定格，否则会把窗口销毁时间
         // 算进帧率分母，把真实上屏帧率压低（实测曾因此 48 fps 而非 58 fps）。
         let elapsed = started.elapsed().as_secs_f64().max(0.001);
+        let cpu_end_us = process_cpu_us();
         // 响应性判定必须在销毁窗口之前采集（与 S3a/S3b-2 口径一致）。
         let hung = is_hung(window.hwnd());
         let presented = window.presented_frames();
         drop(window);
-        let decoder_output = decoder.output_kind().as_str();
+        // 解码结束后再取一次快照：硬解是否真正生效、每帧解码耗时只有跑完才知道。
+        let decoder_info_final = decoder.info();
+        let decoder_output = decoder_info_final.output.as_str();
         // 硬件判定按「设备管理器绑定 + DXGI 纹理输出」双条件，而不是枚举命中。
-        let decoder_hw = decoder.hardware_active();
+        let decoder_hw = decoder_info_final.hardware;
         println!(
-            "[ctrl] decoder_hw={decoder_hw}，output={decoder_output}，h264_profiles={h264_profiles}"
+            "[ctrl] decoder_hw={decoder_hw}，output={decoder_output}，h264_profiles={h264_profiles}，{}",
+            decoder_info_final.detail
         );
         let (p50, p99) = (percentile(&samples, 0.50), percentile(&samples, 0.99));
         let mismatched = records.iter().filter(|r| r.tcode != r.expected).count();
         let inflight_end = decoder.in_flight();
+        let first_frame_latency_us = match (first_feed_at, first_output_at) {
+            (Some(first_feed), Some(first_out)) => {
+                first_out.duration_since(first_feed).as_micros() as u64
+            }
+            _ => 0,
+        };
+        // 进程 CPU（所有核累加）/ 实测时长 → 占单核百分比。
+        let cpu_pct = (cpu_end_us.saturating_sub(cpu_start_us)) as f64 / (elapsed * 1e6) * 100.0;
         let dropped_frames = reassembler.dropped();
         let stream_secs = stream_start
             .map(|start| stream_end.duration_since(start).as_secs_f64())
@@ -824,10 +916,18 @@ mod windows_impl {
         // 真实上屏帧率：窗口实际 Present 次数，与解码输入帧率严格区分。
         let present_fps = presented as f64 / stream_secs;
         let batch_dropped = decoded_frames.saturating_sub(presented);
+        let decoder_path = decoder_info_final.backend;
+        let decoder_detail = decoder_info_final.detail.clone();
         let feed_p50 = percentile(&feed_times, 0.50);
         let feed_p99 = percentile(&feed_times, 0.99);
         let present_p50 = percentile(&present_times, 0.50);
         let present_p99 = percentile(&present_times, 0.99);
+        let transport_values: Vec<u64> = records.iter().map(|r| r.transport_us).collect();
+        let transport_p50 = percentile(&transport_values, 0.50);
+        let transport_p99 = percentile(&transport_values, 0.99);
+        let probe_p50 = percentile(&probe_times, 0.50);
+        let probe_p99 = percentile(&probe_times, 0.99);
+        let readback_lag_median_us = median_i64(records.iter().map(|r| r.readback_lag_us));
         let json = format!(
             "{{\"role\":\"ctrl\",\"seconds\":{:.2},\"frames\":{frames},\"packets\":{packets},\
              \"bytes\":{bytes},\"bitrate_bps\":{:.0},\"samples\":{},\"e2e_p50_us\":{p50},\
@@ -837,8 +937,13 @@ mod windows_impl {
              \"batch_dropped\":{batch_dropped},\"dropped\":{dropped_frames},\"skipped_stale\":{skipped_stale},\
              \"tcode_mismatch\":{mismatched},\"feed_p50_us\":{feed_p50},\"feed_p99_us\":{feed_p99},\
              \"present_p50_us\":{present_p50},\"present_p99_us\":{present_p99},\"retransmits\":0,\
-             \"decoder\":\"{decoder_name}\",\"decoder_hw\":{decoder_hw},\"decoder_hw_mft\":{decoder_hw_mft},\
+             \"transport_p50_us\":{transport_p50},\"transport_p99_us\":{transport_p99},\
+             \"probe_p50_us\":{probe_p50},\"probe_p99_us\":{probe_p99},\
+             \"readback_lag_median_us\":{readback_lag_median_us},\
+             \"decoder\":\"{decoder_name}\",\"decoder_path\":\"{decoder_path}\",\"decoder_hw\":{decoder_hw},\"decoder_hw_mft\":{decoder_hw_mft},\
              \"decoder_dxva_aware\":{decoder_dxva},\"decoder_output\":\"{decoder_output}\",\
+             \"decoder_detail\":\"{decoder_detail}\",\"first_frame_latency_us\":{first_frame_latency_us},\
+             \"first_output_after_feeds\":{first_output_after_feeds},\"cpu_pct_of_core\":{cpu_pct:.1},\
              \"h264_profiles\":{h264_profiles},\"inflight_peak\":{inflight_peak},\
              \"inflight_end\":{inflight_end},\"hung\":{hung}}}",
             elapsed,
@@ -849,7 +954,8 @@ mod windows_impl {
         let _ = std::fs::create_dir_all(&options.out);
         let report = Path::new(&options.out).join("report.json");
         std::fs::write(&report, json)?;
-        let mut trace_csv = std::fs::File::create(Path::new(&options.out).join("decode-trace.csv"))?;
+        let mut trace_csv =
+            std::fs::File::create(Path::new(&options.out).join("decode-trace.csv"))?;
         writeln!(trace_csv, "t_ms,in_flight,outs,feed_us")?;
         for &(t_ms, inflight, outs, feed_us) in &trace {
             writeln!(trace_csv, "{t_ms},{inflight},{outs},{feed_us}")?;
@@ -857,24 +963,32 @@ mod windows_impl {
         let mut csv = std::fs::File::create(Path::new(&options.out).join("e2e-samples.csv"))?;
         writeln!(
             csv,
-            "sample_index,frame_id,au_ts_us,decoded_ts_us,tcode,expected,now24,e2e_us"
+            "sample_index,frame_id,au_ts_us,decoded_ts_us,tcode,expected,now24,e2e_us,feed_to_out_us,transport_us,present_us,probe_us,readback_lag_us"
         )?;
         for (index, record) in records.iter().enumerate() {
             writeln!(
                 csv,
-                "{index},{},{},{},{},{},{},{}",
+                "{index},{},{},{},{},{},{},{},{},{},{},{},{}",
                 record.frame_id,
                 record.au_ts_us,
                 record.decoded_ts_us,
                 record.tcode,
                 record.expected,
                 record.now24,
-                record.e2e_us
+                record.e2e_us,
+                record.feed_to_out_us,
+                record.transport_us,
+                record.present_us,
+                record.probe_us,
+                record.readback_lag_us
             )?;
         }
         println!(
             "[ctrl] 完成：解码输入 {frames} 帧 ({decode_fps:.1} fps) / 上屏 {presented} 帧 ({present_fps:.1} fps) / {} 样本 / p50 {p50} us / p99 {p99} us",
             samples.len()
+        );
+        println!(
+            "[ctrl] 分段 p50：传输 {transport_p50} us / 解码+整理 {feed_p50} us / 上屏 {present_p50} us / 回读 {probe_p50} us；回读滞后中位 {readback_lag_median_us} us"
         );
         Ok(())
     }
@@ -905,6 +1019,16 @@ mod windows_impl {
         }
     }
 
+    /// 有符号中位数（空集合返回 0）。
+    fn median_i64(values: impl Iterator<Item = i64>) -> i64 {
+        let mut sorted: Vec<i64> = values.collect();
+        if sorted.is_empty() {
+            return 0;
+        }
+        sorted.sort_unstable();
+        sorted[sorted.len() / 2]
+    }
+
     /// 桌面型底图（浅灰 + 顶栏）。
     fn build_base() -> Vec<u8> {
         let mut buf = vec![0u8; FRAME_BYTES];
@@ -930,7 +1054,11 @@ mod windows_impl {
         let value = captured_us & 0xFF_FFFF;
         for bit in 0..BITS {
             let on = (value >> bit) & 1 == 1;
-            let color = if on { [255u8, 255u8, 255u8] } else { [0u8, 0u8, 0u8] };
+            let color = if on {
+                [255u8, 255u8, 255u8]
+            } else {
+                [0u8, 0u8, 0u8]
+            };
             fill_rect(
                 buf,
                 STRIPE_X + bit as u32 * CELL_STEP,
@@ -944,14 +1072,7 @@ mod windows_impl {
         let millis = frame_index * 16_667 / 1000;
         for digit in 0..6u32 {
             let value = (millis / 10u64.pow(5 - digit)) % 10;
-            draw_digit(
-                buf,
-                48 + digit * 64,
-                200,
-                44,
-                72,
-                value as u8,
-            );
+            draw_digit(buf, 48 + digit * 64, 200, 44, 72, value as u8);
         }
     }
 

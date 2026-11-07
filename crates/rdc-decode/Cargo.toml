@@ -14,6 +14,11 @@ rust-version.workspace = true
 license.workspace = true
 description = "RDC 视频解码、解码队列与 D3D11 上屏"
 
+[features]
+# FFmpeg 解码后端（LGPL 共享构建，动态链接）。默认关闭：仓库默认仍是 MF 路径；
+# 打开时必须设置 FFMPEG_DIR 指向 LGPL 共享构建根目录。
+ffmpeg = []
+
 [dependencies]
 rdc-protocol = { workspace = true }
 rdc-runtime = { workspace = true }
@@ -21,3 +26,7 @@ thiserror = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true }
+
+[build-dependencies]
+# 仅用于编译 FFmpeg 解码 C shim；feature 关闭时不编译任何 C 代码。
+cc = "1"

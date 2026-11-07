@@ -149,7 +149,8 @@ pub struct TextureFrame {
     /// 纹理数组切片（`IMFDXGIBuffer` 的 subresource 索引；非数组纹理为 0）。
     pub array_slice: u32,
     /// 持有输出样本，防止解码器在呈现前复用同一纹理（样本池语义）。
-    pub sample: IMFSample,
+    /// FFmpeg 路径由 AVFrame 持有纹理引用，这里为 `None`。
+    pub sample: Option<IMFSample>,
 }
 
 /// 一帧解码结果。
@@ -892,7 +893,7 @@ impl MfH264Decoder {
                 texture: Some(TextureFrame {
                     texture,
                     array_slice,
-                    sample: sample.clone(),
+                    sample: Some(sample.clone()),
                 }),
             });
         }

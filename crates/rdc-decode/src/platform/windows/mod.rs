@@ -6,7 +6,13 @@
 
 pub mod mf_decoder;
 
+#[cfg(feature = "ffmpeg")]
+pub mod ffmpeg_decoder;
+
 pub use mf_decoder::{
-    activation_name, decoder_names, enumerate, ensure_mf, DecodedFrame, MfH264Decoder, OutputKind,
+    activation_name, decoder_names, ensure_mf, enumerate, DecodedFrame, MfH264Decoder, OutputKind,
     TextureFrame,
 };
+
+#[cfg(feature = "ffmpeg")]
+pub use ffmpeg_decoder::FfmpegH264Decoder;

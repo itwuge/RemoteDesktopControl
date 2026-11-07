@@ -17,6 +17,9 @@ pub mod stats;
 #[cfg(target_os = "windows")]
 pub mod present;
 
+#[cfg(target_os = "windows")]
+pub mod video_decoder;
+
 pub use error::DecodeError;
 pub use platform::MfH264Decoder;
 #[cfg(target_os = "windows")]
@@ -28,3 +31,5 @@ pub use stats::{DecodeSnapshot, DecodeStats, WINDOW_CAPACITY};
 pub use platform::DecodedFrame;
 #[cfg(target_os = "windows")]
 pub use present::{h264_decoder_profile_count, PresentWindow};
+#[cfg(target_os = "windows")]
+pub use video_decoder::{open_video_decoder, DecoderBackend, DecoderInfo, VideoDecoder};

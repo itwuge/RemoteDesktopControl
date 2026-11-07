@@ -17,6 +17,10 @@ description = "RDC 命令行自检与直连验证工具"
 name = "rdc-cli"
 path = "src/main.rs"
 
+[features]
+# 打开 FFmpeg 解码后端（LGPL 共享构建）；需同时设置 FFMPEG_DIR。
+ffmpeg = ["rdc-decode/ffmpeg"]
+
 [dependencies]
 rdc-core = { workspace = true }
 rdc-protocol = { workspace = true }
