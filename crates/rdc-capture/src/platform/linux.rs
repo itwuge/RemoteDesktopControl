@@ -617,8 +617,13 @@ impl XSession {
                 | u16::from(x11rb::protocol::randr::NotifyMask::OUTPUT_CHANGE)
                 | u16::from(x11rb::protocol::randr::NotifyMask::RESOURCE_CHANGE);
             let mask = x11rb::protocol::randr::NotifyMask::from(mask);
-            if let Err(error) = conn.randr_select_input(root, mask) {
-                warn!(error = %error, "XRandR 事件订阅失败，仅靠周期探测");
+            // RandR 事件订阅是可选能力：失败只降级为周期探测，会话继续；
+            // 用显式 match 记录降级路径，避免出现“只打日志就吞掉错误”的分支（R-L-9）。
+            match conn.randr_select_input(root, mask) {
+                Ok(()) => {}
+                Err(error) => {
+                    warn!(error = %error, "XRandR 事件订阅失败，仅靠周期探测");
+                }
             }
         }
 
