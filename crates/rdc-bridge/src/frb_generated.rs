@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 802359248;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1204307587;
 
 // Section: executor
 
@@ -1430,6 +1430,39 @@ fn wire__crate__api__session_disconnect_impl(
         },
     )
 }
+fn wire__crate__api__session_ingest_handshake_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "session_ingest_handshake",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_bytes = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::session_ingest_handshake(api_bytes)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__session_local_capabilities_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1488,6 +1521,38 @@ fn wire__crate__api__session_negotiated_capabilities_impl(
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Ok::<_, ()>(crate::api::session_negotiated_capabilities())?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__session_negotiated_epoch_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "session_negotiated_epoch",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>(crate::api::session_negotiated_epoch())?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -1658,6 +1723,40 @@ fn wire__crate__api__settings_save_impl(
         },
     )
 }
+fn wire__crate__api__video_clear_media_key_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "video_clear_media_key",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>({
+                        crate::api::video_clear_media_key();
+                    })?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__video_ingest_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1685,6 +1784,71 @@ fn wire__crate__api__video_ingest_impl(
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Ok::<_, ()>(crate::api::video_ingest(api_bytes))?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__video_ingest_datagram_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "video_ingest_datagram",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_datagram = <Vec<u8>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::video_ingest_datagram(api_datagram)?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__video_media_stats_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "video_media_stats",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>(crate::api::video_media_stats())?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -1749,6 +1913,73 @@ fn wire__crate__api__video_reset_impl(
             move |context| {
                 transform_result_sse::<_, ()>((move || {
                     let output_ok = Ok::<_, ()>(crate::api::video_reset())?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__video_select_stream_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "video_select_stream",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_stream_id = <Option<u32>>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Ok::<_, ()>(crate::api::video_select_stream(api_stream_id))?;
+                    std::result::Result::Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__video_set_media_key_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "video_set_media_key",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_key = <Vec<u8>>::sse_decode(&mut deserializer);
+            let api_direction = <u8>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, String>((move || {
+                    let output_ok = crate::api::video_set_media_key(api_key, api_direction)?;
                     std::result::Result::Ok(output_ok)
                 })())
             }
@@ -2374,6 +2605,32 @@ impl SseDecode for Vec<crate::api::TrustDeviceDto> {
     }
 }
 
+impl SseDecode for crate::video_transport::MediaTransportStatsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_accepted = <u64>::sse_decode(deserializer);
+        let mut var_badHeader = <u64>::sse_decode(deserializer);
+        let mut var_wrongStream = <u64>::sse_decode(deserializer);
+        let mut var_keyMissing = <u64>::sse_decode(deserializer);
+        let mut var_authFailures = <u64>::sse_decode(deserializer);
+        let mut var_badMessage = <u64>::sse_decode(deserializer);
+        let mut var_tsMismatches = <u64>::sse_decode(deserializer);
+        let mut var_direction = <u8>::sse_decode(deserializer);
+        let mut var_lastError = <Option<String>>::sse_decode(deserializer);
+        return crate::video_transport::MediaTransportStatsDto {
+            accepted: var_accepted,
+            bad_header: var_badHeader,
+            wrong_stream: var_wrongStream,
+            key_missing: var_keyMissing,
+            auth_failures: var_authFailures,
+            bad_message: var_badMessage,
+            ts_mismatches: var_tsMismatches,
+            direction: var_direction,
+            last_error: var_lastError,
+        };
+    }
+}
+
 impl SseDecode for Option<String> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -2390,6 +2647,17 @@ impl SseDecode for Option<crate::api::ControlFrameDto> {
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
         if (<bool>::sse_decode(deserializer)) {
             return Some(<crate::api::ControlFrameDto>::sse_decode(deserializer));
+        } else {
+            return None;
+        }
+    }
+}
+
+impl SseDecode for Option<u32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        if (<bool>::sse_decode(deserializer)) {
+            return Some(<u32>::sse_decode(deserializer));
         } else {
             return None;
         }
@@ -2766,6 +3034,8 @@ impl SseDecode for crate::video_service::VideoStatsDto {
         let mut var_bytes = <u64>::sse_decode(deserializer);
         let mut var_needsKeyframe = <bool>::sse_decode(deserializer);
         let mut var_decodeErrors = <u64>::sse_decode(deserializer);
+        let mut var_selectedStream = <Option<u32>>::sse_decode(deserializer);
+        let mut var_ignoredStreamMessages = <u64>::sse_decode(deserializer);
         let mut var_lastError = <Option<String>>::sse_decode(deserializer);
         return crate::video_service::VideoStatsDto {
             config: var_config,
@@ -2777,6 +3047,8 @@ impl SseDecode for crate::video_service::VideoStatsDto {
             bytes: var_bytes,
             needs_keyframe: var_needsKeyframe,
             decode_errors: var_decodeErrors,
+            selected_stream: var_selectedStream,
+            ignored_stream_messages: var_ignoredStreamMessages,
             last_error: var_lastError,
         };
     }
@@ -2886,29 +3158,36 @@ fn pde_ffi_dispatcher_primary_impl(
         39 => wire__crate__api__remote_access_stop_impl(port, ptr, rust_vec_len, data_len),
         40 => wire__crate__api__role_info_impl(port, ptr, rust_vec_len, data_len),
         41 => wire__crate__api__session_disconnect_impl(port, ptr, rust_vec_len, data_len),
-        42 => wire__crate__api__session_local_capabilities_impl(port, ptr, rust_vec_len, data_len),
-        43 => wire__crate__api__session_negotiated_capabilities_impl(
+        42 => wire__crate__api__session_ingest_handshake_impl(port, ptr, rust_vec_len, data_len),
+        43 => wire__crate__api__session_local_capabilities_impl(port, ptr, rust_vec_len, data_len),
+        44 => wire__crate__api__session_negotiated_capabilities_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        44 => {
+        45 => wire__crate__api__session_negotiated_epoch_impl(port, ptr, rust_vec_len, data_len),
+        46 => {
             wire__crate__api__session_set_peer_capabilities_impl(port, ptr, rust_vec_len, data_len)
         }
-        45 => wire__crate__api__session_start_impl(port, ptr, rust_vec_len, data_len),
-        46 => wire__crate__api__session_status_impl(port, ptr, rust_vec_len, data_len),
-        47 => wire__crate__api__settings_load_impl(port, ptr, rust_vec_len, data_len),
-        48 => wire__crate__api__settings_save_impl(port, ptr, rust_vec_len, data_len),
-        49 => wire__crate__api__video_ingest_impl(port, ptr, rust_vec_len, data_len),
-        50 => wire__crate__api__video_poll_frame_impl(port, ptr, rust_vec_len, data_len),
-        51 => wire__crate__api__video_reset_impl(port, ptr, rust_vec_len, data_len),
-        52 => wire__crate__api__video_stats_impl(port, ptr, rust_vec_len, data_len),
-        53 => wire__crate__api__wall_capability_bits_impl(port, ptr, rust_vec_len, data_len),
-        54 => wire__crate__api__wall_latest_impl(port, ptr, rust_vec_len, data_len),
-        55 => wire__crate__api__wall_start_impl(port, ptr, rust_vec_len, data_len),
-        56 => wire__crate__api__wall_status_impl(port, ptr, rust_vec_len, data_len),
-        57 => wire__crate__api__wall_stop_impl(port, ptr, rust_vec_len, data_len),
+        47 => wire__crate__api__session_start_impl(port, ptr, rust_vec_len, data_len),
+        48 => wire__crate__api__session_status_impl(port, ptr, rust_vec_len, data_len),
+        49 => wire__crate__api__settings_load_impl(port, ptr, rust_vec_len, data_len),
+        50 => wire__crate__api__settings_save_impl(port, ptr, rust_vec_len, data_len),
+        51 => wire__crate__api__video_clear_media_key_impl(port, ptr, rust_vec_len, data_len),
+        52 => wire__crate__api__video_ingest_impl(port, ptr, rust_vec_len, data_len),
+        53 => wire__crate__api__video_ingest_datagram_impl(port, ptr, rust_vec_len, data_len),
+        54 => wire__crate__api__video_media_stats_impl(port, ptr, rust_vec_len, data_len),
+        55 => wire__crate__api__video_poll_frame_impl(port, ptr, rust_vec_len, data_len),
+        56 => wire__crate__api__video_reset_impl(port, ptr, rust_vec_len, data_len),
+        57 => wire__crate__api__video_select_stream_impl(port, ptr, rust_vec_len, data_len),
+        58 => wire__crate__api__video_set_media_key_impl(port, ptr, rust_vec_len, data_len),
+        59 => wire__crate__api__video_stats_impl(port, ptr, rust_vec_len, data_len),
+        60 => wire__crate__api__wall_capability_bits_impl(port, ptr, rust_vec_len, data_len),
+        61 => wire__crate__api__wall_latest_impl(port, ptr, rust_vec_len, data_len),
+        62 => wire__crate__api__wall_start_impl(port, ptr, rust_vec_len, data_len),
+        63 => wire__crate__api__wall_status_impl(port, ptr, rust_vec_len, data_len),
+        64 => wire__crate__api__wall_stop_impl(port, ptr, rust_vec_len, data_len),
         _ => unreachable!(),
     }
 }
@@ -3192,6 +3471,34 @@ impl flutter_rust_bridge::IntoIntoDart<crate::input_service::InputStatsDto>
     for crate::input_service::InputStatsDto
 {
     fn into_into_dart(self) -> crate::input_service::InputStatsDto {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::video_transport::MediaTransportStatsDto {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.accepted.into_into_dart().into_dart(),
+            self.bad_header.into_into_dart().into_dart(),
+            self.wrong_stream.into_into_dart().into_dart(),
+            self.key_missing.into_into_dart().into_dart(),
+            self.auth_failures.into_into_dart().into_dart(),
+            self.bad_message.into_into_dart().into_dart(),
+            self.ts_mismatches.into_into_dart().into_dart(),
+            self.direction.into_into_dart().into_dart(),
+            self.last_error.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::video_transport::MediaTransportStatsDto
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::video_transport::MediaTransportStatsDto>
+    for crate::video_transport::MediaTransportStatsDto
+{
+    fn into_into_dart(self) -> crate::video_transport::MediaTransportStatsDto {
         self
     }
 }
@@ -3481,6 +3788,8 @@ impl flutter_rust_bridge::IntoDart for crate::video_service::VideoStatsDto {
             self.bytes.into_into_dart().into_dart(),
             self.needs_keyframe.into_into_dart().into_dart(),
             self.decode_errors.into_into_dart().into_dart(),
+            self.selected_stream.into_into_dart().into_dart(),
+            self.ignored_stream_messages.into_into_dart().into_dart(),
             self.last_error.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -3824,6 +4133,21 @@ impl SseEncode for Vec<crate::api::TrustDeviceDto> {
     }
 }
 
+impl SseEncode for crate::video_transport::MediaTransportStatsDto {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <u64>::sse_encode(self.accepted, serializer);
+        <u64>::sse_encode(self.bad_header, serializer);
+        <u64>::sse_encode(self.wrong_stream, serializer);
+        <u64>::sse_encode(self.key_missing, serializer);
+        <u64>::sse_encode(self.auth_failures, serializer);
+        <u64>::sse_encode(self.bad_message, serializer);
+        <u64>::sse_encode(self.ts_mismatches, serializer);
+        <u8>::sse_encode(self.direction, serializer);
+        <Option<String>>::sse_encode(self.last_error, serializer);
+    }
+}
+
 impl SseEncode for Option<String> {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
@@ -3840,6 +4164,16 @@ impl SseEncode for Option<crate::api::ControlFrameDto> {
         <bool>::sse_encode(self.is_some(), serializer);
         if let Some(value) = self {
             <crate::api::ControlFrameDto>::sse_encode(value, serializer);
+        }
+    }
+}
+
+impl SseEncode for Option<u32> {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.is_some(), serializer);
+        if let Some(value) = self {
+            <u32>::sse_encode(value, serializer);
         }
     }
 }
@@ -4082,6 +4416,8 @@ impl SseEncode for crate::video_service::VideoStatsDto {
         <u64>::sse_encode(self.bytes, serializer);
         <bool>::sse_encode(self.needs_keyframe, serializer);
         <u64>::sse_encode(self.decode_errors, serializer);
+        <Option<u32>>::sse_encode(self.selected_stream, serializer);
+        <u64>::sse_encode(self.ignored_stream_messages, serializer);
         <Option<String>>::sse_encode(self.last_error, serializer);
     }
 }

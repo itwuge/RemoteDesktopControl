@@ -49,5 +49,5 @@ pub use video::{
     decode_video_message, encode_video_message, VideoCodec, VideoColorRange, VideoColorSpace,
     VideoEvent, VideoFrame, VideoFrameHeader, VideoMessage, VideoReceiver, VideoStreamConfig,
     VIDEO_FRAGMENT_BYTES, VIDEO_MAX_FRAME_BYTES, VIDEO_MAX_PARAMETER_SET_BYTES,
-    VIDEO_REASSEMBLY_WINDOW,
+    VIDEO_MAX_STREAMS, VIDEO_MEDIA_FRAGMENT_BYTES, VIDEO_REASSEMBLY_WINDOW, VIDEO_STREAM_MAIN,
 };

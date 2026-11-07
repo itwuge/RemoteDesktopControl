@@ -12,6 +12,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'session_service.dart';
 import 'video_service.dart';
+import 'video_transport.dart';
 
 // These functions are ignored because they are not marked as `pub`: `append_audit`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `template_of`, `to_control_status_linux`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
@@ -476,10 +477,10 @@ Future<SessionStatusDto> sessionStatus() =>
 Future<SessionTeardownDto> sessionDisconnect({required String reason}) =>
     RustLib.instance.api.crateApiSessionDisconnect(reason: reason);
 
-/// 本端能力位（含文本 opt-in）。握手注册报文应上报这个值。
+/// 本端能力位（含文本 opt-in 与 H.264 视频位）。握手注册报文应上报这个值。
 ///
 /// # Returns
-/// `Capabilities::DEFAULT | TEXT_INPUT` 的原始位图。
+/// `Capabilities::VIDEO_ENDPOINT` 的原始位图。
 ///
 /// # Errors
 /// 不会失败。
@@ -549,6 +550,96 @@ Future<VideoStatsDto> videoStats() => RustLib.instance.api.crateApiVideoStats();
 /// # Errors
 /// 不会失败。
 Future<VideoStatsDto> videoReset() => RustLib.instance.api.crateApiVideoReset();
+
+/// 从一个握手报文（HELLO / HELLO_ACK）读取对端能力位并回填。
+///
+/// 生产路径：会话层收到对端握手包后原样交给本函数；旧端不带 caps 时按
+/// `Capabilities::DEFAULT` 回退（不会误启用文本/视频）。
+///
+/// # Arguments
+/// * `bytes` - 握手报文的 JSON 字节
+///
+/// # Returns
+/// 协商后的位图。
+///
+/// # Errors
+/// 报文非法时返回错误文本，且不改写对端位图。
+Future<BigInt> sessionIngestHandshake({required List<int> bytes}) =>
+    RustLib.instance.api.crateApiSessionIngestHandshake(bytes: bytes);
+
+/// 读取协商位变化代数；变化即表示需要重新协商（重建解码器/重新判定文本门控）。
+///
+/// # Returns
+/// 单调递增的代数，初值 0。
+///
+/// # Errors
+/// 不会失败。
+Future<BigInt> sessionNegotiatedEpoch() =>
+    RustLib.instance.api.crateApiSessionNegotiatedEpoch();
+
+/// 喂入一个收到的媒体包（32 字节 S4 头 + 密文 + AEAD tag）。
+///
+/// 行为：解封装 → 会话密钥解密 → 时间戳映射 → 视频重组。
+///
+/// # Arguments
+/// * `datagram` - UDP 收到的完整 datagram
+///
+/// # Returns
+/// 最新视频统计。
+///
+/// # Errors
+/// 未安装密钥、认证失败、非法消息时返回错误文本（同时计入媒体统计）。
+Future<VideoStatsDto> videoIngestDatagram({required List<int> datagram}) =>
+    RustLib.instance.api.crateApiVideoIngestDatagram(datagram: datagram);
+
+/// 安装媒体通道密钥。
+///
+/// # Arguments
+/// * `key` - 32 字节会话密钥（`ChannelKeys::media_h2c` / `media_c2h`）
+/// * `direction` - 1 = 被控端→主控端，2 = 主控端→被控端
+///
+/// # Returns
+/// 成功返回 `Ok(())`。
+///
+/// # Errors
+/// 密钥长度或方向非法时返回错误文本。
+Future<void> videoSetMediaKey({
+  required List<int> key,
+  required int direction,
+}) => RustLib.instance.api.crateApiVideoSetMediaKey(
+  key: key,
+  direction: direction,
+);
+
+/// 清除媒体通道密钥（断开会话时调用）。
+///
+/// # Errors
+/// 不会失败。
+Future<void> videoClearMediaKey() =>
+    RustLib.instance.api.crateApiVideoClearMediaKey();
+
+/// 读取媒体传输统计。
+///
+/// # Returns
+/// 接受/丢弃/认证失败/时间戳不一致等计数。
+///
+/// # Errors
+/// 不会失败。
+Future<MediaTransportStatsDto> videoMediaStats() =>
+    RustLib.instance.api.crateApiVideoMediaStats();
+
+/// 选定要接收的码流（多码流协商）。
+///
+/// # Arguments
+/// * `stream_id` - `0` 主码流；`1..` 子码流；`null` 不过滤
+///
+/// # Returns
+/// 切换后的统计（切换会清空在途分片并重新等 IDR）。
+///
+/// # Errors
+/// 不会失败。
+Future<VideoStatsDto> videoSelectStream({int? streamId}) =>
+    RustLib.instance.api.crateApiVideoSelectStream(streamId: streamId);
 
 /// 读取权限页快照。
 ///

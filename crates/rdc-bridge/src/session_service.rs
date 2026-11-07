@@ -8,11 +8,13 @@
 // ============================================================
 
 use std::net::{SocketAddr, UdpSocket};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use rdc_protocol::{capability_bits, Capabilities, SignalEnvelope, SignalMessage};
+use rdc_protocol::{Capabilities, SignalEnvelope, SignalMessage};
+use rdc_security::HandshakeMessage;
 
 /// bye 往返等待上限：回环桩不超 1 ms，留余量给锁屏/调度抖动。
 const BYE_TIMEOUT: Duration = Duration::from_millis(800);
@@ -135,30 +137,74 @@ fn peer_capabilities() -> &'static Mutex<Option<u64>> {
 
 // =====** 能力位协商 =====**
 
-/// 本端能力位：默认能力 + 文本输入。
+/// 本端能力位：默认能力 + 文本输入 + H.264 视频主码流。
 ///
-/// 为什么文本输入要显式 opt-in：`Capabilities::DEFAULT` 被 Linux 注册路径复用，
-/// 而 Linux 注入端不支持文本；Android/Windows 这两条真正支持文本的端单独声明。
+/// 为什么文本/视频要显式 opt-in：`Capabilities::DEFAULT` 被 Linux 注册路径复用，
+/// 而 Linux 注入端不支持文本、部分旧端没有视频；Android/Windows 这两条真正支持的端单独声明。
 #[must_use]
 pub fn local_capabilities() -> u64 {
-    Capabilities::DEFAULT
-        .with(capability_bits::TEXT_INPUT, true)
-        .raw()
+    Capabilities::VIDEO_ENDPOINT.raw()
+}
+
+/// 协商位变化代数：每次对端位图发生实质性变化 +1。
+///
+/// 用途：Dart 轮询代数，变化时重新配置解码器/文本门控，避免每帧比较整张位图。
+fn caps_epoch() -> &'static AtomicU64 {
+    static EPOCH: AtomicU64 = AtomicU64::new(0);
+    &EPOCH
 }
 
 /// 写入握手得到的对端能力位，返回协商结果。
 ///
 /// 参数 [peer_bits]：对端注册报文里的位图（可能含未知位）。
 /// 返回：双方按位与后的能力位；Dart 侧据此决定是否发送文本。
+/// 位图发生实质变化时 `caps_epoch` 自增，供上层触发重新协商。
 #[must_use]
 pub fn set_peer_capabilities(peer_bits: u64) -> u64 {
     let negotiated = Capabilities::from_raw(local_capabilities())
         .negotiate(Capabilities::from_raw(peer_bits))
         .raw();
+    let mut changed = false;
     if let Ok(mut guard) = peer_capabilities().lock() {
+        changed = guard.map_or(true, |previous| previous != peer_bits);
         *guard = Some(peer_bits);
     }
+    if changed {
+        caps_epoch().fetch_add(1, Ordering::Relaxed);
+    }
     negotiated
+}
+
+/// 从一个握手报文（HELLO / HELLO_ACK 的 JSON 字节）读取对端能力位并回填。
+///
+/// 生产路径：会话层收到对端握手包后原样交给本函数，不再依赖“是否收到 Meta”的隐式判定。
+/// 旧端不带 `caps` 时按 `Capabilities::DEFAULT` 回退（位图里没有 bit13/bit14，
+/// 因而文本与视频都不会被误启用）。
+///
+/// # Arguments
+/// * `bytes` - 握手报文的 JSON 字节
+///
+/// # Returns
+/// 协商后的位图。
+///
+/// # Errors
+/// 报文超长或 JSON 非法时返回错误文本；此时不改写对端位图。
+pub fn ingest_handshake_message(bytes: &[u8]) -> Result<u64, String> {
+    let message = HandshakeMessage::decode(bytes).map_err(|error| error.to_string())?;
+    let peer_bits = match message {
+        HandshakeMessage::Hello { caps, .. } | HandshakeMessage::HelloAck { caps, .. } => caps
+            .unwrap_or_else(|| Capabilities::DEFAULT.raw()),
+        HandshakeMessage::Auth { .. } | HandshakeMessage::AuthOk { .. } => {
+            return Err("确认报文不携带能力位".to_owned());
+        }
+    };
+    Ok(set_peer_capabilities(peer_bits))
+}
+
+/// 读取协商位变化代数。
+#[must_use]
+pub fn negotiated_epoch() -> u64 {
+    caps_epoch().load(Ordering::Relaxed)
 }
 
 /// 读取当前协商结果。
@@ -612,5 +658,47 @@ mod tests {
         let again = disconnect("再次断开").expect("幂等断开");
         assert_eq!(again.session_id, report.session_id);
         assert!(again.bye_acked);
+    }
+
+    /// 握手位图：新端回填后 bit13/bit14 生效；旧端（无 caps）回退默认能力。
+    #[test]
+    fn handshake_capabilities_are_applied_and_epoch_changes() {
+        clear_peer_capabilities();
+        let before = negotiated_epoch();
+
+        let legacy = br#"{"t":"hello","eph":"AA","id":"x","identity":"y","ts":1,"sig":"s","pake":"p"}"#;
+        let negotiated = ingest_handshake_message(legacy).expect("旧端报文");
+        assert!(
+            !Capabilities::from_raw(negotiated)
+                .contains(rdc_protocol::capability_bits::TEXT_INPUT)
+        );
+        assert!(
+            !Capabilities::from_raw(negotiated)
+                .contains(rdc_protocol::capability_bits::VIDEO_STREAM)
+        );
+        assert!(negotiated_epoch() > before);
+
+        let epoch_after_legacy = negotiated_epoch();
+        let modern = HandshakeMessage::Hello {
+            eph: "AA".to_owned(),
+            id: "x".to_owned(),
+            identity: "y".to_owned(),
+            ts: 1,
+            sig: "s".to_owned(),
+            pake: "p".to_owned(),
+            caps: Some(local_capabilities()),
+        };
+        let bytes = modern.encode().expect("编码");
+        let negotiated = ingest_handshake_message(&bytes).expect("新端报文");
+        let caps = Capabilities::from_raw(negotiated);
+        assert!(caps.contains(rdc_protocol::capability_bits::TEXT_INPUT));
+        assert!(caps.contains(rdc_protocol::capability_bits::VIDEO_STREAM));
+        assert!(negotiated_epoch() > epoch_after_legacy);
+
+        // 相同的位图重复写入不应再触发重新协商。
+        let epoch_after_modern = negotiated_epoch();
+        let _ = ingest_handshake_message(&bytes).expect("重复报文");
+        assert_eq!(negotiated_epoch(), epoch_after_modern);
+        clear_peer_capabilities();
     }
 }

@@ -256,7 +256,8 @@ async fn setup_ctrl_inner(
         "ctrl-01",
         "s4-demo-ctrl",
         "windows",
-        Capabilities::DEFAULT,
+        // 主控端显式 opt-in bit13（文本输入）。
+        Capabilities::CONTROLLER,
     )
     .await?;
     trace("ctrl", "信令已注册");

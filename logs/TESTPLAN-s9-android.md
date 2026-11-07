@@ -53,6 +53,46 @@
 | D7 | 协商位回填 | 会话建立后调用 `sessionNegotiatedCapabilities` 并写入 `setNegotiatedCapabilities`；bit13 为 0 时文本不发 |
 | D8 | 端到端判据 | Rust 单测覆盖“协议分片→桥接重组”；Dart 单测覆盖“桥接 DTO→切分→门控→解码器桩”；FFI 边界由 FRB 生成的编译/APK 构建覆盖 |
 
+### 阶段 5 · 媒体网络层与握手机制（判据先落盘）
+
+| # | 判据 | 判定方式 |
+|---|---|---|
+| E1 | 加密封装关系先设计后实现 | `research/android-s9-video-transport.md` 写清「媒体分片+S4 头/AEAD 组合、nonce 方向隔离、认证范围、为何不复用控制通道」 |
+| E2 | 媒体包可解封装并解密 | `video_ingest_datagram`：32 字节头 + AEAD 解密（AAD=整头）→ 视频消息；被篡改包 `auth_failures` 计数且不入队 |
+| E3 | 未安装密钥即拒绝 | 无密钥时密文包按 `key_missing` 丢弃，不静默接受明文 |
+| E4 | 时间戳映射 | 帧头 `pts_us` 与包头 `ts_us` 不一致时以包头为准，`ts_mismatches` 递增；输出帧 `pts_us == ts_us` |
+| E5 | 握手位图真正回填 | `session_ingest_handshake(HELLO/HELLO_ACK)` 写入对端位图；旧端无 caps 时回退 `DEFAULT`（bit13/bit14 均不生效） |
+| E6 | 位变化触发重新协商 | 位图实质变化时 `session_negotiated_epoch` 单调递增；相同位图重复写入不递增 |
+| E7 | 位不匹配文本不发 | 协商结果缺 bit13 时 Dart 侧 `RemoteTextInput` 被门控（沿用阶段 3 判据，位图来源改为握手） |
+| E8 | 视频能力位显式 opt-in | 新增 bit14 `VIDEO_STREAM`；`DEFAULT` 不含该位；`VIDEO_ENDPOINT` 含 bit13+bit14；单端支持协商后仍为 0 |
+| E9 | 多码流/分辨率切换语义 | `select_stream` 只接收选定 `stream_id`；切换清空在途分片并重新等 IDR；分辨率切换走新 `Meta`（config_id 递增） |
+| E10 | Windows 主控端 bit13 注册点 | `demo.rs` / `s4demo.rs` / `walldemo.rs` 的主控端注册改用 `Capabilities::CONTROLLER` |
+| E11 | 兼容性说明 | 设计文档 §7 表格覆盖旧端对 bit14/握手 caps/密文包/未知 tag 的行为 |
+
+#### 阶段 5 结果（2026-11-08，VM 已恢复）
+
+| 判据 | 结果 | 证据 |
+|---|---|---|
+| E1 | 通过 | [research/android-s9-video-transport.md](file:///C:/Users/Administrator/Desktop/RDC-android/research/android-s9-video-transport.md) |
+| E2 | 通过（宿主测试） | `cargo test -p rdc-bridge`：`datagram_roundtrip_reaches_video_queue`、`tampered_datagram_is_rejected` |
+| E3 | 通过（宿主测试） | `missing_key_is_counted`：无密钥 → `key_missing=1` |
+| E4 | 通过（宿主测试） | `timestamp_mismatch_is_overridden_by_header`：输出 `pts_us == 12_345`、`ts_mismatches=1` |
+| E5 | 通过（宿主测试） | `handshake_capabilities_are_applied_and_epoch_changes`；rdc-security `handshake_carries_capabilities_both_ways` |
+| E6 | 通过（宿主测试） | 同上：位图变化 epoch+1，重复写入 epoch 不变 |
+| E7 | 通过（沿用阶段 3 单测） | Flutter `能力位为 0 时输入法编辑不进入输入链` 等 3 条 |
+| E8 | 通过（宿主测试） | rdc-protocol `video_stream_requires_both_sides`（45 项全过） |
+| E9 | 通过（宿主测试） | `stream_filter_drops_other_streams`；切换码流清空分片 |
+| E10 | 通过（编译级） | `demo.rs`/`s4demo.rs`/`walldemo.rs` 主控端注册改 `Capabilities::CONTROLLER` |
+| E11 | 通过 | 设计文档 §7 |
+
+聚合：`cargo test -p rdc-protocol -p rdc-security -p rdc-bridge` = 45 + 28 + 21 全通过；
+`flutter analyze` 无问题；`flutter test` 41/41 通过。
+APK 复验见 §2.10。
+
+**阶段 5 停止点**：媒体包→`video_ingest` 的解封装/AEAD/时间戳映射已落地并有宿主单测；
+握手 caps 回填与视频能力位/多码流语义已落地。**真实 socket 归属、Android 网络客户端仍缺**，
+因此“模拟器客户端连 VM 被控端”的端到端仍无法跑（见 §2.10 与三类缺项）。
+
 ---
 
 ## 二、阶段 1 实测结果
@@ -160,6 +200,28 @@
 | Kotlin JVM 单测 `:app:testDebugUnitTest` | **BUILD SUCCESSFUL**（Kotlin 未改，命中缓存，9+3 条沿用） |
 | `flutter_rust_bridge_codegen generate` | **Done!**（新增 `sessionLocalCapabilities` / `sessionSetPeerCapabilities` / `sessionNegotiatedCapabilities` / `videoIngest` / `videoPollFrame` / `videoStats` / `videoReset` 与 3 个 DTO；u64 → Dart `BigInt`） |
 | APK 构建 | ⚠️ **不作为通过项**：构建命令成功，但本轮同步时 `rsync --delete` 清空了 `app/android/app/src/main/jniLibs/`，产物未包含重新编出的 `librdc_bridge.so`；随后 VM 关机，无法补编与校验。**上次已验证 APK 仍是阶段 3 的 94,614,894 B / sha256 `293ab42f…`** |
+
+---
+
+### 2.10 本轮（阶段 5 媒体网络层 + VM/模拟器复验）—— 【已验证，E2E 仍阻塞】
+
+| 命令 / 动作 | 结果 |
+|---|---|
+| `cargo test -p rdc-protocol -p rdc-security -p rdc-bridge` | **rdc-protocol 45/45、rdc-security 28/28、rdc-bridge 21/21** 全部通过 |
+| `flutter_rust_bridge_codegen generate` | **Done!**（新增 `sessionIngestHandshake` / `sessionNegotiatedEpoch` / `videoIngestDatagram` / `videoSetMediaKey` / `videoClearMediaKey` / `videoMediaStats` / `videoSelectStream` + `MediaTransportStatsDto`） |
+| `flutter analyze` | **No issues found!**（12.9 s） |
+| `flutter test`（全量） | **41/41 通过** |
+| Kotlin JVM 单测 `:app:testDebugUnitTest` | **BUILD SUCCESSFUL in 4m 51s**；报告 `AnnexBParserTest 9/9`、`DecoderGateTest 3/3`，failures=0（时间戳 2026-11-07T18:42Z，非缓存命中） |
+| arm64 APK（`packaging/android/build_apk.sh` 同参数） | **成功**：`app-debug.apk` 76 MB，内含 `lib/arm64-v8a/librdc_bridge.so`（1,252,192 B）与 `lib/arm64-v8a/libflutter.so` |
+| x86_64 模拟器 APK | **成功**（VM 临时把 `abiFilters` 加 `x86_64`，仅用于模拟器，不改仓库）：内含 `lib/x86_64/libflutter.so`、`lib/x86_64/librdc_bridge.so`（1,418,152 B） |
+| 模拟器安装/启动 | `emulator-5554`：`INSTALL_SUCCESS`；`com.rdc.rdc` pid 存活；首页徽标显示 **“桥接正常 / 构建平台 android-x86_64”**，即 Rust FFI 已加载并被调用（logcat 无显式 dlopen 行，**UI 状态是唯一证据**） |
+| 横竖屏 | `user_rotation=1` → 截图确认整体旋转、预览区与统计行正常，进程不崩；**因无活跃解码器，`textureId` 是否变化未测** |
+| 5 分钟空闲稳定性 | 见下方“稳定/性能”小节（仅空闲，非推流） |
+| **真实端到端（模拟器客户端连 VM 被控端）** | ❌ **无法执行**：Android 侧只有 `sessionStart` 回环实现，`app/lib` 中不存在任何 UDP/QUIC 客户端或主机地址输入；Rust 桥也仅暴露 `video_ingest_datagram` 而没有 socket 所有者。属“缺代码”，不是环境问题 |
+
+**稳定/性能（空闲）**：`dumpsys meminfo com.rdc.rdc` 基线 PSS 253,145 KB / RSS 324,424 KB；
+5 分钟后见 `/tmp/mem_t5.txt`（pid 不变、无 FATAL）。**fps/解码延迟 p50/p99、丢帧、触摸回读、
+中文 IME、textureId 稳定性全部依赖真实会话，本轮未覆盖，不写入通过项。**
 
 ---
 

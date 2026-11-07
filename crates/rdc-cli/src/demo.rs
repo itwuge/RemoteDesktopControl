@@ -217,7 +217,8 @@ async fn controller_side(
         "ctrl-01",
         "loopback-controller",
         "windows",
-        Capabilities::DEFAULT,
+        // 主控端显式 opt-in bit13（文本输入）；`DEFAULT` 故意不含该位。
+        Capabilities::CONTROLLER,
     )
     .await?;
     println!("  [ctrl] 注册完成 +{} ms", start.elapsed().as_millis());

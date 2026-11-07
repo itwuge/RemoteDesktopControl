@@ -45,10 +45,17 @@ pub mod bits {
     /// 置位表示本端能**注入**或**发送** `InputEvent::Text`。协商仍按位与：
     /// 只有双方都置位才启用文本事件，否则调用方退回逐扫描码的键盘输入。
     pub const TEXT_INPUT: u64 = 1 << 13;
+    /// bit14：H.264 视频主码流（S9 阶段 5 追加；旧客户端视为未知位并忽略）。
+    ///
+    /// 置位表示本端实现了 `rdc-protocol::video` 的 Meta/Frame/Fragment 收发与解码。
+    /// 这是**显式 opt-in**：`DEFAULT` 不含该位，因为 Linux 注册路径与部分旧端
+    /// 没有视频实现；置位后协商仍按位与，单端支持不会建立通道。
+    /// 子码流（`stream_id >= 1`）另外要求 bit7 `SUB_STREAM`。
+    pub const VIDEO_STREAM: u64 = 1 << 14;
 }
 
 /// 本协议版本已定义的全部能力位。
-pub const KNOWN_BITS: u64 = (1 << 14) - 1;
+pub const KNOWN_BITS: u64 = (1 << 15) - 1;
 
 // =====** Capabilities =====**
 
@@ -68,6 +75,28 @@ impl Capabilities {
     /// 提前置位会让对端协商出并不存在的功能。
     pub const DEFAULT: Self = Self(
         bits::HEVC | bits::TEMPORAL | bits::CLIPBOARD | bits::FILE_TRANSFER,
+    );
+
+    /// 主控端默认能力：`DEFAULT` + 文本事件（主控端负责发送文本）。
+    ///
+    /// Windows 主控端的注册调用点必须使用它，而不是 `DEFAULT`：`DEFAULT` 故意
+    /// 不含 bit13，直接复用会让文本能力永远协商不出来。
+    pub const CONTROLLER: Self = Self(
+        bits::HEVC
+            | bits::TEMPORAL
+            | bits::CLIPBOARD
+            | bits::FILE_TRANSFER
+            | bits::TEXT_INPUT,
+    );
+
+    /// 视频端默认能力：`CONTROLLER` + H.264 主码流（Android 被控/主控共用）。
+    pub const VIDEO_ENDPOINT: Self = Self(
+        bits::HEVC
+            | bits::TEMPORAL
+            | bits::CLIPBOARD
+            | bits::FILE_TRANSFER
+            | bits::TEXT_INPUT
+            | bits::VIDEO_STREAM,
     );
 
     /// 从原始位图构造。
@@ -210,6 +239,21 @@ mod tests {
         assert!(!Capabilities::DEFAULT.has_unknown_bits());
     }
 
+    /// 视频能力位必须显式 opt-in：旧端（只有 DEFAULT）协商后不建立视频通道。
+    #[test]
+    fn video_stream_requires_both_sides() {
+        assert!(!Capabilities::DEFAULT.contains(bits::VIDEO_STREAM));
+        assert!(Capabilities::VIDEO_ENDPOINT.contains(bits::VIDEO_STREAM));
+        assert!(!Capabilities::VIDEO_ENDPOINT
+            .negotiate(Capabilities::DEFAULT)
+            .contains(bits::VIDEO_STREAM));
+        assert!(Capabilities::VIDEO_ENDPOINT
+            .negotiate(Capabilities::VIDEO_ENDPOINT)
+            .contains(bits::VIDEO_STREAM));
+        // 主控端常量必须含 bit13，否则文本永远协商不出来。
+        assert!(Capabilities::CONTROLLER.contains(bits::TEXT_INPUT));
+    }
+
     /// 线格式是一个整数，序列化后必须能原样还原。
     #[test]
     fn serde_roundtrip_is_integer() {
@@ -238,6 +282,7 @@ mod tests {
             bits::SCREEN_WALL,
             bits::ACCOUNT_TRUST,
             bits::TEXT_INPUT,
+            bits::VIDEO_STREAM,
         ];
         let mut acc = 0u64;
         for bit in list {

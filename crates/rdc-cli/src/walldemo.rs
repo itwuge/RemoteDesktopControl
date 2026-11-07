@@ -237,7 +237,8 @@ async fn setup_wall_viewer(
         &tag,
         "s5-demo-viewer",
         "windows",
-        wall_capabilities(Capabilities::DEFAULT),
+        // 主控端显式 opt-in bit13（文本输入），再叠加屏幕墙子码流位。
+        wall_capabilities(Capabilities::CONTROLLER),
     )
     .await?;
     // 等 host 注册在服务端生效，避免 PeerNotFound 竞态。

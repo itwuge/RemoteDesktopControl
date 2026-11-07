@@ -32,6 +32,9 @@ pub use crate::input_service::{InputEventDto, InputStatsDto};
 /// 远端视频订阅 DTO（定义见 `video_service`，此处再导出供 flutter_rust_bridge 扫描）。
 pub use crate::video_service::{VideoConfigDto, VideoFrameDto, VideoStatsDto};
 
+/// 媒体传输统计 DTO（定义见 `video_transport`）。
+pub use crate::video_transport::MediaTransportStatsDto;
+
 /// 剪贴板状态 DTO（定义见 `clipboard_service`）。
 pub use crate::clipboard_service::ClipboardStatusDto;
 
@@ -1057,10 +1060,10 @@ pub fn session_disconnect(reason: String) -> Result<SessionTeardownDto, String> 
 
 // =====** 视频订阅与能力位回填（阶段 4） =====**
 
-/// 本端能力位（含文本 opt-in）。握手注册报文应上报这个值。
+/// 本端能力位（含文本 opt-in 与 H.264 视频位）。握手注册报文应上报这个值。
 ///
 /// # Returns
-/// `Capabilities::DEFAULT | TEXT_INPUT` 的原始位图。
+/// `Capabilities::VIDEO_ENDPOINT` 的原始位图。
 ///
 /// # Errors
 /// 不会失败。
@@ -1138,6 +1141,100 @@ pub fn video_stats() -> VideoStatsDto {
 /// 不会失败。
 pub fn video_reset() -> VideoStatsDto {
     crate::video_service::reset()
+}
+
+// =====** 媒体网络层与握手（阶段 5） =====**
+
+/// 从一个握手报文（HELLO / HELLO_ACK）读取对端能力位并回填。
+///
+/// 生产路径：会话层收到对端握手包后原样交给本函数；旧端不带 caps 时按
+/// `Capabilities::DEFAULT` 回退（不会误启用文本/视频）。
+///
+/// # Arguments
+/// * `bytes` - 握手报文的 JSON 字节
+///
+/// # Returns
+/// 协商后的位图。
+///
+/// # Errors
+/// 报文非法时返回错误文本，且不改写对端位图。
+pub fn session_ingest_handshake(bytes: Vec<u8>) -> Result<u64, String> {
+    session_service::ingest_handshake_message(&bytes)
+}
+
+/// 读取协商位变化代数；变化即表示需要重新协商（重建解码器/重新判定文本门控）。
+///
+/// # Returns
+/// 单调递增的代数，初值 0。
+///
+/// # Errors
+/// 不会失败。
+pub fn session_negotiated_epoch() -> u64 {
+    session_service::negotiated_epoch()
+}
+
+/// 喂入一个收到的媒体包（32 字节 S4 头 + 密文 + AEAD tag）。
+///
+/// 行为：解封装 → 会话密钥解密 → 时间戳映射 → 视频重组。
+///
+/// # Arguments
+/// * `datagram` - UDP 收到的完整 datagram
+///
+/// # Returns
+/// 最新视频统计。
+///
+/// # Errors
+/// 未安装密钥、认证失败、非法消息时返回错误文本（同时计入媒体统计）。
+pub fn video_ingest_datagram(datagram: Vec<u8>) -> Result<VideoStatsDto, String> {
+    crate::video_transport::ingest_datagram(&datagram)
+}
+
+/// 安装媒体通道密钥。
+///
+/// # Arguments
+/// * `key` - 32 字节会话密钥（`ChannelKeys::media_h2c` / `media_c2h`）
+/// * `direction` - 1 = 被控端→主控端，2 = 主控端→被控端
+///
+/// # Returns
+/// 成功返回 `Ok(())`。
+///
+/// # Errors
+/// 密钥长度或方向非法时返回错误文本。
+pub fn video_set_media_key(key: Vec<u8>, direction: u8) -> Result<(), String> {
+    crate::video_transport::set_media_key(key, direction)
+}
+
+/// 清除媒体通道密钥（断开会话时调用）。
+///
+/// # Errors
+/// 不会失败。
+pub fn video_clear_media_key() {
+    crate::video_transport::clear_media_key();
+}
+
+/// 读取媒体传输统计。
+///
+/// # Returns
+/// 接受/丢弃/认证失败/时间戳不一致等计数。
+///
+/// # Errors
+/// 不会失败。
+pub fn video_media_stats() -> MediaTransportStatsDto {
+    crate::video_transport::media_stats()
+}
+
+/// 选定要接收的码流（多码流协商）。
+///
+/// # Arguments
+/// * `stream_id` - `0` 主码流；`1..` 子码流；`null` 不过滤
+///
+/// # Returns
+/// 切换后的统计（切换会清空在途分片并重新等 IDR）。
+///
+/// # Errors
+/// 不会失败。
+pub fn video_select_stream(stream_id: Option<u32>) -> VideoStatsDto {
+    crate::video_service::select_stream(stream_id)
 }
 
 // =====** S5-5 授权与权限页 =====**

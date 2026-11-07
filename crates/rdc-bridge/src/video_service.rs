@@ -3,9 +3,8 @@
 //
 // 层级：L4 桥接层
 // 被谁调用：api.rs 的 video_ingest / video_poll_frame / video_stats / video_reset
-// 边界：本模块不碰 socket、不解码；传输层收到视频消息后调用 `ingest`，
-//       Flutter 侧用 `poll_frame` 拉取已重组的 Annex-B 与元数据。
-//       真正的网络接收（QUIC/媒体通道）尚未接入，宿主测试直接喂字节。
+// 边界：本模块不碰 socket、不解码；`video_transport` 负责把线上媒体包解封装+解密后
+//       调用 `ingest`，Flutter 侧用 `poll_frame` 拉取已重组的 Annex-B 与元数据。
 // ============================================================
 
 use std::collections::VecDeque;
@@ -87,6 +86,10 @@ pub struct VideoStatsDto {
     pub needs_keyframe: bool,
     /// 解码失败的消息数（未知 tag/字段非法）。
     pub decode_errors: u64,
+    /// 当前选定的码流；`null` 表示不过滤。
+    pub selected_stream: Option<u32>,
+    /// 因不属于选定码流而丢弃的消息数。
+    pub ignored_stream_messages: u64,
     /// 最近错误。
     pub last_error: Option<String>,
 }
@@ -99,6 +102,10 @@ struct State {
     config: Option<VideoConfigDto>,
     queue_drops: u64,
     decode_errors: u64,
+    selected_stream: Option<u32>,
+    ignored_stream_messages: u64,
+    /// 重置时刻的重组完成计数：`receiver.completed()` 是单调累计值，快照需减去基线。
+    completed_base: u64,
     last_error: Option<String>,
 }
 
@@ -110,6 +117,9 @@ impl Default for State {
             config: None,
             queue_drops: 0,
             decode_errors: 0,
+            selected_stream: None,
+            ignored_stream_messages: 0,
+            completed_base: 0,
             last_error: None,
         }
     }
@@ -138,10 +148,25 @@ pub fn ingest(bytes: Vec<u8>) -> VideoStatsDto {
             return snapshot(&guard);
         }
     };
+    ingest_message(message)
+}
+
+/// 喂入一条已解码的视频消息（媒体传输层解密后调用）。
+///
+/// 行为：多码流过滤 → 重排 → 元数据更新 → 完整帧入队；坏消息只记账不 panic。
+pub fn ingest_message(message: VideoMessage) -> VideoStatsDto {
     let mut guard = match state().lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
+    // 多码流：只有选定码流进入重组；Done 始终放行（用于清空在途分片）。
+    if let Some(selected) = guard.selected_stream {
+        let is_done = matches!(message, VideoMessage::Done { .. });
+        if !is_done && message.stream_id() != selected {
+            guard.ignored_stream_messages += 1;
+            return snapshot(&guard);
+        }
+    }
     match guard.receiver.push(message) {
         Ok(events) => {
             for event in events {
@@ -194,11 +219,39 @@ pub fn reset() -> VideoStatsDto {
         Err(poisoned) => poisoned.into_inner(),
     };
     guard.receiver.reset();
+    guard.completed_base = guard.receiver.completed();
     guard.frames.clear();
     guard.config = None;
     guard.queue_drops = 0;
     guard.decode_errors = 0;
+    guard.selected_stream = None;
+    guard.ignored_stream_messages = 0;
     guard.last_error = None;
+    snapshot(&guard)
+}
+
+/// 选定要接收的码流（多码流协商的接收侧动作）。
+///
+/// # Arguments
+/// * `stream_id` - `Some(0)` 主码流；`Some(1..VIDEO_MAX_STREAMS)` 子码流；`None` 不过滤。
+///
+/// # Returns
+/// 最新统计快照。
+///
+/// # Errors
+/// 不会失败；切换码流会清空在途分片并重新等 IDR。
+pub fn select_stream(stream_id: Option<u32>) -> VideoStatsDto {
+    let mut guard = match state().lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    if guard.selected_stream != stream_id {
+        guard.selected_stream = stream_id;
+        guard.receiver.reset();
+        guard.completed_base = guard.receiver.completed();
+        guard.frames.clear();
+        guard.config = None;
+    }
     snapshot(&guard)
 }
 
@@ -244,15 +297,33 @@ fn snapshot(state: &State) -> VideoStatsDto {
     VideoStatsDto {
         config: state.config.clone(),
         queued: state.frames.len() as u32,
-        completed: state.receiver.completed(),
+        completed: state
+            .receiver
+            .completed()
+            .saturating_sub(state.completed_base),
         dropped: state.receiver.dropped(),
         resyncs: state.receiver.resyncs(),
         queue_drops: state.queue_drops,
         bytes: state.receiver.bytes(),
         needs_keyframe: state.receiver.needs_keyframe(),
         decode_errors: state.decode_errors,
+        selected_stream: state.selected_stream,
+        ignored_stream_messages: state.ignored_stream_messages,
         last_error: state.last_error.clone(),
     }
+}
+
+fn snapshot_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// 测试串行锁：video_service 与 video_transport 的用例共享同一份全局状态。
+#[cfg(test)]
+pub(crate) fn test_lock() -> std::sync::MutexGuard<'static, ()> {
+    snapshot_lock()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 // =====** 测试 =====**
@@ -301,12 +372,6 @@ mod tests {
             };
             let _ = ingest(encode_video_message(&message).unwrap());
         }
-    }
-
-    /// 全局状态被多个用例共享：串行执行，避免 reset 互相踩踏。
-    fn test_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: Mutex<()> = Mutex::new(());
-        LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn reset_all() {
@@ -366,5 +431,23 @@ mod tests {
         assert_eq!(stats.decode_errors, 1);
         assert!(stats.last_error.is_some());
         assert_eq!(stats.queued, 0);
+    }
+
+    /// 多码流：选定主码流后，子码流的帧不得进入重组队列。
+    #[test]
+    fn stream_filter_drops_other_streams() {
+        let _guard = test_lock();
+        reset_all();
+        let _ = select_stream(Some(0));
+        let mut sub = config();
+        sub.stream_id = 1;
+        sub.config_id = 7;
+        let stats = ingest(encode_video_message(&VideoMessage::Meta(sub)).unwrap());
+        assert_eq!(stats.config, None);
+        assert_eq!(stats.ignored_stream_messages, 1);
+        // 切回不过滤后同一消息可正常进入。
+        let _ = select_stream(None);
+        let stats = ingest(encode_video_message(&VideoMessage::Meta(config())).unwrap());
+        assert_eq!(stats.config.as_ref().unwrap().stream_id, 0);
     }
 }

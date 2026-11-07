@@ -168,6 +168,12 @@ class VideoStatsDto {
   /// 解码失败的消息数（未知 tag/字段非法）。
   final BigInt decodeErrors;
 
+  /// 当前选定的码流；`null` 表示不过滤。
+  final int? selectedStream;
+
+  /// 因不属于选定码流而丢弃的消息数。
+  final BigInt ignoredStreamMessages;
+
   /// 最近错误。
   final String? lastError;
 
@@ -181,6 +187,8 @@ class VideoStatsDto {
     required this.bytes,
     required this.needsKeyframe,
     required this.decodeErrors,
+    this.selectedStream,
+    required this.ignoredStreamMessages,
     this.lastError,
   });
 
@@ -195,6 +203,8 @@ class VideoStatsDto {
       bytes.hashCode ^
       needsKeyframe.hashCode ^
       decodeErrors.hashCode ^
+      selectedStream.hashCode ^
+      ignoredStreamMessages.hashCode ^
       lastError.hashCode;
 
   @override
@@ -211,5 +221,7 @@ class VideoStatsDto {
           bytes == other.bytes &&
           needsKeyframe == other.needsKeyframe &&
           decodeErrors == other.decodeErrors &&
+          selectedStream == other.selectedStream &&
+          ignoredStreamMessages == other.ignoredStreamMessages &&
           lastError == other.lastError;
 }

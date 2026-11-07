@@ -34,6 +34,27 @@ pub const VIDEO_REASSEMBLY_WINDOW: usize = 4;
 /// 单个参数集（SPS/PPS）字节上限。
 pub const VIDEO_MAX_PARAMETER_SET_BYTES: usize = 512;
 
+/// 主码流编号（与 `StreamKind::VideoMain` 对齐）。
+pub const VIDEO_STREAM_MAIN: u32 = 0;
+
+/// 单会话可协商的视频码流上限（含主码流）。
+///
+/// 多码流协商语义（阶段 5）：
+/// * `stream_id = 0` 主码流；`1..VIDEO_MAX_STREAMS` 子码流（另需能力位 `SUB_STREAM`）。
+/// * 接收端用 `video_select_stream` 选定一路；未选定表示不过滤（兼容旧调用）。
+/// * **分辨率/码率切换不是新消息类型**，而是发送端递增 `config_id` 的新 `Meta`。
+///   接收端 `requires_rebuild` 命中后清空在途分片、触发 `ConfigChanged`，并等下一个
+///   IDR 才恢复出帧——旧端只要支持 H.264 就能正确重建，无需感知 bit14。
+pub const VIDEO_MAX_STREAMS: u32 = 2;
+
+/// 媒体通道单分片的净字节上限（`= FRAGMENT_PAYLOAD_MAX - 13` 字节消息固定头）。
+///
+/// `VIDEO_FRAGMENT_BYTES` 校验的是分片数据长度，而线上单包限制的是**整条消息**：
+/// 13 字节固定头 + 1339 字节数据 = 1352，再加上 32 字节 S4 头与 16 字节 AEAD tag
+/// 正好 1400 字节（IPv4/IPv6 路径 MTU 内，不触发 IP 分片）。
+/// 发送端切分帧时必须使用本常量；接收端仍接受 `VIDEO_FRAGMENT_BYTES` 以内的消息。
+pub const VIDEO_MEDIA_FRAGMENT_BYTES: usize = crate::FRAGMENT_PAYLOAD_MAX - 13;
+
 /// 视频元数据消息 tag。
 pub const TAG_VIDEO_META: u8 = 0x61;
 /// 视频帧头消息 tag。
@@ -214,6 +235,17 @@ pub enum VideoMessage {
         /// 子码流。
         stream_id: u32,
     },
+}
+
+impl VideoMessage {
+    /// 返回该消息所属码流编号（用于多码流过滤）。
+    pub fn stream_id(&self) -> u32 {
+        match self {
+            Self::Meta(config) => config.stream_id,
+            Self::Frame(header) => header.stream_id,
+            Self::Fragment { stream_id, .. } | Self::Done { stream_id } => *stream_id,
+        }
+    }
 }
 
 // =====** 编码 =====**

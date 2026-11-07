@@ -47,6 +47,12 @@ pub enum HandshakeMessage {
         sig: String,
         /// SPAKE2 消息（Base64）。
         pake: String,
+        /// 本端能力位图（阶段 5 追加；旧端缺省为 `None`）。
+        ///
+        /// 不进入签名范围：握手运行在 TLS 1.3 + SPAKE2 之上，通道已被认证；
+        /// 对端谎报自己的能力只会让双方少启用功能，不能放大权限。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caps: Option<u64>,
     },
     /// 被控端回应：结构同 HELLO。
     HelloAck {
@@ -62,6 +68,9 @@ pub enum HandshakeMessage {
         sig: String,
         /// SPAKE2 消息（Base64）。
         pake: String,
+        /// 本端能力位图（阶段 5 追加；旧端缺省为 `None`）。
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caps: Option<u64>,
     },
     /// 主控端确认：`hmac(confirm_key, "C"‖session‖n_C)`。
     Auth {
@@ -167,6 +176,10 @@ pub struct SessionHandshake {
     sas: Option<String>,
     /// 主控端生成的 AUTH nonce（被控端回显）。
     nonce_c: Option<[u8; 16]>,
+    /// 本端能力位图（随 HELLO/HELLO_ACK 发送）。
+    local_caps: Option<u64>,
+    /// 对端能力位图（从 HELLO/HELLO_ACK 读取；旧端缺省为 `None`）。
+    peer_caps: Option<u64>,
 }
 
 impl std::fmt::Debug for SessionHandshake {
@@ -256,6 +269,8 @@ impl SessionHandshake {
             keys: None,
             sas: None,
             nonce_c: None,
+            local_caps: None,
+            peer_caps: None,
         }
     }
 
@@ -348,9 +363,33 @@ impl SessionHandshake {
             ts: now_ms,
             sig: self.identity.sign_b64(&payload),
             pake: STANDARD.encode(&pake_msg),
+            caps: self.local_caps,
         };
         self.state = HandshakeState::HelloSent;
         Ok(Some(msg))
+    }
+
+    /// 设置本端能力位图（必须在发送 HELLO/HELLO_ACK 之前调用）。
+    ///
+    /// # Arguments
+    /// * `caps` - 本端能力位图（`rdc_protocol::capabilities::Capabilities::raw`）
+    ///
+    /// # Errors
+    /// 不会失败。
+    pub fn set_local_capabilities(&mut self, caps: u64) {
+        self.local_caps = Some(caps);
+    }
+
+    /// 返回从对端 HELLO/HELLO_ACK 读取的能力位图。
+    ///
+    /// # Returns
+    /// * `Some(bits)` - 对端携带了 caps；
+    /// * `None` - 旧端未携带（调用方应按“旧端默认能力”回退）。
+    ///
+    /// # Errors
+    /// 不会失败。
+    pub fn peer_capabilities(&self) -> Option<u64> {
+        self.peer_caps
     }
 
     /// 推进握手一步。
@@ -379,7 +418,8 @@ impl SessionHandshake {
                 ts,
                 sig,
                 pake,
-            }) => self.host_on_hello(eph, id, identity, ts, sig, pake, now_ms),
+                caps,
+            }) => self.host_on_hello(eph, id, identity, ts, sig, pake, caps, now_ms),
             (HandshakeState::HelloSent, HandshakeRole::Controller, HandshakeMessage::HelloAck {
                 eph,
                 id,
@@ -387,7 +427,8 @@ impl SessionHandshake {
                 ts,
                 sig,
                 pake,
-            }) => self.controller_on_hello_ack(eph, id, identity, ts, sig, pake, now_ms),
+                caps,
+            }) => self.controller_on_hello_ack(eph, id, identity, ts, sig, pake, caps, now_ms),
             (HandshakeState::HelloAckSent, HandshakeRole::Host, HandshakeMessage::Auth { nonce, mac }) => {
                 self.host_on_auth(nonce, mac)
             }
@@ -413,9 +454,12 @@ impl SessionHandshake {
         ts: i64,
         sig: String,
         pake_msg: String,
+        caps: Option<u64>,
         now_ms: i64,
     ) -> Result<Option<HandshakeMessage>, SecurityError> {
         self.verify_peer_hello(&eph, &id, &identity, ts, &sig, now_ms)?;
+        // 旧端不带 caps：保留 None，由上层按“旧端默认能力”回退。
+        self.peer_caps = caps;
         let pake_msg = STANDARD
             .decode(&pake_msg)
             .map_err(|_| SecurityError::PakeFailure("PAKE 消息不是合法 Base64"))?;
@@ -435,6 +479,7 @@ impl SessionHandshake {
             ts: now_ms,
             sig: self.identity.sign_b64(&payload),
             pake: STANDARD.encode(&my_msg),
+            caps: self.local_caps,
         }))
     }
 
@@ -448,9 +493,12 @@ impl SessionHandshake {
         ts: i64,
         sig: String,
         pake_msg: String,
+        caps: Option<u64>,
         now_ms: i64,
     ) -> Result<Option<HandshakeMessage>, SecurityError> {
         self.verify_peer_hello(&eph, &id, &identity, ts, &sig, now_ms)?;
+        // 旧端不带 caps：保留 None，由上层按“旧端默认能力”回退。
+        self.peer_caps = caps;
         let pake_msg = STANDARD
             .decode(&pake_msg)
             .map_err(|_| SecurityError::PakeFailure("PAKE 消息不是合法 Base64"))?;
@@ -681,6 +729,46 @@ mod tests {
             c.keys().expect("keys").confirm,
             h.keys().expect("keys").confirm
         );
+    }
+
+    /// 握手报文必须携带本端能力位，且两端都能读到对方位图（bit13/bit14 显式 opt-in）。
+    #[test]
+    fn handshake_carries_capabilities_both_ways() {
+        let code = PairingCode::parse("ABCD-EFGH-JK").expect("合法");
+        let controller_id = identity_from_seed(8);
+        let host_id = identity_from_seed(9);
+        let controller_pub = controller_id.public_key_b64();
+        let controller_caps = (1u64 << 13) | (1u64 << 14);
+        let host_caps = 1u64 << 14;
+
+        let mut c = SessionHandshake::new_controller("s-caps", controller_id, code.clone());
+        let mut h = SessionHandshake::new_host("s-caps", host_id, code, controller_pub);
+        c.set_local_capabilities(controller_caps);
+        h.set_local_capabilities(host_caps);
+
+        let hello = c.start(1000).expect("start").expect("HELLO");
+        let ack = h.step(hello, 1000).expect("host hello").expect("ACK");
+        // 被控端此时已读到主控端位图，主控端还没读到。
+        assert_eq!(h.peer_capabilities(), Some(controller_caps));
+        assert_eq!(c.peer_capabilities(), None);
+        let auth = c.step(ack, 1000).expect("controller ack").expect("AUTH");
+        assert_eq!(c.peer_capabilities(), Some(host_caps));
+        let ok = h.step(auth, 1000).expect("host auth").expect("AUTH_OK");
+        c.step(ok, 1000).expect("controller ok");
+
+        // 双方按位与：bit13 单端支持不成立，bit14 双方支持。
+        let negotiated = c.peer_capabilities().unwrap() & controller_caps;
+        assert_eq!(negotiated, host_caps);
+    }
+
+    /// 旧端（不带 caps）必须解析为 `None`，由上层回退默认能力。
+    #[test]
+    fn hello_without_caps_decodes_as_none() {
+        let json = br#"{"t":"hello","eph":"AA","id":"x","identity":"y","ts":1,"sig":"s","pake":"p"}"#;
+        match HandshakeMessage::decode(json).expect("旧端报文应可解析") {
+            HandshakeMessage::Hello { caps, .. } => assert_eq!(caps, None),
+            other => panic!("应为 Hello，实际 {other:?}"),
+        }
     }
 
     /// 配对码错误必须卡在 AUTH 校验（而不是“握手成功但密钥不同”）。
