@@ -94,10 +94,30 @@ try {
 }
 
 # =====** 构建 Flutter =====**
+# flutter 常常不在非交互 shell 的 PATH 里（CI/受限环境），先解析绝对路径并注入 PATH，
+# 否则 Invoke-Native "flutter" 会抛 CommandNotFoundException。
+$flutterExe = (Get-Command flutter -ErrorAction SilentlyContinue).Source
+if (-not $flutterExe) {
+    $flutterCandidates = @()
+    if ($env:FLUTTER_ROOT) { $flutterCandidates += (Join-Path $env:FLUTTER_ROOT "bin\flutter.bat") }
+    $flutterCandidates += "C:\dev\flutter\bin\flutter.bat"
+    foreach ($candidate in $flutterCandidates) {
+        if ($candidate -and (Test-Path $candidate)) { $flutterExe = $candidate; break }
+    }
+}
+if ($flutterExe) {
+    $flutterBin = Split-Path $flutterExe -Parent
+    if (-not (($env:Path -split ";") -contains $flutterBin)) {
+        $env:Path = "$flutterBin;$env:Path"
+    }
+    Write-Host "[packaging/windows] flutter：$flutterExe"
+} elseif (-not $SkipFlutter) {
+    throw "找不到 flutter；请安装 Flutter 并加入 PATH，或用 -SkipFlutter 复用已有产物"
+}
 if (-not $SkipFlutter) {
     Push-Location (Join-Path $RepoRoot "app")
     try {
-        Invoke-Native -Command "flutter" -Arguments @("build", "windows", "--release")
+        Invoke-Native -Command $flutterExe -Arguments @("build", "windows", "--release")
     } finally {
         Pop-Location
     }
@@ -109,8 +129,11 @@ if (-not (Test-Path $ReleaseDir)) {
 
 # =====** 补齐动态库与 CLI =====**
 # CMake 钩子通常已复制 dll；这里再复制一次，保证 -SkipFlutter 场景也能打包。
-Copy-Item (Join-Path $RepoRoot "target\release\rdc_bridge.dll") $ReleaseDir -Force
-Copy-Item (Join-Path $RepoRoot "target\release\rdc-cli.exe") $ReleaseDir -Force
+# cargo 产物目录跟随 CARGO_TARGET_DIR（外部 target 方案），未设置时退回仓库内 target。
+$cargoTargetDir = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) { Join-Path $RepoRoot "target" } else { $env:CARGO_TARGET_DIR }
+Write-Host "[packaging/windows] cargo 产物目录：$cargoTargetDir"
+Copy-Item (Join-Path $cargoTargetDir "release\rdc_bridge.dll") $ReleaseDir -Force
+Copy-Item (Join-Path $cargoTargetDir "release\rdc-cli.exe") $ReleaseDir -Force
 
 # AMF 原生编码 shim：bridge 运行时用 LoadLibrary 动态加载，缺它只能回退 MFT。
 # AMF 运行库（amfrt64.dll）由显卡驱动提供，不随包分发；rdc-amf.dll 是本仓库自建产物。
