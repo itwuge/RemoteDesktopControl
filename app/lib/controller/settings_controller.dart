@@ -61,6 +61,14 @@ class SettingsController {
     }
   }
 
+  /// 把草稿恢复为出厂默认。
+  ///
+  /// 只改内存中的草稿，必须再点「保存设置」才落盘；不删除设备与授权。
+  void resetDrafts() {
+    settings.value = const AppSettings.defaults();
+    message.value = null;
+  }
+
   /// 更新中继地址。
   ///
   /// [value] 为用户输入；不做格式校验（S1 不连接中继），仅做去空格。
@@ -139,20 +147,37 @@ class SettingsController {
     settings.value = settings.value.copyWith(autoReconnect: value);
   }
 
+  /// 完成首启引导。
+  ///
+  /// [allowRemoteAccess] 为用户在首启页的选择（默认不允许）；
+  /// 写入本机是否允许被连，并将首启标记置为已完成。只做本地持久化，
+  /// 不触碰协议、capabilities 或握手流程。
+  ///
+  /// 返回：`true` 表示已成功落盘。
+  Future<bool> completeFirstRun({required bool allowRemoteAccess}) {
+    settings.value = settings.value.copyWith(
+      remoteAccessEnabled: allowRemoteAccess,
+      firstRunCompleted: true,
+    );
+    return save();
+  }
+
   /// 保存到磁盘。
   ///
-  /// 返回：无返回值；结果写入 [message]，供 view 显示 SnackBar。
-  Future<void> save() async {
-    if (isSaving.value) return;
+  /// 返回：`true` 表示写入成功；结果同时写入 [message]，供 view 显示 SnackBar。
+  Future<bool> save() async {
+    if (isSaving.value) return false;
     isSaving.value = true;
     message.value = null;
+    var ok = false;
     try {
-      final ok = await repository.save(settings.value);
+      ok = await repository.save(settings.value);
       message.value = ok ? AppStrings.saveSuccess : AppStrings.saveFailed;
       RdcLogger.log('SettingsController', '保存设置: ${ok ? '成功' : '失败'}');
     } finally {
       isSaving.value = false;
     }
+    return ok;
   }
 
   /// 释放监听器。

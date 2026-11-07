@@ -92,6 +92,12 @@ pub struct AppSettings {
     pub same_account_policy: String,
     /// 是否允许完全免密（仅内网 + 二次确认，默认关）。
     pub passwordless_policy: bool,
+    // =====** 首启引导 =====**
+    /// 首启「允许被连 / 不允许」引导是否已完成。
+    ///
+    /// 只做本地持久化，不参与握手、capabilities 或协议判定；
+    /// 旧配置缺少该字段时按 `false` 读取（即仍展示一次引导，不会读崩）。
+    pub first_run_completed: bool,
 }
 
 impl Default for AppSettings {
@@ -119,6 +125,7 @@ impl Default for AppSettings {
             local_pair_policy: "ask".to_owned(),
             same_account_policy: "auto".to_owned(),
             passwordless_policy: false,
+            first_run_completed: false,
         }
     }
 }
@@ -345,5 +352,27 @@ mod tests {
         assert_eq!(settings.takeover_timeout_s, 10);
         assert_eq!(settings.permission_bits & 1, 1);
         assert_eq!(settings.audit_retention_days, 30);
+    }
+
+    /// 旧配置缺少首启字段：按安全默认 false 读取，不报错；写入后能往返保留。
+    #[test]
+    fn legacy_config_without_first_run_field() {
+        let dir = temp_dir("legacy-first-run");
+        let path = dir.join("settings.json");
+        // 模拟只有旧字段、没有 first_run_completed 的配置文件。
+        std::fs::write(
+            &path,
+            br#"{"version":1,"allow_relay":false,"remote_access_enabled":true}"#,
+        )
+        .expect("写入旧配置");
+        let mut loaded = AppSettings::load(&path).expect("旧配置应可读");
+        assert!(!loaded.first_run_completed);
+        assert!(loaded.remote_access_enabled);
+
+        loaded.first_run_completed = true;
+        loaded.save(&path).expect("保存");
+        let reloaded = AppSettings::load(&path).expect("重新加载");
+        assert!(reloaded.first_run_completed);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -2148,8 +2148,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   SettingsDto dco_decode_settings_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 22)
-      throw Exception('unexpected arr length: expect 22 but see ${arr.length}');
+    if (arr.length != 23)
+      throw Exception('unexpected arr length: expect 23 but see ${arr.length}');
     return SettingsDto(
       allowRelay: dco_decode_bool(arr[0]),
       relayAddress: dco_decode_String(arr[1]),
@@ -2172,7 +2172,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       localPairPolicy: dco_decode_String(arr[18]),
       sameAccountPolicy: dco_decode_String(arr[19]),
       passwordlessPolicy: dco_decode_bool(arr[20]),
-      path: dco_decode_String(arr[21]),
+      firstRunCompleted: dco_decode_bool(arr[21]),
+      path: dco_decode_String(arr[22]),
     );
   }
 
@@ -2907,6 +2908,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_localPairPolicy = sse_decode_String(deserializer);
     var var_sameAccountPolicy = sse_decode_String(deserializer);
     var var_passwordlessPolicy = sse_decode_bool(deserializer);
+    var var_firstRunCompleted = sse_decode_bool(deserializer);
     var var_path = sse_decode_String(deserializer);
     return SettingsDto(
       allowRelay: var_allowRelay,
@@ -2930,6 +2932,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       localPairPolicy: var_localPairPolicy,
       sameAccountPolicy: var_sameAccountPolicy,
       passwordlessPolicy: var_passwordlessPolicy,
+      firstRunCompleted: var_firstRunCompleted,
       path: var_path,
     );
   }
@@ -3520,6 +3523,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.localPairPolicy, serializer);
     sse_encode_String(self.sameAccountPolicy, serializer);
     sse_encode_bool(self.passwordlessPolicy, serializer);
+    sse_encode_bool(self.firstRunCompleted, serializer);
     sse_encode_String(self.path, serializer);
   }
 

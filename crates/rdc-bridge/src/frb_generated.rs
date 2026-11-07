@@ -2345,6 +2345,7 @@ impl SseDecode for crate::api::SettingsDto {
         let mut var_localPairPolicy = <String>::sse_decode(deserializer);
         let mut var_sameAccountPolicy = <String>::sse_decode(deserializer);
         let mut var_passwordlessPolicy = <bool>::sse_decode(deserializer);
+        let mut var_firstRunCompleted = <bool>::sse_decode(deserializer);
         let mut var_path = <String>::sse_decode(deserializer);
         return crate::api::SettingsDto {
             allow_relay: var_allowRelay,
@@ -2368,6 +2369,7 @@ impl SseDecode for crate::api::SettingsDto {
             local_pair_policy: var_localPairPolicy,
             same_account_policy: var_sameAccountPolicy,
             passwordless_policy: var_passwordlessPolicy,
+            first_run_completed: var_firstRunCompleted,
             path: var_path,
         };
     }
@@ -3003,6 +3005,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::SettingsDto {
             self.local_pair_policy.into_into_dart().into_dart(),
             self.same_account_policy.into_into_dart().into_dart(),
             self.passwordless_policy.into_into_dart().into_dart(),
+            self.first_run_completed.into_into_dart().into_dart(),
             self.path.into_into_dart().into_dart(),
         ]
         .into_dart()
@@ -3519,6 +3522,7 @@ impl SseEncode for crate::api::SettingsDto {
         <String>::sse_encode(self.local_pair_policy, serializer);
         <String>::sse_encode(self.same_account_policy, serializer);
         <bool>::sse_encode(self.passwordless_policy, serializer);
+        <bool>::sse_encode(self.first_run_completed, serializer);
         <String>::sse_encode(self.path, serializer);
     }
 }

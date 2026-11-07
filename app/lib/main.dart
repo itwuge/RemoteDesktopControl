@@ -9,6 +9,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import 'controller/account_controller.dart';
 import 'controller/device_controller.dart';
@@ -17,13 +18,22 @@ import 'controller/session_controller.dart';
 import 'controller/settings_controller.dart';
 import 'controller/shell_controller.dart';
 import 'controller/wall_controller.dart';
+import 'core/l10n/strings.dart';
 import 'core/utils/logger.dart';
 import 'model/account/account_repository.dart';
 import 'model/gateway/rust_gateway.dart';
 import 'model/settings/settings_repository.dart';
+import 'view/pages/first_run_page.dart';
 import 'view/pages/permission_page.dart';
 import 'view/pages/shell_page.dart';
 import 'view/theme/app_theme.dart';
+
+/// 全局语义句柄。
+///
+/// 主动保持引用不释放：一旦句柄被回收，Flutter 会关闭语义树，
+/// Windows UIA / 读屏将再次只能看到 `FLUTTERVIEW` 一个节点。
+/// 这是无障碍需求，也是后续自动化测试读取控件树的前提（清单「必须做的技术活」）。
+SemanticsHandle? semanticsHandle;
 
 /// 应用启动：先装载 Rust 动态库，再组装 MVC 并运行。
 Future<void> main() async {
@@ -65,11 +75,15 @@ Future<void> main() async {
     repository: AccountRepository(),
   );
 
+  // 首启引导与首页共用同一份设置：先读盘，避免首启页与设置页状态不一致。
+  await settingsController.load();
+
   // 首屏所需的最小数据：顶部状态与设备列表；失败由各控制器自己记录错误。
   await shellController.loadStatus();
   if (bridgeInitError != null) {
     shellController.bridgeHealthy.value = false;
-    shellController.errorMessage.value = 'Rust 核心加载失败：$bridgeInitError';
+    shellController.errorMessage.value =
+        '${AppStrings.bridgeInitFailed}：$bridgeInitError';
   }
 
   // 截图/演示钩子：RDC_START_TAB 指定初始功能区，RDC_START_PAGE=permission 直接进权限页。
@@ -87,6 +101,12 @@ Future<void> main() async {
     accountController: accountController,
     showPermissionPage: Platform.environment['RDC_START_PAGE'] == 'permission',
   ));
+
+  // 首帧之后再通知平台“语义树开启”：此时平台视图已创建，
+  // Windows embedder 才有对象可挂语义节点；在 runApp 之前调用会被丢掉。
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    semanticsHandle ??= SemanticsBinding.instance.ensureSemantics();
+  });
 }
 
 /// 从环境变量读取初始功能区。
@@ -151,15 +171,61 @@ class RdcApp extends StatelessWidget {
       theme: AppTheme.dark(),
       home: showPermissionPage
           ? PermissionPage(controller: permissionController)
-          : ShellPage(
-              shell: shellController,
-              devices: deviceController,
-              wall: wallController,
-              session: sessionController,
+          : _StartupGate(
               settings: settingsController,
-              permission: permissionController,
-              account: accountController,
+              shell: ShellPage(
+                shell: shellController,
+                devices: deviceController,
+                wall: wallController,
+                session: sessionController,
+                settings: settingsController,
+                permission: permissionController,
+                account: accountController,
+              ),
             ),
     );
+  }
+}
+
+/// 启动门：首启未完成时先展示「允许被连 / 不允许」，完成后进入主界面。
+///
+/// 首次进入读 [SettingsController.settings]；旧配置缺 `first_run_completed`
+/// 时按 `false` 处理，因此老用户也会看到一次引导（安全默认仍为不允许）。
+class _StartupGate extends StatefulWidget {
+  /// 创建启动门。
+  ///
+  /// [settings] 设置控制器；[shell] 已完成装配的主界面。
+  const _StartupGate({required this.settings, required this.shell});
+
+  /// 设置控制器。
+  final SettingsController settings;
+
+  /// 主界面。
+  final Widget shell;
+
+  @override
+  State<_StartupGate> createState() => _StartupGateState();
+}
+
+/// 启动门状态：只记「是否还需显示首启页」。
+class _StartupGateState extends State<_StartupGate> {
+  /// 是否还需要展示首启页。
+  late bool _needsFirstRun;
+
+  @override
+  void initState() {
+    super.initState();
+    _needsFirstRun = !widget.settings.settings.value.firstRunCompleted;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_needsFirstRun) {
+      return FirstRunPage(
+        controller: widget.settings,
+        onDone: () => setState(() => _needsFirstRun = false),
+      );
+    }
+    return widget.shell;
   }
 }

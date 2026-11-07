@@ -47,6 +47,7 @@ class AppSettings {
     this.localPairPolicy = 'ask',
     this.sameAccountPolicy = 'auto',
     this.passwordlessPolicy = false,
+    this.firstRunCompleted = false,
   });
 
   /// 默认设置：默认不允许中继、严格 P2P、跟随主控端、文件上限 40%。
@@ -71,7 +72,8 @@ class AppSettings {
         auditRetentionDays = 30,
         localPairPolicy = 'ask',
         sameAccountPolicy = 'auto',
-        passwordlessPolicy = false;
+        passwordlessPolicy = false,
+        firstRunCompleted = false;
 
   /// 是否允许使用中继（默认关闭，docs/01 C2）。
   final bool allowRelay;
@@ -136,6 +138,11 @@ class AppSettings {
   /// 是否允许完全免密。
   final bool passwordlessPolicy;
 
+  /// 首启「允许被连 / 不允许」引导是否已完成。
+  ///
+  /// 只做本地持久化，不参与握手或权限判定；旧配置文件缺该字段时回落 `false`。
+  final bool firstRunCompleted;
+
   /// 复制一份并覆盖部分字段。
   ///
   /// 参数均为可选覆盖项；未传字段保持原值。
@@ -161,6 +168,7 @@ class AppSettings {
     String? localPairPolicy,
     String? sameAccountPolicy,
     bool? passwordlessPolicy,
+    bool? firstRunCompleted,
   }) {
     return AppSettings(
       allowRelay: allowRelay ?? this.allowRelay,
@@ -184,6 +192,7 @@ class AppSettings {
       localPairPolicy: localPairPolicy ?? this.localPairPolicy,
       sameAccountPolicy: sameAccountPolicy ?? this.sameAccountPolicy,
       passwordlessPolicy: passwordlessPolicy ?? this.passwordlessPolicy,
+      firstRunCompleted: firstRunCompleted ?? this.firstRunCompleted,
     );
   }
 
@@ -210,6 +219,7 @@ class AppSettings {
         'local_pair_policy': localPairPolicy,
         'same_account_policy': sameAccountPolicy,
         'passwordless_policy': passwordlessPolicy,
+        'first_run_completed': firstRunCompleted,
       };
 
   /// 从磁盘 JSON 还原；缺字段或非法值一律回落默认，避免旧配置让应用崩在启动路径。
@@ -256,6 +266,9 @@ class AppSettings {
           json['same_account_policy'] as String? ?? fallback.sameAccountPolicy,
       passwordlessPolicy: json['passwordless_policy'] as bool? ??
           fallback.passwordlessPolicy,
+      // 旧配置没有该字段：按安全默认 false 读取，仍展示一次引导。
+      firstRunCompleted:
+          json['first_run_completed'] as bool? ?? fallback.firstRunCompleted,
     );
   }
 

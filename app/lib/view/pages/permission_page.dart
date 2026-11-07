@@ -15,8 +15,11 @@ import '../../controller/permission_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
 import '../../model/gateway/rust_types.dart';
+import '../components/fields.dart';
+import '../components/home_access_card.dart';
 import '../components/info_row.dart';
 import '../components/rdc_button.dart';
+import '../components/rdc_dialog.dart';
 import '../components/section_card.dart';
 
 /// 远程访问权限页。
@@ -35,6 +38,48 @@ class PermissionPage extends StatefulWidget {
 
 /// 权限页状态。
 class _PermissionPageState extends State<PermissionPage> {
+  /// 审计 kind → 中文（把内核英文枚举转成用户能读的词）。
+  static const Map<String, String> _auditKindLabels = {
+    'takeover': '接管',
+    'grant': '授权',
+    'grant_updated': '授权变更',
+    'kick': '断开',
+    'session': '会话',
+    'remote_access': '远程访问',
+    'stop': '停止访问',
+    'resume': '恢复访问',
+    'untrust': '取消信任',
+  };
+
+  /// 审计 action → 中文。
+  static const Map<String, String> _auditActionLabels = {
+    'owner_approve': '本机确认',
+    'controller_yield': '控制者让位',
+    'auto_approve': '自动接管',
+    'deny': '拒绝',
+    'create': '创建',
+    'update': '更新',
+    'reissue': '重签',
+    'revoke': '吊销',
+    'remove': '移除',
+    'stop': '停止',
+    'resume': '恢复',
+    'kick': '踢出',
+    'connect': '连接',
+    'disconnect': '断开',
+    'untrust': '取消信任',
+  };
+
+  /// 审计 outcome → 中文。
+  static const Map<String, String> _auditOutcomeLabels = {
+    'allowed': '允许',
+    'denied': '拒绝',
+    'ok': '成功',
+    'yielded': '已让位',
+    'revoked': '已吊销',
+    'failed': '失败',
+  };
+
   /// 模板名 → 中文标签。
   static const Map<String, String> _templateLabels = {
     'readonly': '只观看',
@@ -57,73 +102,20 @@ class _PermissionPageState extends State<PermissionPage> {
     bool settingsEnabled,
   ) {
     final enabled = snapshot?.remoteAccessEnabled ?? settingsEnabled;
-    final stopped = snapshot?.resumeRequiresConfirm ?? false;
-    return RdcSectionCard(
+    final error = widget.controller.errorMessage.value;
+    // 旧实现是一个「禁用却高亮」的伪按钮 + 右上角重复胶囊；
+    // 现在改为「一句状态 + 一个动作」的状态卡（清单 F1 / F4 / P0-12）。
+    return RdcAccessCard(
       title: AppStrings.permSwitchSection,
-      trailing: RdcStatusPill(
-        text: enabled ? '已允许' : '已拒绝',
-        color: enabled ? RdcTokens.success : RdcTokens.danger,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              RdcStateButton(
-                label: enabled ? '远程访问：开启' : '远程访问：关闭',
-                icon: Icons.language,
-                active: enabled,
-                onPressed: null,
-              ),
-              const SizedBox(width: RdcTokens.spaceMd),
-              const Expanded(
-                child: Text(
-                  AppStrings.permSwitchHint,
-                  style: TextStyle(
-                    fontSize: RdcTokens.fontCaption,
-                    color: RdcTokens.textMuted,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: RdcTokens.spaceMd),
-          Wrap(
-            spacing: RdcTokens.spaceSm,
-            runSpacing: RdcTokens.spaceSm,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            children: [
-              RdcButton(
-                label: AppStrings.stopRemote,
-                icon: Icons.pan_tool,
-                onPressed: enabled ? _stopRemoteAccess : null,
-              ),
-              if (stopped)
-                RdcButton(
-                  label: AppStrings.resumeRemote,
-                  icon: Icons.lock_open,
-                  onPressed: _resumeRemoteAccess,
-                ),
-              RdcStatusPill(
-                text: snapshot?.connectedLabel ?? '无远程会话',
-                color: (snapshot?.sessionRunning ?? false)
-                    ? RdcTokens.accent
-                    : RdcTokens.textMuted,
-              ),
-            ],
-          ),
-          if (stopped) ...[
-            const SizedBox(height: RdcTokens.spaceSm),
-            const Text(
-              '远程访问已停止；恢复需要本机二次确认，不能从远端自行开启。',
-              style: TextStyle(
-                fontSize: RdcTokens.fontCaption,
-                color: RdcTokens.danger,
-              ),
-            ),
-          ],
-        ],
-      ),
+      enabled: enabled,
+      onlineLabel:
+          snapshot?.connectedLabel ?? AppStrings.homeAccessNoSession,
+      busy: widget.controller.saving.value,
+      // 内核快照读不到且已有错误时，显示明确空状态而不是猜状态。
+      unavailable: snapshot == null && error != null,
+      onStop: _stopRemoteAccess,
+      onResume: _resumeRemoteAccess,
+      onRetry: () => widget.controller.loadKernel(),
     );
   }
 
@@ -219,6 +211,19 @@ class _PermissionPageState extends State<PermissionPage> {
 
   // =====** 组件：区块③ 权限模板 =====**
 
+  /// 权限位说明（与 [PermissionController.permissionBitLabels] 一一对应，12px 辅助文字）。
+  static const List<String> _permissionBitHints = [
+    '连接后能看到本机画面（始终开启）',
+    '允许对方操作鼠标与键盘',
+    '允许在两端复制粘贴文字',
+    '允许在两端复制粘贴图片',
+    '允许把文件发送到本机',
+    '允许把本机声音传到对方',
+    '每次重启/关机仍需本机逐次确认',
+    '每次切换显示器仍需本机逐次确认',
+    '断线后由对方自动重连',
+  ];
+
   Widget _buildTemplateSection(String template, int bits) {
     const templates = [
       ('readonly', AppStrings.templateReadonly),
@@ -245,29 +250,42 @@ class _PermissionPageState extends State<PermissionPage> {
             ],
           ),
           const SizedBox(height: RdcTokens.spaceMd),
-          Wrap(
-            spacing: RdcTokens.spaceSm,
-            runSpacing: RdcTokens.spaceSm,
-            children: [
-              for (var bit = 0;
-                  bit < PermissionController.permissionBitLabels.length;
-                  bit++)
-                RdcStateButton(
-                  // bit0（查看屏幕）是底线，按钮禁用并保持开启。
-                  label: PermissionController.permissionBitLabels[bit],
-                  active: (bits & (1 << bit)) != 0,
-                  onPressed: bit == 0
-                      ? null
-                      : () => widget.controller.togglePermissionBit(bit),
-                ),
-            ],
-          ),
-          const SizedBox(height: RdcTokens.spaceSm),
-          const Text(
-            '重启/关机与切换显示器属于敏感位：即使勾选，连接时仍需本机逐次确认。',
-            style: TextStyle(
-              fontSize: RdcTokens.fontCaption,
-              color: RdcTokens.textMuted,
+          // 权限位默认收进「高级权限」折叠区：先给模板，细节按需展开（清单 P2-5）。
+          RdcDiagnostics(
+            title: AppStrings.advancedPermissions,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var bit = 0;
+                    bit < PermissionController.permissionBitLabels.length;
+                    bit++)
+                  Padding(
+                    padding: const EdgeInsets.only(top: RdcTokens.spaceSm),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        RdcStateButton(
+                          // bit0（查看屏幕）是底线，按钮禁用并保持开启。
+                          label: PermissionController.permissionBitLabels[bit],
+                          active: (bits & (1 << bit)) != 0,
+                          onPressed: bit == 0
+                              ? null
+                              : () => widget.controller.togglePermissionBit(bit),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          bit < _permissionBitHints.length
+                              ? _permissionBitHints[bit]
+                              : '',
+                          style: const TextStyle(
+                            fontSize: RdcTokens.fontCaption,
+                            color: RdcTokens.textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
@@ -359,7 +377,8 @@ class _PermissionPageState extends State<PermissionPage> {
               const SizedBox(width: RdcTokens.spaceSm),
               Expanded(
                 child: Text(
-                  '${grant.granteeName} · ${grant.granteeFingerprint.isEmpty ? '指纹未采集' : grant.granteeFingerprint}',
+                  '${grant.granteeName} · '
+                  '${grant.granteeFingerprint.isEmpty ? '设备标识未采集' : grant.granteeFingerprint}',
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontSize: RdcTokens.fontBody),
                 ),
@@ -390,24 +409,63 @@ class _PermissionPageState extends State<PermissionPage> {
           ),
           if (!revoked) ...[
             const SizedBox(height: RdcTokens.spaceSm),
-            Wrap(
-              spacing: RdcTokens.spaceSm,
-              runSpacing: RdcTokens.spaceSm,
+            // 只保留一个主动作；吊销与移除是低频、易误点的动作，收进「更多」（清单 P1-16）。
+            Row(
               children: [
                 RdcButton(
                   label: AppStrings.grantReissue,
                   icon: Icons.tune,
                   onPressed: () => _showReissueDialog(grant),
                 ),
-                RdcButton(
-                  label: AppStrings.grantRevoke,
-                  icon: Icons.block,
-                  onPressed: () => _revokeGrant(grant),
-                ),
-                RdcButton(
-                  label: '移除',
-                  icon: Icons.delete_outline,
-                  onPressed: () => _removeGrant(grant),
+                const SizedBox(width: RdcTokens.spaceSm),
+                PopupMenuButton<String>(
+                  tooltip: AppStrings.more,
+                  icon: const Icon(
+                    Icons.more_horiz,
+                    size: 18,
+                    color: RdcTokens.textMuted,
+                  ),
+                  color: RdcTokens.surfaceRaised,
+                  onSelected: (value) {
+                    if (value == 'revoke') {
+                      _revokeGrant(grant);
+                    } else if (value == 'remove') {
+                      _removeGrant(grant);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'revoke',
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.block,
+                            size: 16,
+                            color: RdcTokens.danger,
+                          ),
+                          const SizedBox(width: RdcTokens.spaceSm),
+                          Text(
+                            AppStrings.grantRevoke,
+                            style: const TextStyle(color: RdcTokens.danger),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'remove',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.delete_outline,
+                            size: 16,
+                            color: RdcTokens.textMuted,
+                          ),
+                          SizedBox(width: RdcTokens.spaceSm),
+                          Text('移除记录'),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -530,9 +588,12 @@ class _PermissionPageState extends State<PermissionPage> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 4),
                 child: Text(
-                  '${_formatMs(entry.tsMs)} · ${entry.kind}/${entry.action}'
-                  '${entry.oldValue.isEmpty ? '' : ' (${entry.oldValue} → ${entry.newValue})'}'
-                  ' · ${entry.outcome}',
+                  // 英文枚举转中文，用户不需要读懂内核术语（清单 F5）。
+                  '${_formatMs(entry.tsMs)} · '
+                  '${_auditKindLabels[entry.kind] ?? entry.kind} / '
+                  '${_auditActionLabels[entry.action] ?? entry.action}'
+                  '${entry.oldValue.isEmpty ? '' : '（${entry.oldValue} → ${entry.newValue}）'}'
+                  ' · ${_auditOutcomeLabels[entry.outcome] ?? entry.outcome}',
                   style: const TextStyle(
                     fontSize: RdcTokens.fontCaption,
                     color: RdcTokens.textMuted,
@@ -658,8 +719,8 @@ class _PermissionPageState extends State<PermissionPage> {
                             ),
                             Text(
                               device.fingerprint.isEmpty
-                                  ? '公钥未采集（需重新配对）'
-                                  : '指纹 ${device.fingerprint}',
+                                  ? '设备标识未采集（需重新配对）'
+                                  : '${AppStrings.grantFingerprintLabel} ${device.fingerprint}',
                               style: const TextStyle(
                                 fontSize: RdcTokens.fontCaption,
                                 color: RdcTokens.textMuted,
@@ -676,9 +737,10 @@ class _PermissionPageState extends State<PermissionPage> {
                       const SizedBox(width: RdcTokens.spaceSm),
                       RdcStatusPill(
                         text: device.authMode == 'passwordless' ? '免密直连' : '需配对码',
+                        // 「需配对码」是正常的安全策略，不是错误（清单 G6）。
                         color: device.authMode == 'passwordless'
                             ? RdcTokens.success
-                            : RdcTokens.danger,
+                            : RdcTokens.textMuted,
                       ),
                       const SizedBox(width: RdcTokens.spaceSm),
                       RdcButton(
@@ -705,7 +767,8 @@ class _PermissionPageState extends State<PermissionPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          RdcInfoRow(label: '本机身份指纹', value: fingerprint),
+          // 只保留用户能理解的标识；授权文件的绝对路径属于工程细节，已移除（清单 P0-6）。
+          RdcInfoRow(label: AppStrings.grantFingerprintLabel, value: fingerprint),
           RdcInfoRow(
             label: '本机允许权限',
             value: _permsText(localPerms),
@@ -713,10 +776,6 @@ class _PermissionPageState extends State<PermissionPage> {
           RdcInfoRow(
             label: '撤销世代',
             value: '${snapshot?.revokedEpoch ?? 0}',
-          ),
-          RdcInfoRow(
-            label: '授权存储',
-            value: snapshot?.grantsPath ?? '—',
           ),
           if ((snapshot?.hint ?? '').isNotEmpty) ...[
             const SizedBox(height: RdcTokens.spaceSm),
@@ -746,72 +805,91 @@ class _PermissionPageState extends State<PermissionPage> {
     var deviceId = candidates.first.deviceId;
     var template = 'readonly';
     var days = 30;
+    // 统一弹窗：标签在上、控件在下，不再使用 Material 浮标签（清单 G4 / P0-14）。
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('签发授权'),
-          content: Column(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => RdcDialog(
+          title: '签发授权',
+          width: RdcTokens.dialogWidthLarge,
+          // 签发是非破坏性主动作：Enter 直接提交（清单 P2-6）。
+          onSubmit: () => Navigator.of(dialogContext).pop(true),
+          actions: [
+            RdcButton(
+              label: AppStrings.cancel,
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+            ),
+            RdcButton(
+              label: '签发',
+              primary: true,
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+            ),
+          ],
+          child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              DropdownButtonFormField<String>(
-                initialValue: deviceId,
-                decoration: const InputDecoration(labelText: '被授权设备'),
-                items: [
-                  for (final device in candidates)
-                    DropdownMenuItem(
-                      value: device.deviceId,
-                      child: Text('${device.name} (${device.deviceId})'),
-                    ),
-                ],
-                onChanged: (value) {
-                  if (value != null) setDialogState(() => deviceId = value);
-                },
+              RdcField(
+                label: '被授权设备',
+                expand: false,
+                child: RdcSelectField<String>(
+                  value: deviceId,
+                  items: [
+                    for (final device in candidates)
+                      DropdownMenuItem(
+                        value: device.deviceId,
+                        child: Text('${device.name}（${device.deviceId}）'),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => deviceId = value);
+                  },
+                ),
               ),
-              const SizedBox(height: RdcTokens.spaceSm),
-              DropdownButtonFormField<String>(
-                initialValue: template,
-                decoration: const InputDecoration(labelText: '权限模板'),
-                items: const [
-                  DropdownMenuItem(value: 'readonly', child: Text('只观看')),
-                  DropdownMenuItem(value: 'operate', child: Text('可操作')),
-                  DropdownMenuItem(value: 'full', child: Text('完全控制')),
-                ],
-                onChanged: (value) {
-                  if (value != null) setDialogState(() => template = value);
-                },
+              const SizedBox(height: RdcTokens.spaceLg),
+              RdcField(
+                label: '权限模板',
+                expand: false,
+                child: RdcSelectField<String>(
+                  value: template,
+                  items: const [
+                    DropdownMenuItem(value: 'readonly', child: Text('只观看')),
+                    DropdownMenuItem(value: 'operate', child: Text('可操作')),
+                    DropdownMenuItem(value: 'full', child: Text('完全控制')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => template = value);
+                    }
+                  },
+                ),
               ),
-              const SizedBox(height: RdcTokens.spaceSm),
-              DropdownButtonFormField<int>(
-                initialValue: days,
-                decoration: const InputDecoration(labelText: '有效期'),
-                items: const [
-                  DropdownMenuItem(value: 30, child: Text('30 天（默认）')),
-                  DropdownMenuItem(value: 60, child: Text('60 天')),
-                  DropdownMenuItem(value: 90, child: Text('90 天（最长）')),
-                ],
-                onChanged: (value) {
-                  if (value != null) setDialogState(() => days = value);
-                },
+              const SizedBox(height: RdcTokens.spaceLg),
+              RdcField(
+                label: '有效期',
+                expand: false,
+                child: RdcSelectField<int>(
+                  value: days,
+                  items: const [
+                    DropdownMenuItem(value: 30, child: Text('30 天（默认）')),
+                    DropdownMenuItem(value: 60, child: Text('60 天')),
+                    DropdownMenuItem(value: 90, child: Text('90 天（最长）')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => days = value);
+                  },
+                ),
               ),
-              const SizedBox(height: RdcTokens.spaceSm),
+              const SizedBox(height: RdcTokens.spaceMd),
               const Text(
                 '完全控制不含重启/关机与切换显示器；敏感操作仍需本机逐次确认。',
-                style: TextStyle(fontSize: RdcTokens.fontCaption),
+                style: TextStyle(
+                  fontSize: RdcTokens.fontCaption,
+                  color: RdcTokens.textMuted,
+                ),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('签发'),
-            ),
-          ],
         ),
       ),
     );
@@ -829,55 +907,70 @@ class _PermissionPageState extends State<PermissionPage> {
     var days = 30;
     final result = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('改权限（换新令牌）'),
-          content: Column(
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => RdcDialog(
+          title: '改权限（换新令牌）',
+          // 重签是非破坏性主动作：Enter 直接提交（清单 P2-6）。
+          onSubmit: () => Navigator.of(dialogContext).pop(true),
+          actions: [
+            RdcButton(
+              label: AppStrings.cancel,
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+            ),
+            RdcButton(
+              label: '重签',
+              primary: true,
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+            ),
+          ],
+          child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              DropdownButtonFormField<String>(
-                initialValue: template,
-                decoration: const InputDecoration(labelText: '新模板'),
-                items: const [
-                  DropdownMenuItem(value: 'readonly', child: Text('只观看')),
-                  DropdownMenuItem(value: 'operate', child: Text('可操作')),
-                  DropdownMenuItem(value: 'full', child: Text('完全控制')),
-                ],
-                onChanged: (value) {
-                  if (value != null) setDialogState(() => template = value);
-                },
+              RdcField(
+                label: '新模板',
+                expand: false,
+                child: RdcSelectField<String>(
+                  value: template,
+                  items: const [
+                    DropdownMenuItem(value: 'readonly', child: Text('只观看')),
+                    DropdownMenuItem(value: 'operate', child: Text('可操作')),
+                    DropdownMenuItem(value: 'full', child: Text('完全控制')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setDialogState(() => template = value);
+                    }
+                  },
+                ),
               ),
-              const SizedBox(height: RdcTokens.spaceSm),
-              DropdownButtonFormField<int>(
-                initialValue: days,
-                decoration: const InputDecoration(labelText: '新有效期'),
-                items: const [
-                  DropdownMenuItem(value: 30, child: Text('30 天')),
-                  DropdownMenuItem(value: 60, child: Text('60 天')),
-                  DropdownMenuItem(value: 90, child: Text('90 天')),
-                ],
-                onChanged: (value) {
-                  if (value != null) setDialogState(() => days = value);
-                },
+              const SizedBox(height: RdcTokens.spaceLg),
+              RdcField(
+                label: '新有效期',
+                expand: false,
+                child: RdcSelectField<int>(
+                  value: days,
+                  items: const [
+                    DropdownMenuItem(value: 30, child: Text('30 天')),
+                    DropdownMenuItem(value: 60, child: Text('60 天')),
+                    DropdownMenuItem(value: 90, child: Text('90 天')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => days = value);
+                  },
+                ),
               ),
-              const SizedBox(height: RdcTokens.spaceSm),
+              const SizedBox(height: RdcTokens.spaceMd),
+              // 白话说明：为什么改权限要重连（清单 F2）。
               const Text(
-                '权限提升不能改写旧令牌：会签发新令牌并吊销旧令牌，对端需重连。',
-                style: TextStyle(fontSize: RdcTokens.fontCaption),
+                '放宽权限需要换发新令牌；旧令牌会同时失效，对方需要重新连接。',
+                style: TextStyle(
+                  fontSize: RdcTokens.fontCaption,
+                  color: RdcTokens.textMuted,
+                ),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('重签'),
-            ),
-          ],
         ),
       ),
     );
@@ -893,9 +986,10 @@ class _PermissionPageState extends State<PermissionPage> {
   Future<void> _revokeGrant(GrantEntry grant) async {
     final confirmed = await _confirm(
       title: '吊销授权',
-      body: '吊销按最终一致生效（最长 15 分 90 秒），不会立即生效。'
+      body: '吊销不会立即生效，最长需要 15 分 90 秒同步到各设备。'
           '如需马上断开，请用「立即停止远程访问」。',
       confirmLabel: '吊销',
+      danger: true,
     );
     if (!confirmed || !mounted) return;
     final error = await widget.controller.revokeGrant(grant.grantId);
@@ -915,9 +1009,10 @@ class _PermissionPageState extends State<PermissionPage> {
 
   Future<void> _stopRemoteAccess() async {
     final confirmed = await _confirm(
-      title: '立即停止远程访问',
-      body: '将停输入、原子断流并落审计；恢复必须在本机二次确认。',
+      title: AppStrings.stopConfirmTitle,
+      body: AppStrings.stopConfirmBody,
       confirmLabel: '立即停止',
+      danger: true,
     );
     if (!confirmed || !mounted) return;
     final report = await widget.controller.stopRemoteAccess();
@@ -926,23 +1021,19 @@ class _PermissionPageState extends State<PermissionPage> {
       _snack(widget.controller.errorMessage.value ?? '停止失败');
       return;
     }
-    _snack(
-      '已停止：输入=${report.inputStopped ? "停" : "未停"}'
-      ' 会话=${report.sessionStopped ? "断" : "未断"}'
-      ' 收尾=${report.teardownOk ? "通过" : "有残留"}'
-      ' 审计=${report.auditWritten ? "已落盘" : "未落盘"}',
-    );
+    // 主界面只给结果；输入/断流/收尾字段属于诊断细节，不再堆在提示条里。
+    _snack(AppStrings.stopDone);
   }
 
   Future<void> _resumeRemoteAccess() async {
     final confirmed = await _confirm(
-      title: '恢复远程访问',
-      body: '恢复后远端可以再次连接。请确认此刻你本人就在本机。',
+      title: AppStrings.resumeConfirmTitle,
+      body: AppStrings.resumeConfirmBody,
       confirmLabel: '恢复',
     );
     if (!confirmed || !mounted) return;
     final error = await widget.controller.resumeRemoteAccess();
-    _snack(error ?? '已恢复远程访问');
+    _snack(error ?? AppStrings.resumeDone);
   }
 
   Future<void> _untrust(TrustDeviceEntry device) async {
@@ -955,29 +1046,20 @@ class _PermissionPageState extends State<PermissionPage> {
     _snack(message ?? '已取消信任；该设备下次连接必须配对码');
   }
 
+  /// 统一二次确认（走 RdcDialog，边距/圆角/按钮与全应用一致）。
   Future<bool> _confirm({
     required String title,
     required String body,
     required String confirmLabel,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(body),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('取消'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(confirmLabel),
-          ),
-        ],
-      ),
+    bool danger = false,
+  }) {
+    return showRdcConfirmDialog(
+      context,
+      title: title,
+      body: body,
+      confirmLabel: confirmLabel,
+      danger: danger,
     );
-    return result ?? false;
   }
 
   void _snack(String message) {
@@ -1025,13 +1107,60 @@ class _PermissionPageState extends State<PermissionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text(AppStrings.permissionTitle)),
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(RdcTokens.spacePage),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900),
+        child: Column(
+          children: [
+            // 页头：返回 + 18px 标题，与下方卡片左对齐；去掉默认 AppBar（清单 F3 / G3）。
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                RdcTokens.spacePage,
+                RdcTokens.spaceMd,
+                RdcTokens.spacePage,
+                RdcTokens.spaceSm,
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: RdcTokens.pageMaxWidth,
+                  ),
+                  child: Row(
+                    children: [
+                      Semantics(
+                        button: true,
+                        label: '返回',
+                        child: IconButton(
+                          tooltip: '返回',
+                          icon: const Icon(Icons.arrow_back, size: 20),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      const Text(
+                        AppStrings.permissionTitle,
+                        style: TextStyle(
+                          fontSize: RdcTokens.fontPageTitle,
+                          fontWeight: FontWeight.w600,
+                          color: RdcTokens.textPrimary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(
+                  RdcTokens.spacePage,
+                  0,
+                  RdcTokens.spacePage,
+                  RdcTokens.spacePage,
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: RdcTokens.pageMaxWidth,
+                    ),
               child: ValueListenableBuilder(
                 valueListenable: widget.controller.settings,
                 builder: (context, settings, _) {
@@ -1086,12 +1215,15 @@ class _PermissionPageState extends State<PermissionPage> {
                       );
                     },
                   );
-                },
+                    },
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ),
+    ),
     );
   }
 }

@@ -62,8 +62,14 @@ class RdcInfoRow extends StatelessWidget {
 class RdcStatusPill extends StatelessWidget {
   /// 创建胶囊。
   ///
-  /// [text] 为显示文字；[color] 为前景/边框色。
-  const RdcStatusPill({super.key, required this.text, required this.color});
+  /// [text] 为显示文字；[color] 为前景/边框色；[compact] 用于窄屏缩略卡片，
+  /// 高度压到 20px，避免在宫格底条里喧宾夺主（清单 P2-4）。
+  const RdcStatusPill({
+    super.key,
+    required this.text,
+    required this.color,
+    this.compact = false,
+  });
 
   /// 显示文字。
   final String text;
@@ -71,18 +77,31 @@ class RdcStatusPill extends StatelessWidget {
   /// 主题色。
   final Color color;
 
+  /// 是否使用窄屏紧凑样式。
+  final bool compact;
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: RdcTokens.fontCaption, color: color, fontWeight: FontWeight.w600),
+    // 胶囊只读，读屏按文字播报即可。
+    return Semantics(
+      label: text,
+      child: Container(
+        padding: compact
+            ? const EdgeInsets.symmetric(horizontal: 8, vertical: 1)
+            : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: compact ? 11 : RdcTokens.fontCaption,
+            color: color,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
       ),
     );
   }

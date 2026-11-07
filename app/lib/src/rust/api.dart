@@ -12,7 +12,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'session_service.dart';
 
-// These functions are ignored because they are not marked as `pub`: `append_audit`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `template_of`, `to_control_status_linux`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
+// These functions are ignored because they are not marked as `pub`: `append_audit`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `template_of`, `to_control_status`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// 返回 Rust 核心版本号。
@@ -1382,6 +1382,9 @@ class SettingsDto {
   /// 免密策略。
   final bool passwordlessPolicy;
 
+  /// 首启引导是否完成（仅本地持久化）。
+  final bool firstRunCompleted;
+
   /// 实际落盘路径。
   final String path;
 
@@ -1407,6 +1410,7 @@ class SettingsDto {
     required this.localPairPolicy,
     required this.sameAccountPolicy,
     required this.passwordlessPolicy,
+    required this.firstRunCompleted,
     required this.path,
   });
 
@@ -1433,6 +1437,7 @@ class SettingsDto {
       localPairPolicy.hashCode ^
       sameAccountPolicy.hashCode ^
       passwordlessPolicy.hashCode ^
+      firstRunCompleted.hashCode ^
       path.hashCode;
 
   @override
@@ -1461,6 +1466,7 @@ class SettingsDto {
           localPairPolicy == other.localPairPolicy &&
           sameAccountPolicy == other.sameAccountPolicy &&
           passwordlessPolicy == other.passwordlessPolicy &&
+          firstRunCompleted == other.firstRunCompleted &&
           path == other.path;
 }
 

@@ -119,6 +119,7 @@ class SettingsRepository {
       localPairPolicy: snapshot.localPairPolicy,
       sameAccountPolicy: snapshot.sameAccountPolicy,
       passwordlessPolicy: snapshot.passwordlessPolicy,
+      firstRunCompleted: snapshot.firstRunCompleted,
     );
   }
 
@@ -146,6 +147,7 @@ class SettingsRepository {
       localPairPolicy: settings.localPairPolicy,
       sameAccountPolicy: settings.sameAccountPolicy,
       passwordlessPolicy: settings.passwordlessPolicy,
+      firstRunCompleted: settings.firstRunCompleted,
       filePath: path,
     );
   }
