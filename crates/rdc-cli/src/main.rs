@@ -17,6 +17,7 @@ mod s3b;
 mod s3b3;
 mod s3b4;
 mod s4demo;
+mod s5_5;
 mod walldemo;
 
 // =====** 入口 =====**
@@ -46,11 +47,12 @@ async fn main() -> ExitCode {
         Some("demo-clipboard") => run_s4_demo("demo-clipboard", 60, s4demo::run_clipboard()).await,
         Some("demo-file") => run_s4_demo("demo-file", 120, s4demo::run_file()).await,
         Some("demo-wall") => run_s4_demo("demo-wall", 90, walldemo::run()).await,
+        Some("s5-5") => run_s5_5(),
         Some(other) => {
             eprintln!("未知子命令: {other}");
             eprintln!(
                 "可用: doctor | selftest | demo | demo-input | demo-keys | demo-clipboard | \
-                 demo-file | demo-wall | s3a [--fixture] | s3b [--frames N] | \
+                 demo-file | demo-wall | s5-5 | s3a [--fixture] | s3b [--frames N] | \
                  s3b3 [--instances K] [--frames N] [--bitrate B] | \
                  s3b4 [host|ctrl] [--secs S]"
             );
@@ -193,6 +195,29 @@ async fn run_demo() -> ExitCode {
         }
         Err(_) => {
             eprintln!("Demo 失败: 超过 30 s 未完成（可能是某一步阻塞）");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// S5-5 可判定验证：授权链路、接管、踢出、免密。
+///
+/// # Returns
+/// 全部判据通过返回 SUCCESS，否则 FAILURE。
+///
+/// # Errors
+/// 不返回错误；通过退出码与 stderr 表达。
+fn run_s5_5() -> ExitCode {
+    match s5_5::run() {
+        Ok(all_pass) => {
+            if all_pass {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Err(err) => {
+            eprintln!("S5-5 验证失败: {err}");
             ExitCode::FAILURE
         }
     }
