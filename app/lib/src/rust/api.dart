@@ -10,6 +10,8 @@ import 'input_service.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+import 'session_service.dart';
+
 // These functions are ignored because they are not marked as `pub`: `config_dir`, `device_path`, `from_settings_dto`, `parse_role`, `settings_path`, `to_control_status`, `to_device_dto`, `to_settings_dto`, `to_wall_status`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
@@ -423,6 +425,42 @@ Future<FileTransferDto> fileTransfer({
   interruptAfterChunks: interruptAfterChunks,
   chunkSize: chunkSize,
 );
+
+/// 建立会话链路（回环阶段为进程内 UDP 回环桩）。
+///
+/// # Arguments
+/// * `role` - 控制端角色名（controller / viewer）
+///
+/// # Returns
+/// 会话状态（含控制端与被控端回环端口）。
+///
+/// # Errors
+/// 套接字绑定失败或锁异常时返回错误文本。
+Future<SessionStatusDto> sessionStart({required String role}) =>
+    RustLib.instance.api.crateApiSessionStart(role: role);
+
+/// 读取会话状态。
+///
+/// # Returns
+/// 未建立会话时返回 `running=false` 的快照。
+///
+/// # Errors
+/// 锁异常时返回错误文本。
+Future<SessionStatusDto> sessionStatus() =>
+    RustLib.instance.api.crateApiSessionStatus();
+
+/// 断开会话：发 `bye`、等回执、按序停服务并核查句柄与端口。
+///
+/// # Arguments
+/// * `reason` - 结束原因（写入 bye 报文，便于对端审计）
+///
+/// # Returns
+/// 收尾报告（`ok` 为真表示 bye 往返成功、服务全停、端口释放、句柄无残留）。
+///
+/// # Errors
+/// 锁异常时返回错误文本；bye 失败只记录在报告中。
+Future<SessionTeardownDto> sessionDisconnect({required String reason}) =>
+    RustLib.instance.api.crateApiSessionDisconnect(reason: reason);
 
 /// 控制页预览状态。
 class ControlStatusDto {

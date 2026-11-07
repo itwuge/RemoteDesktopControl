@@ -15,6 +15,7 @@ use rdc_protocol::Capabilities;
 use crate::clipboard_service;
 use crate::file_service;
 use crate::input_service;
+use crate::session_service;
 use crate::wall_service;
 
 /// 输入事件 DTO（定义见 `input_service`，此处再导出供 flutter_rust_bridge 扫描）。
@@ -25,6 +26,9 @@ pub use crate::clipboard_service::ClipboardStatusDto;
 
 /// 文件传输结果 DTO（定义见 `file_service`）。
 pub use crate::file_service::FileTransferDto;
+
+/// 会话状态与收尾报告 DTO（定义见 `session_service`）。
+pub use crate::session_service::{SessionStatusDto, SessionTeardownDto, TeardownStepDto};
 
 // =====** 版本与平台 =====**
 
@@ -894,4 +898,45 @@ pub fn file_transfer(
     chunk_size: u64,
 ) -> Result<FileTransferDto, String> {
     file_service::send(path, interrupt_after_chunks, chunk_size)
+}
+
+// =====** 会话收尾（S5-4 块 3） =====**
+
+/// 建立会话链路（回环阶段为进程内 UDP 回环桩）。
+///
+/// # Arguments
+/// * `role` - 控制端角色名（controller / viewer）
+///
+/// # Returns
+/// 会话状态（含控制端与被控端回环端口）。
+///
+/// # Errors
+/// 套接字绑定失败或锁异常时返回错误文本。
+pub fn session_start(role: String) -> Result<SessionStatusDto, String> {
+    session_service::start(&role)
+}
+
+/// 读取会话状态。
+///
+/// # Returns
+/// 未建立会话时返回 `running=false` 的快照。
+///
+/// # Errors
+/// 锁异常时返回错误文本。
+pub fn session_status() -> Result<SessionStatusDto, String> {
+    session_service::status()
+}
+
+/// 断开会话：发 `bye`、等回执、按序停服务并核查句柄与端口。
+///
+/// # Arguments
+/// * `reason` - 结束原因（写入 bye 报文，便于对端审计）
+///
+/// # Returns
+/// 收尾报告（`ok` 为真表示 bye 往返成功、服务全停、端口释放、句柄无残留）。
+///
+/// # Errors
+/// 锁异常时返回错误文本；bye 失败只记录在报告中。
+pub fn session_disconnect(reason: String) -> Result<SessionTeardownDto, String> {
+    session_service::disconnect(&reason)
 }

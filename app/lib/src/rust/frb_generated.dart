@@ -17,6 +17,8 @@ import 'input_service.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+import 'session_service.dart';
+
 /// Main entrypoint of the Rust API
 class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   @internal
@@ -70,7 +72,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 1340074750;
+  int get rustContentHash => 419041401;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -155,6 +157,14 @@ abstract class RustLibApi extends BaseApi {
   Future<String> crateApiPlatformName();
 
   Future<RoleInfoDto> crateApiRoleInfo({required String role});
+
+  Future<SessionTeardownDto> crateApiSessionDisconnect({
+    required String reason,
+  });
+
+  Future<SessionStatusDto> crateApiSessionStart({required String role});
+
+  Future<SessionStatusDto> crateApiSessionStatus();
 
   Future<SettingsDto> crateApiSettingsLoad();
 
@@ -986,6 +996,93 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "role_info", argNames: ["role"]);
 
   @override
+  Future<SessionTeardownDto> crateApiSessionDisconnect({
+    required String reason,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(reason, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 29,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_session_teardown_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiSessionDisconnectConstMeta,
+        argValues: [reason],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSessionDisconnectConstMeta => const TaskConstMeta(
+    debugName: "session_disconnect",
+    argNames: ["reason"],
+  );
+
+  @override
+  Future<SessionStatusDto> crateApiSessionStart({required String role}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(role, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 30,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_session_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiSessionStartConstMeta,
+        argValues: [role],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSessionStartConstMeta =>
+      const TaskConstMeta(debugName: "session_start", argNames: ["role"]);
+
+  @override
+  Future<SessionStatusDto> crateApiSessionStatus() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 31,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_session_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiSessionStatusConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiSessionStatusConstMeta =>
+      const TaskConstMeta(debugName: "session_status", argNames: []);
+
+  @override
   Future<SettingsDto> crateApiSettingsLoad() {
     return handler.executeNormal(
       NormalTask(
@@ -994,7 +1091,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1022,7 +1119,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1049,7 +1146,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 34,
             port: port_,
           );
         },
@@ -1076,7 +1173,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 35,
             port: port_,
           );
         },
@@ -1103,7 +1200,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 36,
             port: port_,
           );
         },
@@ -1130,7 +1227,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 37,
             port: port_,
           );
         },
@@ -1157,7 +1254,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1386,6 +1483,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TeardownStepDto> dco_decode_list_teardown_step_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_teardown_step_dto).toList();
+  }
+
+  @protected
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
@@ -1407,6 +1510,49 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       role: dco_decode_String(arr[0]),
       canInjectInput: dco_decode_bool(arr[1]),
       canViewWall: dco_decode_bool(arr[2]),
+    );
+  }
+
+  @protected
+  SessionStatusDto dco_decode_session_status_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return SessionStatusDto(
+      running: dco_decode_bool(arr[0]),
+      sessionId: dco_decode_String(arr[1]),
+      role: dco_decode_String(arr[2]),
+      localPort: dco_decode_u_16(arr[3]),
+      peerPort: dco_decode_u_16(arr[4]),
+      elapsedMs: dco_decode_u_64(arr[5]),
+      byeSent: dco_decode_bool(arr[6]),
+      byeAcked: dco_decode_bool(arr[7]),
+    );
+  }
+
+  @protected
+  SessionTeardownDto dco_decode_session_teardown_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 15)
+      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
+    return SessionTeardownDto(
+      sessionId: dco_decode_String(arr[0]),
+      role: dco_decode_String(arr[1]),
+      byeSent: dco_decode_bool(arr[2]),
+      byeReceived: dco_decode_bool(arr[3]),
+      byeAcked: dco_decode_bool(arr[4]),
+      ackLatencyUs: dco_decode_u_64(arr[5]),
+      byeBytes: dco_decode_u_32(arr[6]),
+      steps: dco_decode_list_teardown_step_dto(arr[7]),
+      servicesRunningAfter: dco_decode_u_32(arr[8]),
+      handlesBefore: dco_decode_u_32(arr[9]),
+      handlesAfter: dco_decode_u_32(arr[10]),
+      handlesDelta: dco_decode_i_32(arr[11]),
+      portsReleased: dco_decode_bool(arr[12]),
+      ok: dco_decode_bool(arr[13]),
+      lastError: dco_decode_opt_String(arr[14]),
     );
   }
 
@@ -1439,6 +1585,19 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       sameAccountPolicy: dco_decode_String(arr[19]),
       passwordlessPolicy: dco_decode_bool(arr[20]),
       path: dco_decode_String(arr[21]),
+    );
+  }
+
+  @protected
+  TeardownStepDto dco_decode_teardown_step_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 3)
+      throw Exception('unexpected arr length: expect 3 but see ${arr.length}');
+    return TeardownStepDto(
+      name: dco_decode_String(arr[0]),
+      ok: dco_decode_bool(arr[1]),
+      detail: dco_decode_String(arr[2]),
     );
   }
 
@@ -1800,6 +1959,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TeardownStepDto> sse_decode_list_teardown_step_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TeardownStepDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_teardown_step_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1833,6 +2006,68 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       role: var_role,
       canInjectInput: var_canInjectInput,
       canViewWall: var_canViewWall,
+    );
+  }
+
+  @protected
+  SessionStatusDto sse_decode_session_status_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_running = sse_decode_bool(deserializer);
+    var var_sessionId = sse_decode_String(deserializer);
+    var var_role = sse_decode_String(deserializer);
+    var var_localPort = sse_decode_u_16(deserializer);
+    var var_peerPort = sse_decode_u_16(deserializer);
+    var var_elapsedMs = sse_decode_u_64(deserializer);
+    var var_byeSent = sse_decode_bool(deserializer);
+    var var_byeAcked = sse_decode_bool(deserializer);
+    return SessionStatusDto(
+      running: var_running,
+      sessionId: var_sessionId,
+      role: var_role,
+      localPort: var_localPort,
+      peerPort: var_peerPort,
+      elapsedMs: var_elapsedMs,
+      byeSent: var_byeSent,
+      byeAcked: var_byeAcked,
+    );
+  }
+
+  @protected
+  SessionTeardownDto sse_decode_session_teardown_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_sessionId = sse_decode_String(deserializer);
+    var var_role = sse_decode_String(deserializer);
+    var var_byeSent = sse_decode_bool(deserializer);
+    var var_byeReceived = sse_decode_bool(deserializer);
+    var var_byeAcked = sse_decode_bool(deserializer);
+    var var_ackLatencyUs = sse_decode_u_64(deserializer);
+    var var_byeBytes = sse_decode_u_32(deserializer);
+    var var_steps = sse_decode_list_teardown_step_dto(deserializer);
+    var var_servicesRunningAfter = sse_decode_u_32(deserializer);
+    var var_handlesBefore = sse_decode_u_32(deserializer);
+    var var_handlesAfter = sse_decode_u_32(deserializer);
+    var var_handlesDelta = sse_decode_i_32(deserializer);
+    var var_portsReleased = sse_decode_bool(deserializer);
+    var var_ok = sse_decode_bool(deserializer);
+    var var_lastError = sse_decode_opt_String(deserializer);
+    return SessionTeardownDto(
+      sessionId: var_sessionId,
+      role: var_role,
+      byeSent: var_byeSent,
+      byeReceived: var_byeReceived,
+      byeAcked: var_byeAcked,
+      ackLatencyUs: var_ackLatencyUs,
+      byeBytes: var_byeBytes,
+      steps: var_steps,
+      servicesRunningAfter: var_servicesRunningAfter,
+      handlesBefore: var_handlesBefore,
+      handlesAfter: var_handlesAfter,
+      handlesDelta: var_handlesDelta,
+      portsReleased: var_portsReleased,
+      ok: var_ok,
+      lastError: var_lastError,
     );
   }
 
@@ -1885,6 +2120,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       passwordlessPolicy: var_passwordlessPolicy,
       path: var_path,
     );
+  }
+
+  @protected
+  TeardownStepDto sse_decode_teardown_step_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_name = sse_decode_String(deserializer);
+    var var_ok = sse_decode_bool(deserializer);
+    var var_detail = sse_decode_String(deserializer);
+    return TeardownStepDto(name: var_name, ok: var_ok, detail: var_detail);
   }
 
   @protected
@@ -2187,6 +2431,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_teardown_step_dto(
+    List<TeardownStepDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_teardown_step_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -2218,6 +2474,45 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_session_status_dto(
+    SessionStatusDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.running, serializer);
+    sse_encode_String(self.sessionId, serializer);
+    sse_encode_String(self.role, serializer);
+    sse_encode_u_16(self.localPort, serializer);
+    sse_encode_u_16(self.peerPort, serializer);
+    sse_encode_u_64(self.elapsedMs, serializer);
+    sse_encode_bool(self.byeSent, serializer);
+    sse_encode_bool(self.byeAcked, serializer);
+  }
+
+  @protected
+  void sse_encode_session_teardown_dto(
+    SessionTeardownDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.sessionId, serializer);
+    sse_encode_String(self.role, serializer);
+    sse_encode_bool(self.byeSent, serializer);
+    sse_encode_bool(self.byeReceived, serializer);
+    sse_encode_bool(self.byeAcked, serializer);
+    sse_encode_u_64(self.ackLatencyUs, serializer);
+    sse_encode_u_32(self.byeBytes, serializer);
+    sse_encode_list_teardown_step_dto(self.steps, serializer);
+    sse_encode_u_32(self.servicesRunningAfter, serializer);
+    sse_encode_u_32(self.handlesBefore, serializer);
+    sse_encode_u_32(self.handlesAfter, serializer);
+    sse_encode_i_32(self.handlesDelta, serializer);
+    sse_encode_bool(self.portsReleased, serializer);
+    sse_encode_bool(self.ok, serializer);
+    sse_encode_opt_String(self.lastError, serializer);
+  }
+
+  @protected
   void sse_encode_settings_dto(SettingsDto self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_bool(self.allowRelay, serializer);
@@ -2242,6 +2537,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.sameAccountPolicy, serializer);
     sse_encode_bool(self.passwordlessPolicy, serializer);
     sse_encode_String(self.path, serializer);
+  }
+
+  @protected
+  void sse_encode_teardown_step_dto(
+    TeardownStepDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.name, serializer);
+    sse_encode_bool(self.ok, serializer);
+    sse_encode_String(self.detail, serializer);
   }
 
   @protected

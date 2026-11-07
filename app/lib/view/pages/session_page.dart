@@ -461,6 +461,22 @@ class _SessionPageState extends State<SessionPage> {
     );
   }
 
+  /// 断开：先走 bye 收尾（报告写进提示），再返回设备列表。
+  Future<void> _disconnect() async {
+    final report = await controller.endSession();
+    if (!mounted) return;
+    final detail = report == null
+        ? '收尾报告缺失（详见日志）'
+        : 'bye ${report.byeAcked ? "已确认" : "未确认"}'
+            ' · 服务残留 ${report.servicesRunningAfter}'
+            ' · 句柄 ${report.handlesDelta >= 0 ? "+" : ""}${report.handlesDelta}'
+            ' · 端口${report.portsReleased ? "已释放" : "未释放"}';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('会话已断开：$detail')),
+    );
+    shell.disconnectToDevices();
+  }
+
   // =====** 组件：工具条（两个方向复用同一组操作，仅布局不同） =====**
 
   /// 工具条；[floating] 为真时是宽布局的顶部悬浮样式。
@@ -469,7 +485,7 @@ class _SessionPageState extends State<SessionPage> {
       RdcButton(
         label: AppStrings.disconnect,
         icon: Icons.logout,
-        onPressed: shell.disconnectToDevices,
+        onPressed: _disconnect,
       ),
       if (wide)
         RdcButton(

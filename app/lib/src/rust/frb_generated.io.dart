@@ -16,6 +16,8 @@ import 'input_service.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 
+import 'session_service.dart';
+
 abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RustLibApiImplPlatform({
     required super.handler,
@@ -79,6 +81,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
+  List<TeardownStepDto> dco_decode_list_teardown_step_dto(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
@@ -88,7 +93,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RoleInfoDto dco_decode_role_info_dto(dynamic raw);
 
   @protected
+  SessionStatusDto dco_decode_session_status_dto(dynamic raw);
+
+  @protected
+  SessionTeardownDto dco_decode_session_teardown_dto(dynamic raw);
+
+  @protected
   SettingsDto dco_decode_settings_dto(dynamic raw);
+
+  @protected
+  TeardownStepDto dco_decode_teardown_step_dto(dynamic raw);
 
   @protected
   int dco_decode_u_16(dynamic raw);
@@ -172,6 +186,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
+  List<TeardownStepDto> sse_decode_list_teardown_step_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
@@ -183,7 +202,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RoleInfoDto sse_decode_role_info_dto(SseDeserializer deserializer);
 
   @protected
+  SessionStatusDto sse_decode_session_status_dto(SseDeserializer deserializer);
+
+  @protected
+  SessionTeardownDto sse_decode_session_teardown_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SettingsDto sse_decode_settings_dto(SseDeserializer deserializer);
+
+  @protected
+  TeardownStepDto sse_decode_teardown_step_dto(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_16(SseDeserializer deserializer);
@@ -285,6 +315,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_teardown_step_dto(
+    List<TeardownStepDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
@@ -297,7 +333,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_role_info_dto(RoleInfoDto self, SseSerializer serializer);
 
   @protected
+  void sse_encode_session_status_dto(
+    SessionStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_session_teardown_dto(
+    SessionTeardownDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_settings_dto(SettingsDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_teardown_step_dto(
+    TeardownStepDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_u_16(int self, SseSerializer serializer);

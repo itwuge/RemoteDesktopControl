@@ -629,3 +629,128 @@ class FileTransferInfo {
   /// 是否按测试参数中断过。
   final bool interrupted;
 }
+
+/// 会话状态（Rust → Dart）。
+class SessionStatusInfo {
+  /// 创建快照。
+  const SessionStatusInfo({
+    required this.running,
+    required this.sessionId,
+    required this.role,
+    required this.localPort,
+    required this.peerPort,
+    required this.elapsedMs,
+    required this.byeSent,
+    required this.byeAcked,
+  });
+
+  /// 是否在会话中。
+  final bool running;
+
+  /// 会话 ID。
+  final String sessionId;
+
+  /// 角色。
+  final String role;
+
+  /// 控制端回环端口。
+  final int localPort;
+
+  /// 被控端回环端口。
+  final int peerPort;
+
+  /// 已运行时长（毫秒）。
+  final int elapsedMs;
+
+  /// 是否已发出 bye。
+  final bool byeSent;
+
+  /// 是否收到回执。
+  final bool byeAcked;
+}
+
+/// 单个收尾步骤。
+class TeardownStepInfo {
+  /// 创建步骤结果。
+  const TeardownStepInfo({
+    required this.name,
+    required this.ok,
+    required this.detail,
+  });
+
+  /// 步骤名。
+  final String name;
+
+  /// 是否成功。
+  final bool ok;
+
+  /// 说明。
+  final String detail;
+}
+
+/// 会话收尾报告（bye 往返 + 资源核查）。
+class SessionTeardownInfo {
+  /// 创建报告。
+  const SessionTeardownInfo({
+    required this.sessionId,
+    required this.role,
+    required this.byeSent,
+    required this.byeReceived,
+    required this.byeAcked,
+    required this.ackLatencyUs,
+    required this.byeBytes,
+    required this.steps,
+    required this.servicesRunningAfter,
+    required this.handlesBefore,
+    required this.handlesAfter,
+    required this.handlesDelta,
+    required this.portsReleased,
+    required this.ok,
+    required this.lastError,
+  });
+
+  /// 会话 ID。
+  final String sessionId;
+
+  /// 角色。
+  final String role;
+
+  /// bye 是否发出。
+  final bool byeSent;
+
+  /// 对端是否解出 bye。
+  final bool byeReceived;
+
+  /// 是否收到回执。
+  final bool byeAcked;
+
+  /// 回执往返（微秒）。
+  final int ackLatencyUs;
+
+  /// bye 报文字节数。
+  final int byeBytes;
+
+  /// 按序收尾步骤。
+  final List<TeardownStepInfo> steps;
+
+  /// 收尾后仍在运行的服务数。
+  final int servicesRunningAfter;
+
+  /// 断开前句柄数。
+  final int handlesBefore;
+
+  /// 收尾后句柄数。
+  final int handlesAfter;
+
+  /// 句柄差值。
+  final int handlesDelta;
+
+  /// 端口是否释放。
+  final bool portsReleased;
+
+  /// 整体是否通过。
+  final bool ok;
+
+  /// 最近错误。
+  final String? lastError;
+}

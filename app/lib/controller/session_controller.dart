@@ -56,6 +56,9 @@ class SessionController {
   /// 输入通道错误（与画面错误分开，输入失败不中断画面）。
   final ValueNotifier<String?> inputError = ValueNotifier(null);
 
+  /// 会话链路状态（回环端口与 bye 状态）；`null` 表示未建立会话。
+  final ValueNotifier<SessionStatusInfo?> session = ValueNotifier(null);
+
   /// 输入通道是否已启动。
   bool _inputRunning = false;
 
@@ -109,6 +112,8 @@ class SessionController {
         await gateway.stopControlPreview();
       } else {
         textureId.value = id;
+        // 画面接通后建立会话链路：bye 握手与资源清理都挂在会话生命周期上。
+        await _startSession();
         // 画面接通后才启动输入通道：没有画面就没有可靠的坐标映射。
         await _startInput(info);
         _statusTimer?.cancel();
@@ -148,6 +153,57 @@ class SessionController {
     }
     textureId.value = null;
     preview.value = null;
+  }
+
+  /// 建立会话链路；失败只记录，不阻断画面与输入。
+  Future<void> _startSession() async {
+    try {
+      session.value = await gateway.sessionStart(role.value);
+    } catch (error, stackTrace) {
+      session.value = null;
+      RdcLogger.log(
+        'SessionController',
+        '会话链路建立失败',
+        level: LogLevel.error,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  /// 结束会话：先排空输入并注销纹理，再发 bye 完成两端收尾。
+  ///
+  /// 参数 [reason]：写入 bye 报文，便于对端审计。
+  /// 返回：收尾报告（含 bye 往返、服务残留、句柄差值与端口释放）；
+  /// 报告为空表示 Rust 侧未返回（调用失败，失败原因已记录日志）。
+  Future<SessionTeardownInfo?> endSession({String reason = '用户断开'}) async {
+    _statusTimer?.cancel();
+    _statusTimer = null;
+    // 顺序要求：输入先排空、纹理先注销，Rust 才停采集与解码。
+    await _stopInput();
+    try {
+      await gateway.unregisterControlTexture();
+    } catch (error) {
+      RdcLogger.log('SessionController', '注销纹理失败: $error');
+    }
+    SessionTeardownInfo? report;
+    try {
+      report = await gateway.sessionDisconnect(reason);
+    } catch (error, stackTrace) {
+      RdcLogger.log(
+        'SessionController',
+        '会话断开失败',
+        level: LogLevel.error,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+    textureId.value = null;
+    preview.value = null;
+    session.value = null;
+    // 兜底收尾：bye 失败时也不能把服务留在后台。
+    await _teardown();
+    return report;
   }
 
   /// 启动输入通道；失败时只记录错误，不影响画面。
@@ -291,12 +347,18 @@ class SessionController {
     previewError.dispose();
     inputStats.dispose();
     inputError.dispose();
+    session.dispose();
   }
 
   /// 无通知器写入的管线回收。
   Future<void> _teardown() async {
     try {
       await gateway.unregisterControlTexture();
+    } catch (_) {
+      // 窗口关闭路径，忽略失败。
+    }
+    try {
+      await gateway.sessionDisconnect('窗口关闭');
     } catch (_) {
       // 窗口关闭路径，忽略失败。
     }

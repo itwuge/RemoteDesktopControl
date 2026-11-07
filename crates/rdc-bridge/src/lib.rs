@@ -17,6 +17,7 @@ mod control_service;
 mod clipboard_service;
 mod file_service;
 mod input_service;
+mod session_service;
 mod wall_service;
 // 该文件由 flutter_rust_bridge_codegen 生成，勿手工编辑。
 mod frb_generated;

@@ -17,6 +17,7 @@ import '../../src/rust/clipboard_service.dart' as rust_clipboard;
 import '../../src/rust/file_service.dart' as rust_file;
 import '../../src/rust/frb_generated.dart';
 import '../../src/rust/input_service.dart' as rust_input;
+import '../../src/rust/session_service.dart' as rust_session;
 import 'rust_types.dart';
 
 /// Rust 核心的唯一调用入口。
@@ -587,6 +588,65 @@ class RustGateway {
       resumed: dto.resumed,
       resumedBytes: dto.resumedBytes.toInt(),
       interrupted: dto.interrupted,
+    );
+  }
+
+  // =========** 会话收尾（S5-4 块 3） =========
+
+  /// 建立会话链路（回环阶段为进程内 UDP 回环桩）。
+  Future<SessionStatusInfo> sessionStart(String role) async {
+    _ensureInitialized();
+    return _toSessionStatus(await rust_api.sessionStart(role: role));
+  }
+
+  /// 读取会话状态。
+  Future<SessionStatusInfo> sessionStatus() async {
+    _ensureInitialized();
+    return _toSessionStatus(await rust_api.sessionStatus());
+  }
+
+  /// 断开会话：发 bye → 收回执 → 按序停服务 → 核查句柄与端口。
+  Future<SessionTeardownInfo> sessionDisconnect(String reason) async {
+    _ensureInitialized();
+    final dto = await rust_api.sessionDisconnect(reason: reason);
+    return SessionTeardownInfo(
+      sessionId: dto.sessionId,
+      role: dto.role,
+      byeSent: dto.byeSent,
+      byeReceived: dto.byeReceived,
+      byeAcked: dto.byeAcked,
+      ackLatencyUs: dto.ackLatencyUs.toInt(),
+      byeBytes: dto.byeBytes,
+      steps: dto.steps
+          .map(
+            (step) => TeardownStepInfo(
+              name: step.name,
+              ok: step.ok,
+              detail: step.detail,
+            ),
+          )
+          .toList(growable: false),
+      servicesRunningAfter: dto.servicesRunningAfter,
+      handlesBefore: dto.handlesBefore,
+      handlesAfter: dto.handlesAfter,
+      handlesDelta: dto.handlesDelta,
+      portsReleased: dto.portsReleased,
+      ok: dto.ok,
+      lastError: dto.lastError,
+    );
+  }
+
+  /// 会话状态 DTO → 值对象。
+  SessionStatusInfo _toSessionStatus(rust_session.SessionStatusDto dto) {
+    return SessionStatusInfo(
+      running: dto.running,
+      sessionId: dto.sessionId,
+      role: dto.role,
+      localPort: dto.localPort,
+      peerPort: dto.peerPort,
+      elapsedMs: dto.elapsedMs.toInt(),
+      byeSent: dto.byeSent,
+      byeAcked: dto.byeAcked,
     );
   }
 

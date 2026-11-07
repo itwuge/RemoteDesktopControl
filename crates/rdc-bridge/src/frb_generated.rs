@@ -39,7 +39,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
                     default_rust_auto_opaque = RustAutoOpaqueMoi,
                 );
                 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.13.0";
-                pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1340074750;
+                pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 419041401;
             
 
 // Section: executor
@@ -308,6 +308,33 @@ let api_desktop_height = <u32>::sse_decode(&mut deserializer);deserializer.end()
                          let output_ok = Ok::<_, ()>(crate::api::role_info(api_role))?;   std::result::Result::Ok(output_ok)
                     })())
                 } })
+            }fn wire__crate__api__session_disconnect_impl(port_: flutter_rust_bridge::for_generated::MessagePort,ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,rust_vec_len_: i32,data_len_: i32)  {
+                FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec,_,_>(flutter_rust_bridge::for_generated::TaskInfo{ debug_name: "session_disconnect", port: Some(port_), mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal }, move || {
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_reason = <String>::sse_decode(&mut deserializer);deserializer.end(); move |context|  {
+                    transform_result_sse::<_, String>((move ||  {
+                         let output_ok = crate::api::session_disconnect(api_reason)?;   std::result::Result::Ok(output_ok)
+                    })())
+                } })
+            }fn wire__crate__api__session_start_impl(port_: flutter_rust_bridge::for_generated::MessagePort,ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,rust_vec_len_: i32,data_len_: i32)  {
+                FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec,_,_>(flutter_rust_bridge::for_generated::TaskInfo{ debug_name: "session_start", port: Some(port_), mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal }, move || {
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_role = <String>::sse_decode(&mut deserializer);deserializer.end(); move |context|  {
+                    transform_result_sse::<_, String>((move ||  {
+                         let output_ok = crate::api::session_start(api_role)?;   std::result::Result::Ok(output_ok)
+                    })())
+                } })
+            }fn wire__crate__api__session_status_impl(port_: flutter_rust_bridge::for_generated::MessagePort,ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,rust_vec_len_: i32,data_len_: i32)  {
+                FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec,_,_>(flutter_rust_bridge::for_generated::TaskInfo{ debug_name: "session_status", port: Some(port_), mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal }, move || {
+            let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
+            let mut deserializer = flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end(); move |context|  {
+                    transform_result_sse::<_, String>((move ||  {
+                         let output_ok = crate::api::session_status()?;   std::result::Result::Ok(output_ok)
+                    })())
+                } })
             }fn wire__crate__api__settings_load_impl(port_: flutter_rust_bridge::for_generated::MessagePort,ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,rust_vec_len_: i32,data_len_: i32)  {
                 FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec,_,_>(flutter_rust_bridge::for_generated::TaskInfo{ debug_name: "settings_load", port: Some(port_), mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal }, move || {
             let message = unsafe { flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(ptr_, rust_vec_len_, data_len_) };
@@ -543,6 +570,14 @@ return crate::input_service::InputStatsDto{running: var_running, received: var_r
         return ans_;}
                 }
                 
+                impl SseDecode for Vec<crate::session_service::TeardownStepDto> {
+                    // Codec=Sse (Serialization based), see doc to use other codecs
+                    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {let mut len_ = <i32>::sse_decode(deserializer);
+        let mut ans_ = Vec::with_capacity(len_ as usize);
+        for idx_ in 0..len_ { ans_.push(<crate::session_service::TeardownStepDto>::sse_decode(deserializer)); }
+        return ans_;}
+                }
+                
                 impl SseDecode for Option<String> {
                     // Codec=Sse (Serialization based), see doc to use other codecs
                     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {if (<bool>::sse_decode(deserializer)) {
@@ -567,6 +602,39 @@ return crate::input_service::InputStatsDto{running: var_running, received: var_r
 let mut var_canInjectInput = <bool>::sse_decode(deserializer);
 let mut var_canViewWall = <bool>::sse_decode(deserializer);
 return crate::api::RoleInfoDto{role: var_role, can_inject_input: var_canInjectInput, can_view_wall: var_canViewWall};}
+                }
+                
+                impl SseDecode for crate::session_service::SessionStatusDto {
+                    // Codec=Sse (Serialization based), see doc to use other codecs
+                    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {let mut var_running = <bool>::sse_decode(deserializer);
+let mut var_sessionId = <String>::sse_decode(deserializer);
+let mut var_role = <String>::sse_decode(deserializer);
+let mut var_localPort = <u16>::sse_decode(deserializer);
+let mut var_peerPort = <u16>::sse_decode(deserializer);
+let mut var_elapsedMs = <u64>::sse_decode(deserializer);
+let mut var_byeSent = <bool>::sse_decode(deserializer);
+let mut var_byeAcked = <bool>::sse_decode(deserializer);
+return crate::session_service::SessionStatusDto{running: var_running, session_id: var_sessionId, role: var_role, local_port: var_localPort, peer_port: var_peerPort, elapsed_ms: var_elapsedMs, bye_sent: var_byeSent, bye_acked: var_byeAcked};}
+                }
+                
+                impl SseDecode for crate::session_service::SessionTeardownDto {
+                    // Codec=Sse (Serialization based), see doc to use other codecs
+                    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {let mut var_sessionId = <String>::sse_decode(deserializer);
+let mut var_role = <String>::sse_decode(deserializer);
+let mut var_byeSent = <bool>::sse_decode(deserializer);
+let mut var_byeReceived = <bool>::sse_decode(deserializer);
+let mut var_byeAcked = <bool>::sse_decode(deserializer);
+let mut var_ackLatencyUs = <u64>::sse_decode(deserializer);
+let mut var_byeBytes = <u32>::sse_decode(deserializer);
+let mut var_steps = <Vec<crate::session_service::TeardownStepDto>>::sse_decode(deserializer);
+let mut var_servicesRunningAfter = <u32>::sse_decode(deserializer);
+let mut var_handlesBefore = <u32>::sse_decode(deserializer);
+let mut var_handlesAfter = <u32>::sse_decode(deserializer);
+let mut var_handlesDelta = <i32>::sse_decode(deserializer);
+let mut var_portsReleased = <bool>::sse_decode(deserializer);
+let mut var_ok = <bool>::sse_decode(deserializer);
+let mut var_lastError = <Option<String>>::sse_decode(deserializer);
+return crate::session_service::SessionTeardownDto{session_id: var_sessionId, role: var_role, bye_sent: var_byeSent, bye_received: var_byeReceived, bye_acked: var_byeAcked, ack_latency_us: var_ackLatencyUs, bye_bytes: var_byeBytes, steps: var_steps, services_running_after: var_servicesRunningAfter, handles_before: var_handlesBefore, handles_after: var_handlesAfter, handles_delta: var_handlesDelta, ports_released: var_portsReleased, ok: var_ok, last_error: var_lastError};}
                 }
                 
                 impl SseDecode for crate::api::SettingsDto {
@@ -594,6 +662,14 @@ let mut var_sameAccountPolicy = <String>::sse_decode(deserializer);
 let mut var_passwordlessPolicy = <bool>::sse_decode(deserializer);
 let mut var_path = <String>::sse_decode(deserializer);
 return crate::api::SettingsDto{allow_relay: var_allowRelay, relay_address: var_relayAddress, connection_policy: var_connectionPolicy, orientation: var_orientation, file_bandwidth_ratio: var_fileBandwidthRatio, video_width: var_videoWidth, video_height: var_videoHeight, video_fps: var_videoFps, video_bitrate_mbps: var_videoBitrateMbps, auto_reconnect: var_autoReconnect, remote_access_enabled: var_remoteAccessEnabled, concurrent_mode: var_concurrentMode, takeover_policy: var_takeoverPolicy, takeover_timeout_s: var_takeoverTimeoutS, permission_template: var_permissionTemplate, permission_bits: var_permissionBits, local_notice: var_localNotice, audit_retention_days: var_auditRetentionDays, local_pair_policy: var_localPairPolicy, same_account_policy: var_sameAccountPolicy, passwordless_policy: var_passwordlessPolicy, path: var_path};}
+                }
+                
+                impl SseDecode for crate::session_service::TeardownStepDto {
+                    // Codec=Sse (Serialization based), see doc to use other codecs
+                    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {let mut var_name = <String>::sse_decode(deserializer);
+let mut var_ok = <bool>::sse_decode(deserializer);
+let mut var_detail = <String>::sse_decode(deserializer);
+return crate::session_service::TeardownStepDto{name: var_name, ok: var_ok, detail: var_detail};}
                 }
                 
                 impl SseDecode for u16 {
@@ -686,13 +762,16 @@ return crate::api::WallStatusDto{running: var_running, backend: var_backend, cap
 26 => wire__crate__api__input_stop_impl(port, ptr, rust_vec_len, data_len),
 27 => wire__crate__api__platform_name_impl(port, ptr, rust_vec_len, data_len),
 28 => wire__crate__api__role_info_impl(port, ptr, rust_vec_len, data_len),
-29 => wire__crate__api__settings_load_impl(port, ptr, rust_vec_len, data_len),
-30 => wire__crate__api__settings_save_impl(port, ptr, rust_vec_len, data_len),
-31 => wire__crate__api__wall_capability_bits_impl(port, ptr, rust_vec_len, data_len),
-32 => wire__crate__api__wall_latest_impl(port, ptr, rust_vec_len, data_len),
-33 => wire__crate__api__wall_start_impl(port, ptr, rust_vec_len, data_len),
-34 => wire__crate__api__wall_status_impl(port, ptr, rust_vec_len, data_len),
-35 => wire__crate__api__wall_stop_impl(port, ptr, rust_vec_len, data_len),
+29 => wire__crate__api__session_disconnect_impl(port, ptr, rust_vec_len, data_len),
+30 => wire__crate__api__session_start_impl(port, ptr, rust_vec_len, data_len),
+31 => wire__crate__api__session_status_impl(port, ptr, rust_vec_len, data_len),
+32 => wire__crate__api__settings_load_impl(port, ptr, rust_vec_len, data_len),
+33 => wire__crate__api__settings_save_impl(port, ptr, rust_vec_len, data_len),
+34 => wire__crate__api__wall_capability_bits_impl(port, ptr, rust_vec_len, data_len),
+35 => wire__crate__api__wall_latest_impl(port, ptr, rust_vec_len, data_len),
+36 => wire__crate__api__wall_start_impl(port, ptr, rust_vec_len, data_len),
+37 => wire__crate__api__wall_status_impl(port, ptr, rust_vec_len, data_len),
+38 => wire__crate__api__wall_stop_impl(port, ptr, rust_vec_len, data_len),
                         _ => unreachable!(),
                     }
                 }
@@ -895,6 +974,55 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::RoleInfoDto> for crate::api::
             }
         }
 // Codec=Dco (DartCObject based), see doc to use other codecs
+            impl flutter_rust_bridge::IntoDart for crate::session_service::SessionStatusDto {
+                fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+                    [
+                    self.running.into_into_dart().into_dart(),
+self.session_id.into_into_dart().into_dart(),
+self.role.into_into_dart().into_dart(),
+self.local_port.into_into_dart().into_dart(),
+self.peer_port.into_into_dart().into_dart(),
+self.elapsed_ms.into_into_dart().into_dart(),
+self.bye_sent.into_into_dart().into_dart(),
+self.bye_acked.into_into_dart().into_dart()
+                ].into_dart()
+                }
+            }
+            impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::session_service::SessionStatusDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::session_service::SessionStatusDto> for crate::session_service::SessionStatusDto {
+            fn into_into_dart(self) -> crate::session_service::SessionStatusDto {
+                self
+            }
+        }
+// Codec=Dco (DartCObject based), see doc to use other codecs
+            impl flutter_rust_bridge::IntoDart for crate::session_service::SessionTeardownDto {
+                fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+                    [
+                    self.session_id.into_into_dart().into_dart(),
+self.role.into_into_dart().into_dart(),
+self.bye_sent.into_into_dart().into_dart(),
+self.bye_received.into_into_dart().into_dart(),
+self.bye_acked.into_into_dart().into_dart(),
+self.ack_latency_us.into_into_dart().into_dart(),
+self.bye_bytes.into_into_dart().into_dart(),
+self.steps.into_into_dart().into_dart(),
+self.services_running_after.into_into_dart().into_dart(),
+self.handles_before.into_into_dart().into_dart(),
+self.handles_after.into_into_dart().into_dart(),
+self.handles_delta.into_into_dart().into_dart(),
+self.ports_released.into_into_dart().into_dart(),
+self.ok.into_into_dart().into_dart(),
+self.last_error.into_into_dart().into_dart()
+                ].into_dart()
+                }
+            }
+            impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::session_service::SessionTeardownDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::session_service::SessionTeardownDto> for crate::session_service::SessionTeardownDto {
+            fn into_into_dart(self) -> crate::session_service::SessionTeardownDto {
+                self
+            }
+        }
+// Codec=Dco (DartCObject based), see doc to use other codecs
             impl flutter_rust_bridge::IntoDart for crate::api::SettingsDto {
                 fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
                     [
@@ -926,6 +1054,22 @@ self.path.into_into_dart().into_dart()
             impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::api::SettingsDto {}
 impl flutter_rust_bridge::IntoIntoDart<crate::api::SettingsDto> for crate::api::SettingsDto {
             fn into_into_dart(self) -> crate::api::SettingsDto {
+                self
+            }
+        }
+// Codec=Dco (DartCObject based), see doc to use other codecs
+            impl flutter_rust_bridge::IntoDart for crate::session_service::TeardownStepDto {
+                fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+                    [
+                    self.name.into_into_dart().into_dart(),
+self.ok.into_into_dart().into_dart(),
+self.detail.into_into_dart().into_dart()
+                ].into_dart()
+                }
+            }
+            impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive for crate::session_service::TeardownStepDto {}
+impl flutter_rust_bridge::IntoIntoDart<crate::session_service::TeardownStepDto> for crate::session_service::TeardownStepDto {
+            fn into_into_dart(self) -> crate::session_service::TeardownStepDto {
                 self
             }
         }
@@ -1126,6 +1270,12 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::WallStatusDto> for crate::api
         for item in self { <u8>::sse_encode(item, serializer); }}
                 }
                 
+                impl SseEncode for Vec<crate::session_service::TeardownStepDto> {
+                    // Codec=Sse (Serialization based), see doc to use other codecs
+                    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {<i32>::sse_encode(self.len() as _, serializer);
+        for item in self { <crate::session_service::TeardownStepDto>::sse_encode(item, serializer); }}
+                }
+                
                 impl SseEncode for Option<String> {
                     // Codec=Sse (Serialization based), see doc to use other codecs
                     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {<bool>::sse_encode(self.is_some(), serializer);
@@ -1147,6 +1297,37 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::WallStatusDto> for crate::api
                     fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {<String>::sse_encode(self.role, serializer);
 <bool>::sse_encode(self.can_inject_input, serializer);
 <bool>::sse_encode(self.can_view_wall, serializer);}
+                }
+                
+                impl SseEncode for crate::session_service::SessionStatusDto {
+                    // Codec=Sse (Serialization based), see doc to use other codecs
+                    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {<bool>::sse_encode(self.running, serializer);
+<String>::sse_encode(self.session_id, serializer);
+<String>::sse_encode(self.role, serializer);
+<u16>::sse_encode(self.local_port, serializer);
+<u16>::sse_encode(self.peer_port, serializer);
+<u64>::sse_encode(self.elapsed_ms, serializer);
+<bool>::sse_encode(self.bye_sent, serializer);
+<bool>::sse_encode(self.bye_acked, serializer);}
+                }
+                
+                impl SseEncode for crate::session_service::SessionTeardownDto {
+                    // Codec=Sse (Serialization based), see doc to use other codecs
+                    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {<String>::sse_encode(self.session_id, serializer);
+<String>::sse_encode(self.role, serializer);
+<bool>::sse_encode(self.bye_sent, serializer);
+<bool>::sse_encode(self.bye_received, serializer);
+<bool>::sse_encode(self.bye_acked, serializer);
+<u64>::sse_encode(self.ack_latency_us, serializer);
+<u32>::sse_encode(self.bye_bytes, serializer);
+<Vec<crate::session_service::TeardownStepDto>>::sse_encode(self.steps, serializer);
+<u32>::sse_encode(self.services_running_after, serializer);
+<u32>::sse_encode(self.handles_before, serializer);
+<u32>::sse_encode(self.handles_after, serializer);
+<i32>::sse_encode(self.handles_delta, serializer);
+<bool>::sse_encode(self.ports_released, serializer);
+<bool>::sse_encode(self.ok, serializer);
+<Option<String>>::sse_encode(self.last_error, serializer);}
                 }
                 
                 impl SseEncode for crate::api::SettingsDto {
@@ -1173,6 +1354,13 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::WallStatusDto> for crate::api
 <String>::sse_encode(self.same_account_policy, serializer);
 <bool>::sse_encode(self.passwordless_policy, serializer);
 <String>::sse_encode(self.path, serializer);}
+                }
+                
+                impl SseEncode for crate::session_service::TeardownStepDto {
+                    // Codec=Sse (Serialization based), see doc to use other codecs
+                    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {<String>::sse_encode(self.name, serializer);
+<bool>::sse_encode(self.ok, serializer);
+<String>::sse_encode(self.detail, serializer);}
                 }
                 
                 impl SseEncode for u16 {
