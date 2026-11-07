@@ -5,6 +5,8 @@
 //! 调用方：rdc-cli 的 `demo-wall`、rdc-bridge（Flutter 网关）。
 
 pub mod devices;
+pub mod grant;
 pub mod multi;
+pub mod passwordless;
 pub mod settings;
 pub mod wall;

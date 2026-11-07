@@ -41,6 +41,14 @@ pub struct DeviceRecord {
     /// 为什么现在就留字段：协议 bit12 已定义，UI/账号服务未落地；字段随列表一起
     /// 持久化可避免后续迁移文件格式。
     pub same_account: bool,
+    /// 对端身份公钥（Ed25519，Base64）。
+    ///
+    /// 为什么需要：S5-5 的免密直连与授权令牌离线验签都以「本机地址簿里的公钥」为
+    /// 信任根；为空表示旧记录尚未采集到公钥，此时只能退回配对码。
+    ///
+    /// `#[serde(default)]` 保证旧版 `devices.json`（无此字段）可继续读取。
+    #[serde(default)]
+    pub public_key_b64: String,
 }
 
 impl DeviceRecord {
@@ -62,6 +70,7 @@ impl DeviceRecord {
             last_online_ms: 0,
             trusted: false,
             same_account: false,
+            public_key_b64: String::new(),
         }
     }
 }
@@ -324,6 +333,27 @@ impl DeviceList {
         match self.devices.get_mut(device_id) {
             Some(record) => {
                 record.same_account = same_account;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 设置对端身份公钥（Base64）。
+    ///
+    /// # Arguments
+    /// * `device_id` - 设备标识
+    /// * `public_key_b64` - 对端公钥；空串表示清除
+    ///
+    /// # Returns
+    /// 设备存在时返回 `true`。
+    ///
+    /// # Errors
+    /// 不会失败。
+    pub fn set_public_key(&mut self, device_id: &str, public_key_b64: &str) -> bool {
+        match self.devices.get_mut(device_id) {
+            Some(record) => {
+                record.public_key_b64 = public_key_b64.to_owned();
                 true
             }
             None => false,
