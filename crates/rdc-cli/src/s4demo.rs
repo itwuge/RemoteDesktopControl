@@ -555,6 +555,166 @@ pub async fn run_keys() -> DemoResult<()> {
     }
 }
 
+// =====** demo-clipboard =====**
+
+/// demo-clipboard 控制器侧文本（多行，验证 LF 归一化后的往返一致性）。
+const CLIP_CTRL_TEXT: &str = "来自控制器的第一段\r\n第二行 text-1";
+/// demo-clipboard 被控端改写文本。
+const CLIP_HOST_TEXT: &str = "被控端改写\r\nsecond line text-2";
+
+/// 剪贴板通道演示：ctrl 写 → host 读 → host 改 → ctrl 读，并验证去重与回环。
+///
+/// 两端在同一进程内按 lockstep 交替执行，每一步都真正经过加密会话通道；
+/// 最后 ctrl 发一条 `Done`，host 必须收到 `Done` 而不是又一条 `Clipboard`，
+/// 以此证明“自己写入不会触发回环再写一次”。
+///
+/// # Returns
+/// 往返内容、去重与回环判定全部符合预期时返回 `Ok(())`。
+///
+/// # Errors
+/// 剪贴板读写、通道收发失败或任一项判定不符时返回错误。
+pub async fn run_clipboard() -> DemoResult<()> {
+    let start = Instant::now();
+    let fixture = signal_fixture().await?;
+    let code = PairingCode::generate();
+    let host_id = IdentityKeyPair::generate();
+    let ctrl_id = IdentityKeyPair::generate();
+    let code_proof = hmac_sha256_b64(code.as_str().as_bytes(), b"rdc-s4");
+    let (host_rt, ctrl_rt) = tokio::join!(
+        setup_host(
+            fixture.addr,
+            &fixture.cert,
+            &fixture.key,
+            host_id,
+            code.clone()
+        ),
+        setup_ctrl(fixture.addr, &fixture.cert, ctrl_id, code, code_proof)
+    );
+    let mut host_rt = host_rt?;
+    let mut ctrl_rt = ctrl_rt?;
+    println!("[clipboard] 会话就绪 +{} ms", start.elapsed().as_millis());
+
+    let mut host_task = rdc_core::s4::clipboard::ClipboardTask::new();
+    let mut ctrl_task = rdc_core::s4::clipboard::ClipboardTask::new();
+    let to_err = |e: rdc_core::s4::S4Error| e.to_string();
+
+    // 1. ctrl 写入并外发。
+    let sent1 = ctrl_task
+        .publish(&mut ctrl_rt.secure, CLIP_CTRL_TEXT)
+        .await
+        .map_err(to_err)?;
+    println!("[clipboard] 1. ctrl 写入并外发：{sent1}");
+    // 2. host 收到并写回本机。
+    let applied1 = host_task
+        .apply_remote(&mut host_rt.secure)
+        .await
+        .map_err(to_err)?;
+    let host_read1 = host_task.read().map_err(to_err)?;
+    println!(
+        "[clipboard] 2. host 应用远端：{}，直读 {}",
+        applied1.as_deref().unwrap_or("<None>"),
+        host_read1.as_deref().unwrap_or("<None>")
+    );
+    // 3. host 把刚写回的内容再交给同步状态机：应被判为回环，不外发。
+    let echo = host_task
+        .publish(&mut host_rt.secure, CLIP_CTRL_TEXT)
+        .await
+        .map_err(to_err)?;
+    println!("[clipboard] 3. host 重写同一内容：外发={echo}（期望 false，回环）");
+    // 4. host 改写并发往 ctrl。
+    let sent2 = host_task
+        .publish(&mut host_rt.secure, CLIP_HOST_TEXT)
+        .await
+        .map_err(to_err)?;
+    println!("[clipboard] 4. host 改写并外发：{sent2}");
+    // 5. ctrl 收到并写回本机。
+    let applied2 = ctrl_task
+        .apply_remote(&mut ctrl_rt.secure)
+        .await
+        .map_err(to_err)?;
+    let ctrl_read2 = ctrl_task.read().map_err(to_err)?;
+    println!(
+        "[clipboard] 5. ctrl 应用远端：{}，直读 {}",
+        applied2.as_deref().unwrap_or("<None>"),
+        ctrl_read2.as_deref().unwrap_or("<None>")
+    );
+    // 6. ctrl 重发已经发过的内容：应被去重挡下，不产生新消息。
+    let dup = ctrl_task
+        .publish(&mut ctrl_rt.secure, CLIP_CTRL_TEXT)
+        .await
+        .map_err(to_err)?;
+    println!("[clipboard] 6. ctrl 重发同一内容：外发={dup}（期望 false，去重）");
+    // 7. 回环探针：ctrl 只发 Done，host 收到的必须也是 Done。
+    rdc_core::s4::send(&mut ctrl_rt.secure, &rdc_core::s4::message::S4Message::Done)
+        .await
+        .map_err(to_err)?;
+    let tail = rdc_core::s4::recv(&mut host_rt.secure)
+        .await
+        .map_err(to_err)?;
+    let tail_is_done = matches!(tail, rdc_core::s4::message::S4Message::Done);
+    println!(
+        "[clipboard] 7. 回环探针：host 收到 {}（期望 Done）",
+        if tail_is_done { "Done" } else { "多余剪贴板消息" }
+    );
+
+    let ctrl_stats = ctrl_task.stats();
+    let host_stats = host_task.stats();
+    host_rt.close();
+    ctrl_rt.close();
+    println!(
+        "[clipboard] ctrl stats: sent={} applied={} dup={} echo={}",
+        ctrl_stats.sent, ctrl_stats.applied, ctrl_stats.skipped_duplicates, ctrl_stats.skipped_echoes
+    );
+    println!(
+        "[clipboard] host stats: sent={} applied={} dup={} echo={}",
+        host_stats.sent, host_stats.applied, host_stats.skipped_duplicates, host_stats.skipped_echoes
+    );
+
+    let normalized_ctrl = rdc_clipboard::text::to_network(CLIP_CTRL_TEXT);
+    let normalized_host = rdc_clipboard::text::to_network(CLIP_HOST_TEXT);
+    let mut failures = Vec::new();
+    if !sent1 {
+        failures.push("ctrl 首条未外发");
+    }
+    if applied1.as_deref() != Some(normalized_ctrl.as_ref()) {
+        failures.push("host 应用内容与 ctrl 发送不符");
+    }
+    if host_read1.as_deref() != Some(normalized_ctrl.as_ref()) {
+        failures.push("host 直读内容不符");
+    }
+    if echo {
+        failures.push("host 重写同一内容仍外发（回环未被挡住）");
+    }
+    if !sent2 {
+        failures.push("host 改写后未外发");
+    }
+    if applied2.as_deref() != Some(normalized_host.as_ref()) {
+        failures.push("ctrl 应用内容与 host 发送不符");
+    }
+    if ctrl_read2.as_deref() != Some(normalized_host.as_ref()) {
+        failures.push("ctrl 直读内容不符");
+    }
+    if dup {
+        failures.push("ctrl 重发同一内容未被去重");
+    }
+    if !tail_is_done {
+        failures.push("回环探针收到多余剪贴板消息");
+    }
+    if host_stats.skipped_echoes == 0 {
+        failures.push("host 未记录回环计数");
+    }
+    if ctrl_stats.skipped_duplicates == 0 {
+        failures.push("ctrl 未记录去重计数");
+    }
+
+    if failures.is_empty() {
+        println!("[clipboard] PASS +{} ms", start.elapsed().as_millis());
+        Ok(())
+    } else {
+        Err(format!("[clipboard] FAIL: {}", failures.join("；")).into())
+    }
+}
+
 // =====** 平台小工具 =====**
 
 /// 设置 Per-Monitor V2 DPI 感知；已设置过时忽略错误。

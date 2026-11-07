@@ -23,6 +23,7 @@ ffmpeg = ["rdc-decode/ffmpeg"]
 
 [dependencies]
 rdc-core = { workspace = true }
+rdc-clipboard = { workspace = true }
 rdc-input = { workspace = true }
 rdc-protocol = { workspace = true }
 rdc-connect = { workspace = true }
