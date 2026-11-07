@@ -419,6 +419,7 @@ class RustGateway {
       running: dto.running,
       backend: dto.backend,
       encoder: dto.encoder,
+      encoderFallbackReason: dto.encoderFallbackReason,
       decoder: dto.decoder,
       texturePath: dto.texturePath,
       decodePath: dto.decodePath,
@@ -440,6 +441,8 @@ class RustGateway {
       eventA: dto.eventA,
       eventB: dto.eventB,
       lastError: dto.lastError,
+      encoderResets: dto.encoderResets.toInt(),
+      encoderInFlight: dto.encoderInFlight.toInt(),
     );
   }
 

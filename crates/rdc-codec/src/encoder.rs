@@ -268,6 +268,22 @@ pub trait VideoEncoder: Send {
     /// 不会失败；运行期失败通过后续 `push` 返回或统计计数上报。
     fn poll_packet(&mut self) -> Option<EncodedPacket>;
 
+    /// 重建编码会话（看门狗自愈）。
+    ///
+    /// 调用线程：编码线程（仅在连续无包时调用）。
+    /// 阻塞性：阻塞（重建硬件会话可能耗时数十毫秒），仅在失速时发生。
+    /// 内部队列：重建后清空待取输出；在途帧由调用方计为丢弃。
+    ///
+    /// # Returns
+    /// 重建成功返回 `Ok(())`。
+    ///
+    /// # Errors
+    /// 后端不支持运行期重建时返回 [`CodecError::Unsupported`]；
+    /// 重建失败返回后端错误。
+    fn reset_session(&mut self) -> Result<(), CodecError> {
+        Err(CodecError::Unsupported)
+    }
+
     /// 运行期重配（码率/帧率等不改变会话结构的参数）。
     ///
     /// 调用线程：rdc-ctl。

@@ -42,8 +42,8 @@ use windows::Win32::Graphics::Direct3D11::{
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::{
     CreateDXGIFactory1, IDXGIAdapter1, IDXGIDevice, IDXGIFactory1, IDXGIOutput1,
-    IDXGIOutputDuplication, IDXGIResource, DXGI_ERROR_ACCESS_LOST, DXGI_ERROR_WAIT_TIMEOUT,
-    DXGI_OUTDUPL_FRAME_INFO,
+    IDXGIOutputDuplication, IDXGIResource, DXGI_ERROR_ACCESS_LOST,
+    DXGI_ERROR_NOT_CURRENTLY_AVAILABLE, DXGI_ERROR_WAIT_TIMEOUT, DXGI_OUTDUPL_FRAME_INFO,
 };
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, EnumDisplayMonitors,
@@ -174,6 +174,9 @@ impl PlatformCapture {
             return Ok(Backend::Dxgi);
         }
         let displays = enumerate_displays();
+        if displays.is_empty() {
+            return Err(CaptureError::NoActiveDisplay);
+        }
         let display = displays
             .iter()
             .find(|d| d.id == display_id)
@@ -247,6 +250,11 @@ impl CaptureSource for PlatformCapture {
             return Err(CaptureError::Internal("采集已在运行".to_owned()));
         }
         let displays = enumerate_displays();
+        // 系统一个活跃显示器都没有时，报「无活跃显示输出」而不是「显示器已消失」：
+        // 前者与 RDR-001 的 no_active_display 同一根因，用户能据此去开显示器/接假负载。
+        if displays.is_empty() {
+            return Err(CaptureError::NoActiveDisplay);
+        }
         let display_info = displays
             .iter()
             .find(|d| d.id == config.display_id)
@@ -434,6 +442,53 @@ fn capture_loop(
     }
 }
 
+/// 把采集错误收敛成「稳定错误码 + 机器可检索原因」。
+///
+/// `NoActiveDisplay` 与渲染侧 RDR-001 的 `no_display_output` 同码同因，
+/// 这样「白屏」和「预览黑帧」在日志与诊断里能指向同一个根因，不再各说各话。
+fn capture_error_code(error: &CaptureError) -> (&'static str, &'static str) {
+    match error {
+        CaptureError::NoActiveDisplay => ("RDR-001", "no_display_output"),
+        CaptureError::DisplayBusy { .. } => ("CAP-002", "display_busy"),
+        CaptureError::DisplayDisappeared { .. } => ("CAP-003", "display_disappeared"),
+        CaptureError::PermissionDenied => ("CAP-004", "permission_denied"),
+        CaptureError::Unsupported => ("CAP-005", "unsupported"),
+        CaptureError::Internal(_) => ("CAP-999", "internal"),
+    }
+}
+
+/// 统计当前接在桌面上的输出个数（0 即「无活跃显示输出」）。
+///
+/// 只在 5 秒诊断行里调用（每 5 秒一次枚举，开销可忽略），
+/// 用来把「桌面静止（DDA 只回 WAIT_TIMEOUT）」与「输出已消失」分开。
+fn active_output_count() -> u32 {
+    unsafe {
+        let Ok(factory) = CreateDXGIFactory1::<IDXGIFactory1>() else {
+            return 0;
+        };
+        let mut count = 0u32;
+        let mut adapter_index = 0u32;
+        loop {
+            let Ok(adapter) = factory.EnumAdapters1(adapter_index) else {
+                break;
+            };
+            let mut output_index = 0u32;
+            loop {
+                let Ok(output) = adapter.EnumOutputs(output_index) else {
+                    break;
+                };
+                let mut desc = Default::default();
+                if output.GetDesc(&mut desc).is_ok() && desc.AttachedToDesktop.as_bool() {
+                    count += 1;
+                }
+                output_index += 1;
+            }
+            adapter_index += 1;
+        }
+        count
+    }
+}
+
 /// DXGI 采集循环（支持 ACCESS_LOST 后重建 duplication）。
 fn capture_loop_dxgi(
     config: &CaptureConfig,
@@ -460,7 +515,10 @@ fn capture_loop_dxgi(
     let mut capturer = match DxgiCapturer::new(config.display_id, gpu_device) {
         Ok(c) => c,
         Err(err) => {
-            warn!(error = %err, "DXGI 采集初始化失败，线程退出");
+            let (code, cause) = capture_error_code(&err);
+            warn!(error = %err, code, cause, "DXGI 采集初始化失败，线程退出");
+            // 写进 stderr，便于现场/日志核对；不再用笼统的「采集失败」。
+            eprintln!("[capture-diag] init_failed code={code} cause={cause}");
             return;
         }
     };
@@ -607,8 +665,11 @@ fn capture_loop_dxgi(
         }
         if diag_since.elapsed() >= std::time::Duration::from_secs(5) {
             if diag_frames == 0 {
+                // attached=0 → 无活跃显示输出（与 RDR-001 同根因）；
+                // attached>0 → 桌面静止或采集通路问题，需靠「强制桌面变化」对照区分。
+                let attached = active_output_count();
                 eprintln!(
-                    "[capture-diag] 5s: frames=0 noframe={diag_noframe} pool_exhausted={diag_pool}"
+                    "[capture-diag] 5s: frames=0 noframe={diag_noframe} pool_exhausted={diag_pool} attached={attached}"
                 );
             }
             diag_frames = 0;
@@ -970,12 +1031,18 @@ impl DxgiCapturer {
                 .map_err(|e| CaptureError::Internal(format!("CreateDXGIFactory1: {e}")))?;
             let mut global_index = 0u32;
             let mut adapter_index = 0u32;
+            // 已接桌面的输出个数：用来区分「display_id 越界」与「一个活跃输出都没有」。
+            let mut attached_outputs = 0u32;
             loop {
                 let adapter = match factory.EnumAdapters1(adapter_index) {
                     Ok(a) => a,
-                    // DXGI_ERROR_NOT_FOUND：没有更多适配器，说明 display_id 越界。
+                    // DXGI_ERROR_NOT_FOUND：没有更多适配器。
                     Err(_) => {
-                        return Err(CaptureError::DisplayDisappeared { display_id });
+                        return Err(if attached_outputs == 0 {
+                            CaptureError::NoActiveDisplay
+                        } else {
+                            CaptureError::DisplayDisappeared { display_id }
+                        });
                     }
                 };
                 let output_index = 0u32;
@@ -992,6 +1059,7 @@ impl DxgiCapturer {
                         // 未接显示的输出不参与编号，避免 display_id 漂移。
                         continue;
                     }
+                    attached_outputs += 1;
                     if global_index == display_id {
                         return Self::from_output(&adapter, &output, display_id, gpu_device);
                     }
@@ -1087,10 +1155,17 @@ impl DxgiCapturer {
             let output1: IDXGIOutput1 = output
                 .cast()
                 .map_err(|e| CaptureError::Internal(format!("cast IDXGIOutput1: {e}")))?;
-            // DuplicateOutput 失败最常见原因是同一输出已有会话在复制（独占）。
-            let duplication = output1
-                .DuplicateOutput(&device)
-                .map_err(|_| CaptureError::DisplayBusy { display_id })?;
+            // DuplicateOutput 的失败分两种：
+            // - NOT_CURRENTLY_AVAILABLE：输出当前不可用（显示器关闭/睡眠/未连接），
+            //   与 RDR-001 的 no_active_display 同根因；
+            // - 其余（最常见是同一输出已有会话在独占复制）：DisplayBusy。
+            let duplication = output1.DuplicateOutput(&device).map_err(|e| {
+                if e.code() == DXGI_ERROR_NOT_CURRENTLY_AVAILABLE {
+                    CaptureError::NoActiveDisplay
+                } else {
+                    CaptureError::DisplayBusy { display_id }
+                }
+            })?;
             Ok(Self {
                 device,
                 context,

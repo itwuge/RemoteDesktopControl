@@ -15,7 +15,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use rdc_capture::{create_source, CaptureConfig, ChromaFormat, Frame, FrameSink};
-use rdc_codec::{create_encoder, CodecKind, EncodedPacket, VideoChroma, VideoConfig};
+use rdc_codec::{create_encoder_selected, CodecKind, EncodedPacket, VideoChroma, VideoConfig};
 use rdc_decode::{open_video_decoder, DecodedFrame, VideoDecoder};
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
@@ -65,6 +65,20 @@ const BARCODE_PITCH: usize = 24;
 const BARCODE_X0: usize = 16;
 /// 时间码起点 Y（像素）。
 const BARCODE_Y0: usize = 16;
+/// 编码在飞帧上限（**有界**，绝对不允许无界）。
+///
+/// 为什么是 3：MF H.264 硬件 MFT 是异步的，自身有 1~2 帧固有流水延迟——
+/// 提交第 N 帧后，它的输出常在第 N+1~N+2 次驱动时才可取回。上限取 3 正好覆盖
+/// 这段延迟；再多只增加排队时延，不增加吞吐（S7-9 实测）。
+/// 反面教材：S7-8 的「无界提前提交」把 MFT 输入队列灌满，导致 `push` 阻塞、
+/// 全程 0 包（`s78-final`）。
+const MAX_IN_FLIGHT: usize = 3;
+/// 编码看门狗阈值（毫秒）：连续这么久无新包 → 重建编码会话一次；
+/// 重建后再一个阈值仍无包 → 报 `RDC-ENC-001`。
+///
+/// 取 600 ms：覆盖 MFT 1~2 帧固有延迟（60 fps 下约 33 ms）的十倍以上，
+/// 不会把正常的首帧/重配抖动误判成失速，又能在用户察觉黑屏前给出结论。
+const ENCODE_WATCHDOG_MS: u64 = 600;
 
 // =====** 对外快照 =====**
 
@@ -75,8 +89,10 @@ pub struct ControlSnapshot {
     pub running: bool,
     /// 采集后端名称。
     pub backend: String,
-    /// 编码器名称。
+    /// 编码器名称（configure 之后的真实后端/驱动名）。
     pub encoder: String,
+    /// 编码器选择理由（探测结果与跳过项；回退不静默）。
+    pub encoder_fallback_reason: Option<String>,
     /// 解码器名称。
     pub decoder: String,
     /// 纹理通道：`dxgi-shared-texture` 为正解；`rgba-snapshot` 为降级。
@@ -119,6 +135,10 @@ pub struct ControlSnapshot {
     pub event_b: i64,
     /// 最近错误。
     pub last_error: Option<String>,
+    /// 编码会话重建次数（看门狗）。
+    pub encoder_resets: u64,
+    /// 当前在飞帧数（已提交、未出包；有界 ≤ 3）。
+    pub encoder_in_flight: u64,
 }
 
 // =====** 统计 =====**
@@ -151,9 +171,17 @@ struct Stats {
     decode_us: AtomicU64,
     /// 上屏（VideoProcessor Blit + SetEvent）耗时（微秒，本帧累计）。
     present_us: AtomicU64,
+    /// 编码会话重建次数（看门狗）。
+    encoder_resets: AtomicU64,
+    /// 当前在飞帧数（已提交、未出包）。
+    encoder_in_flight: AtomicU64,
+    /// 在飞记录超过上限时丢最旧的次数（有界保护的计数，不是采集丢帧）。
+    encoder_dropped: AtomicU64,
     error: Mutex<Option<String>>,
     backend: Mutex<String>,
     encoder: Mutex<String>,
+    /// 编码器选择理由（探测链与跳过项）。
+    encoder_reason: Mutex<String>,
     decoder: Mutex<String>,
     decode_path: Mutex<String>,
 }
@@ -165,6 +193,20 @@ impl Stats {
             if slot.is_none() {
                 *slot = Some(message.into());
             }
+        }
+    }
+
+    /// 覆盖写入错误：看门狗必须能覆盖早期旧错误，保证 RDC-ENC-001 在 HUD 可见。
+    fn force_error(&self, message: impl Into<String>) {
+        if let Ok(mut slot) = self.error.lock() {
+            *slot = Some(message.into());
+        }
+    }
+
+    /// 清空错误（编码恢复后，HUD 不应继续显示旧错误）。
+    fn clear_error(&self) {
+        if let Ok(mut slot) = self.error.lock() {
+            *slot = None;
         }
     }
 
@@ -365,6 +407,7 @@ pub fn start() -> Result<ControlSnapshot, String> {
         running: true,
         backend: info.backend.clone(),
         encoder: info.encoder.clone(),
+        encoder_fallback_reason: Some(info.encoder_reason.clone()),
         decoder: info.decoder.clone(),
         texture_path: "dxgi-shared-texture".to_owned(),
         decode_path: info.decode_path.clone(),
@@ -438,6 +481,10 @@ fn build_snapshot(stats: &Stats, running: bool, width: u32, height: u32, running
         running,
         backend: Stats::text(&stats.backend),
         encoder: Stats::text(&stats.encoder),
+        encoder_fallback_reason: {
+            let reason = Stats::text(&stats.encoder_reason);
+            (!reason.is_empty()).then_some(reason)
+        },
         decoder: Stats::text(&stats.decoder),
         texture_path: "dxgi-shared-texture".to_owned(),
         decode_path: Stats::text(&stats.decode_path),
@@ -459,6 +506,8 @@ fn build_snapshot(stats: &Stats, running: bool, width: u32, height: u32, running
         event_a: running_state.events[0],
         event_b: running_state.events[1],
         last_error: stats.error.lock().ok().and_then(|guard| guard.clone()),
+        encoder_resets: stats.encoder_resets.load(Ordering::Relaxed),
+        encoder_in_flight: stats.encoder_in_flight.load(Ordering::Relaxed),
     }
 }
 
@@ -473,6 +522,7 @@ struct SetupInfo {
     events: [i64; 2],
     backend: String,
     encoder: String,
+    encoder_reason: String,
     decoder: String,
     decode_path: String,
 }
@@ -696,8 +746,12 @@ fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
     let overlay = BarcodeOverlay::new(&device)?;
 
     // 5) 编码器 / 解码器。
-    let mut encoder =
-        create_encoder(CodecKind::H264).map_err(|error| format!("创建编码器失败: {error}"))?;
+    // 选择走能力探测（AMF → NVENC → oneVPL → MFT → 软编），并把「最终后端 + 理由」带出来，
+    // 由日志与状态接口共同呈现，不静默降级（backend.rs 的契约）。
+    let selection = create_encoder_selected(CodecKind::H264)
+        .map_err(|error| format!("创建编码器失败: {error}"))?;
+    let encoder_reason = selection.reason;
+    let mut encoder = selection.encoder;
     // 纹理直出（S7-3）：只有厂商后端（AMF）接受 D3D11 直入；MFT 只能吃系统内存。
     // 采集侧与编码器必须共用同一设备，否则纹理跨适配器/跨设备不可用。
     //
@@ -726,15 +780,6 @@ fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
             eprintln!("[control] 采集侧拒绝纹理直出，编码器回退 host BGRA（非静默）");
         }
     }
-    eprintln!(
-        "[control] capture={} encoder={}",
-        if gpu_pipeline {
-            "dxgi-texture-direct"
-        } else {
-            "cpu-bgra"
-        },
-        encoder.backend_name()
-    );
     encoder
         .configure(VideoConfig {
             codec: CodecKind::H264,
@@ -747,6 +792,18 @@ fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
             low_latency: true,
         })
         .map_err(|error| format!("配置编码器失败: {error}"))?;
+    // configure 之后 `backend_name()` 才是真实选中值（MFT 会带驱动友好名）。
+    let encoder_name = encoder.backend_name().to_owned();
+    eprintln!(
+        "[control] capture={} encoder={} reason={}",
+        if gpu_pipeline {
+            "dxgi-texture-direct"
+        } else {
+            "cpu-bgra"
+        },
+        encoder_name,
+        encoder_reason
+    );
     // 解码后端按构建 feature 与 `RDC_DECODER` 选择：默认 FFmpeg（d3d11va 直出纹理），
     // 打开失败自动回退 MF，最终值反映在 `DecoderInfo` 里。
     let decoder = open_video_decoder(Some(&device), width, height, TARGET_FPS, true)
@@ -764,12 +821,8 @@ fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
     );
     Stats::set_text(&stats.decoder, decoder_name.clone());
     Stats::set_text(&stats.decode_path, decode_path.clone());
-    let encoder_name = rdc_codec::probe_encoders()
-        .hardware
-        .first()
-        .map(|capability| capability.name.clone())
-        .unwrap_or_else(|| "software-mft".to_owned());
     Stats::set_text(&stats.encoder, encoder_name.clone());
+    Stats::set_text(&stats.encoder_reason, encoder_reason.clone());
 
     // 6) 采集直投队列与启动：采集线程产出帧后直接入队，由编码线程独占消费。
     let queue = Arc::new(FrameQueue::new(CHANNEL_CAP, Arc::clone(&stats.dropped)));
@@ -793,6 +846,7 @@ fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
         events: [events[0].0 as i64, events[1].0 as i64],
         backend,
         encoder: encoder_name,
+        encoder_reason,
         decoder: decoder_name,
         decode_path,
     };
@@ -918,6 +972,13 @@ impl PreparedFrame {
             Self::Gpu { timing, .. } | Self::Cpu { timing, .. } => *timing,
         }
     }
+
+    /// 本帧是否必须编成 IDR（首帧；或看门狗重建会话后的第一帧）。
+    fn force_key(&self) -> bool {
+        match self {
+            Self::Gpu { force_key, .. } | Self::Cpu { force_key, .. } => *force_key,
+        }
+    }
 }
 
 /// 准备一帧：时间码覆盖（纹理路径）或色彩交换 + 时间码（CPU 路径）。**不含提交**。
@@ -1017,70 +1078,120 @@ fn run_encode_stage(
         mut overlay,
         mut encoder,
     } = stage;
-    // S7-9：恰一帧在飞。`in_flight` 非空时**禁止提交**下一帧——这是防「无界提前提交」
-    // 灌满 AMF 输入队列、让 `push` 阻塞的硬约束（S7-8 `s78-final` 的全程 0 包事故）。
-    let mut in_flight: Option<FrameTiming> = None;
-    // 已准备、等待提交的下一帧（准备段与在飞帧的 `enc_wait` 重叠）。
+    // 有界在飞：已提交、尚未出包的帧时序（只用于分段计时）。
+    // 上限 `MAX_IN_FLIGHT = 3`（见常量注释）：覆盖异步 MFT 的 1~2 帧固有延迟；
+    // 绝不允许退回「无界提前提交」。
+    let mut in_flight: VecDeque<FrameTiming> = VecDeque::with_capacity(MAX_IN_FLIGHT + 1);
+    // 已准备、等待提交的下一帧（准备段与该帧在飞期间的耗时重叠）。
     let mut prepared: Option<PreparedFrame> = None;
-    // 取包等待上限：AMF 固有出包 9.2ms p99 10.7（S7-6），留余量后 25ms；
-    // 超过即视为编码器失速，下一轮继续等，不无限阻塞。
-    const POLL_DEADLINE_MS: u64 = 25;
-    // 连续失速累计（微秒）：≥200 ms 记一条错误，避免「已卡死但界面无提示」。
-    const STALL_ERROR_US: u64 = 200_000;
-    let mut stall_us: u64 = 0;
     // 纹理直出路径下延迟归还的帧（租约保护：编码器可能异步持有纹理）。
     let mut held_gpu_frames: VecDeque<Frame> = VecDeque::with_capacity(4);
+    // 看门狗状态：最后一次「看到包」的时刻 + 本次失速已重建的次数。
+    let mut last_output = Instant::now();
+    let mut resets_for_stall: u32 = 0;
+    let mut stall_reported = false;
+    // 重建会话后必须用 IDR 重启码流，解码侧才能恢复。
+    let mut force_key_next = true;
+
     loop {
         if stop.load(Ordering::Relaxed) {
             break;
         }
         let mut poll_us: u64 = 0;
-        // ① 提交段：恰一帧在飞 —— 上一帧的包还没取回就不提交下一帧（防无界提前提交）。
-        if in_flight.is_none() {
-            if let Some(prepared) = prepared.take() {
-                let t_submit = Instant::now();
-                let mut timing = prepared.timing();
-                let submitted = match prepared {
-                    PreparedFrame::Gpu {
-                        texture,
-                        array_slice,
-                        frame,
-                        pts_ns,
-                        force_key,
-                        ..
-                    } => encoder
-                        .push_texture(texture, array_slice, pts_ns, force_key)
-                        .map_err(|error| format!("编码入队失败（纹理）: {error}"))
-                        .map(|()| {
-                            // 租约延迟 3 帧归还：AMF 可能在 SubmitInput 返回后仍持有纹理直到出包。
-                            held_gpu_frames.push_back(frame);
-                            if held_gpu_frames.len() > 3 {
-                                held_gpu_frames.pop_front();
-                            }
-                        }),
-                    PreparedFrame::Cpu {
-                        frame, pts_ns, force_key, ..
-                    } => encoder
-                        .push(frame.buffer, pts_ns, force_key)
-                        .map_err(|error| format!("编码入队失败: {error}")),
-                };
-                match submitted {
-                    Ok(()) => {
-                        timing.submit_qpc = qpc_us();
-                        timing.submit_call_us = t_submit.elapsed().as_micros() as u64;
-                        timing.submit_busy_us = timing.push_us + timing.submit_call_us;
-                        in_flight = Some(timing);
-                        stall_us = 0;
+        let mut progressed = false;
+
+        // ① 取包段：主动驱动异步 MFT，把已就绪的输出**全部**取出（不等）。
+        // 只 `pop_front` 本地队列会让「等包 → 不提交 → 更不出包」自锁（J4 根因）。
+        loop {
+            let t_poll = Instant::now();
+            let packet = encoder.poll_packet();
+            poll_us += t_poll.elapsed().as_micros() as u64;
+            let Some(packet) = packet else {
+                break;
+            };
+            progressed = true;
+            last_output = Instant::now();
+            resets_for_stall = 0;
+            // 只在「此前确实报过看门狗错误」时清错，避免误清解码/采集侧的真实错误。
+            if stall_reported {
+                stats.clear_error();
+                stall_reported = false;
+            }
+            // 每包按提交顺序 FIFO 配一个时序；记录缺失时用默认值（统计失真但不致命）。
+            let mut timing = in_flight.pop_front().unwrap_or_default();
+            timing.enc_wait_us = qpc_us().saturating_sub(timing.submit_qpc);
+            stats.encoded.fetch_add(1, Ordering::Relaxed);
+            stats
+                .encoded_bytes
+                .fetch_add(packet.data.len() as u64, Ordering::Relaxed);
+            // push 段在编码线程里补全，按出包时刻落地。
+            stats.encode_us.store(timing.push_us, Ordering::Relaxed);
+            // 包队列深度 2：满了就等（背压回传到采集队列，由它按「丢最旧」处理）。
+            let mut out = EncodeOut { packet, timing };
+            loop {
+                match packets.try_send(out) {
+                    Ok(()) => break,
+                    Err(TrySendError::Full(back)) => {
+                        if stop.load(Ordering::Relaxed) {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(1));
+                        out = back;
                     }
-                    Err(message) => stats.set_error(message),
+                    Err(TrySendError::Disconnected(_)) => return,
                 }
             }
         }
-        // ② 准备段：排队取帧并完成准备（不含提交），与在飞帧的 `enc_wait` 重叠。
-        // 有帧在飞时用 1 ms 超时：队列暂时空也不能把取包拖后 100 ms。
+
+        // ② 提交段：在飞记录达到上限时丢最旧并计数（已提交帧无法撤回），始终不阻塞。
+        if let Some(frame) = prepared.take() {
+            if in_flight.len() >= MAX_IN_FLIGHT {
+                in_flight.pop_front();
+                stats.encoder_dropped.fetch_add(1, Ordering::Relaxed);
+            }
+            let t_submit = Instant::now();
+            let mut timing = frame.timing();
+            let force_key = force_key_next || frame.force_key();
+            let submitted = match frame {
+                PreparedFrame::Gpu {
+                    texture,
+                    array_slice,
+                    frame,
+                    pts_ns,
+                    ..
+                } => encoder
+                    .push_texture(texture, array_slice, pts_ns, force_key)
+                    .map_err(|error| format!("编码入队失败（纹理）: {error}"))
+                    .map(|()| {
+                        // 租约延迟 3 帧归还：AMF 可能在 SubmitInput 返回后仍持有纹理直到出包。
+                        held_gpu_frames.push_back(frame);
+                        if held_gpu_frames.len() > 3 {
+                            held_gpu_frames.pop_front();
+                        }
+                    }),
+                PreparedFrame::Cpu {
+                    frame, pts_ns, ..
+                } => encoder
+                    .push(frame.buffer, pts_ns, force_key)
+                    .map_err(|error| format!("编码入队失败: {error}")),
+            };
+            match submitted {
+                Ok(()) => {
+                    timing.submit_qpc = qpc_us();
+                    timing.submit_call_us = t_submit.elapsed().as_micros() as u64;
+                    timing.submit_busy_us = timing.push_us + timing.submit_call_us;
+                    in_flight.push_back(timing);
+                    force_key_next = false;
+                    progressed = true;
+                }
+                Err(message) => stats.set_error(message),
+            }
+        }
+        // ③ 准备段：没有待提交帧时才取一帧做准备（与在飞帧的 enc_wait 重叠）。
+        // 有帧在飞时用 1 ms 超时：队列暂时空也不能把取包拖后。
         if prepared.is_none() {
             let t_rx = Instant::now();
-            let pop_timeout_ms = if in_flight.is_some() { 1 } else { 100 };
+            let pop_timeout_ms = if in_flight.is_empty() { 20 } else { 1 };
             match queue.pop_timeout(Duration::from_millis(pop_timeout_ms)) {
                 QueuePop::Frame(queued) => {
                     let rx_wait_us = t_rx.elapsed().as_micros() as u64;
@@ -1095,7 +1206,10 @@ fn run_encode_stage(
                         height,
                         elapsed_ms,
                     ) {
-                        Ok(prepared_now) => prepared = prepared_now,
+                        Ok(prepared_now) => {
+                            prepared = prepared_now;
+                            progressed = true;
+                        }
                         Err(message) => stats.set_error(message),
                     }
                 }
@@ -1103,56 +1217,57 @@ fn run_encode_stage(
                 QueuePop::Closed => break,
             }
         }
-        // ③ 取包段：此时准备段已跑完，等的就是 AMF 内部编码时间。
-        if let Some(mut timing) = in_flight.take() {
-            let deadline = Instant::now() + Duration::from_millis(POLL_DEADLINE_MS);
-            loop {
-                if stop.load(Ordering::Relaxed) {
-                    return;
-                }
-                let t_poll = Instant::now();
-                let packet = encoder.poll_packet();
-                poll_us += t_poll.elapsed().as_micros() as u64;
-                let Some(packet) = packet else {
-                    if Instant::now() >= deadline {
-                        // 失速：不放弃这次飞帧（否则退化成无界重提交），下一轮继续等。
-                        stall_us += POLL_DEADLINE_MS * 1_000;
-                        if stall_us >= STALL_ERROR_US {
-                            stats.set_error("编码器 200 ms 无包输出（已记录，继续等待）");
-                        }
-                        in_flight = Some(timing);
-                        break;
+
+        // ④ 看门狗：有帧在飞却连续 ENCODE_WATCHDOG_MS 无包 → 重建一次；
+        //    重建后再一个阈值仍无包 → 报稳定错误码，写日志不静默。
+        if !in_flight.is_empty() && last_output.elapsed() >= Duration::from_millis(ENCODE_WATCHDOG_MS) {
+            if resets_for_stall == 0 {
+                match encoder.reset_session() {
+                    Ok(()) => {
+                        stats.encoder_resets.fetch_add(1, Ordering::Relaxed);
+                        resets_for_stall = 1;
+                        force_key_next = true;
+                        // 旧会话的在飞时序与待提交帧都失效（纹理租约随 frame drop 归还）。
+                        in_flight.clear();
+                        prepared = None;
+                        stats.encoder_in_flight.store(0, Ordering::Relaxed);
+                        last_output = Instant::now();
+                        eprintln!(
+                            "[enc] 看门狗：{ENCODE_WATCHDOG_MS} ms 无包，已重建编码会话一次"
+                        );
                     }
-                    std::thread::yield_now();
-                    continue;
-                };
-                stall_us = 0;
-                timing.enc_wait_us = qpc_us().saturating_sub(timing.submit_qpc);
-                stats.encoded.fetch_add(1, Ordering::Relaxed);
-                stats
-                    .encoded_bytes
-                    .fetch_add(packet.data.len() as u64, Ordering::Relaxed);
-                // push 段在编码线程里补全，按出包时刻落地。
-                stats.encode_us.store(timing.push_us, Ordering::Relaxed);
-                // 包队列深度 2：满了就等（背压回传到采集队列，由它按「丢最旧」处理）。
-                let mut out = EncodeOut { packet, timing };
-                loop {
-                    match packets.try_send(out) {
-                        Ok(()) => break,
-                        Err(TrySendError::Full(back)) => {
-                            if stop.load(Ordering::Relaxed) {
-                                return;
-                            }
-                            std::thread::sleep(Duration::from_millis(1));
-                            out = back;
-                        }
-                        Err(TrySendError::Disconnected(_)) => return,
+                    Err(error) => {
+                        resets_for_stall = 1;
+                        eprintln!(
+                            "[enc] 看门狗：重建编码会话失败: {error}"
+                        );
+                        stats.force_error(format!(
+                            "RDC-ENC-001 编码器无输出（重建失败: {error}）"
+                        ));
                     }
                 }
-                break;
+            } else if !stall_reported {
+                stall_reported = true;
+                eprintln!(
+                    "[enc] 看门狗：重建 {resets_for_stall} 次后仍无包输出，报 RDC-ENC-001"
+                );
+                stats.force_error(format!(
+                    "RDC-ENC-001 编码器无输出（已重建 {resets_for_stall} 次）"
+                ));
+            } else {
+                // 已报过：按周期刷新计时，避免每轮重复写日志。
+                last_output = Instant::now();
             }
         }
+
         stats.poll_us.store(poll_us, Ordering::Relaxed);
+        stats
+            .encoder_in_flight
+            .store(in_flight.len() as u64, Ordering::Relaxed);
+        // 全轮没有取到包、没有提交、也没有取到帧：短暂让出 CPU，避免空转。
+        if !progressed {
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 }
 
@@ -1363,7 +1478,7 @@ fn run_pipeline(
                 use std::io::Write;
                 let _ = writeln!(
                     file,
-                    "{},{:.2},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
+                    "{},{:.2},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     start.elapsed().as_millis(),
                     fps_milli as f64 / 1000.0,
                     stats.captured.load(Ordering::Relaxed),
@@ -1382,6 +1497,9 @@ fn run_pipeline(
                     stats.decode_us.load(Ordering::Relaxed),
                     stats.present_us.load(Ordering::Relaxed),
                     stats.decoder_in_flight.load(Ordering::Relaxed),
+                    stats.encoder_in_flight.load(Ordering::Relaxed),
+                    stats.encoder_resets.load(Ordering::Relaxed),
+                    stats.encoder_dropped.load(Ordering::Relaxed),
                 );
             }
             displayed_window = 0;
@@ -1898,7 +2016,7 @@ fn open_log() -> Option<std::fs::File> {
     if std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0) == 0 {
         let _ = writeln!(
             file,
-            "elapsed_ms,fps,captured,encoded,decoded,dropped,latency_last_us,latency_p50_us,latency_p99_us,pipeline_latency_us,enc_latency_us,decode_path,capture_us,encode_us,poll_us,decode_us,present_us,decoder_in_flight"
+            "elapsed_ms,fps,captured,encoded,decoded,dropped,latency_last_us,latency_p50_us,latency_p99_us,pipeline_latency_us,enc_latency_us,decode_path,capture_us,encode_us,poll_us,decode_us,present_us,decoder_in_flight,encoder_in_flight,encoder_resets,encoder_dropped"
         );
     }
     Some(file)

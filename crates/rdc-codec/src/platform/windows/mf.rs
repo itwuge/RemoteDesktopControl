@@ -511,6 +511,19 @@ impl MfH264Session {
         Ok(outs)
     }
 
+    /// 运行期取包：非阻塞地驱动异步 MFT 的 HaveOutput 事件并取走输出。
+    ///
+    /// 异步 MFT 的 `ProcessOutput` 必须被主动驱动，不能只读本地队列；
+    /// 否则输出会一直留在 MFT 内部，形成「等包 → 不提交下一帧 → 更不出包」的死锁。
+    ///
+    /// # Errors
+    /// 事件或取回失败返回 [`CodecError`]。
+    pub fn poll_ready(&mut self) -> Result<Vec<EncodedSample>, CodecError> {
+        let mut outs = Vec::new();
+        self.drain_ready(&mut outs)?;
+        Ok(outs)
+    }
+
     /// 冲刷编码器缓存。
     ///
     /// # Returns

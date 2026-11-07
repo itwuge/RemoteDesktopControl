@@ -74,6 +74,8 @@ pub struct PlatformEncoder {
     selected_name: String,
     /// 是否允许软件 MFT（仅 `RDC_ENCODER=software` 诊断路径为 true）。
     software: bool,
+    /// 取包时驱动异步 MFT 失败后只报一次，恢复后复位，避免每毫秒刷屏。
+    poll_error_reported: bool,
 }
 
 impl PlatformEncoder {
@@ -94,6 +96,7 @@ impl PlatformEncoder {
             queue: VecDeque::new(),
             selected_name: String::new(),
             software: false,
+            poll_error_reported: false,
         }
     }
 
@@ -173,6 +176,39 @@ impl PlatformEncoder {
         // 首帧编码后驱动通常才写入 SPS/PPS，这里顺手刷新一次，供封装模块使用。
         let _ = session.refresh_sequence_header();
         Ok(packets)
+    }
+
+    /// 非阻塞驱动异步 MFT 取输出，把新包放进本地队列。
+    ///
+    /// 同步 MFT 的输出在 `encode` 时已当场取走；异步 MFT 必须在这里被驱动，
+    /// 否则输出会一直留在 MFT 内部。
+    fn drain_async_outputs(&mut self) {
+        let polled = match self.session.as_mut() {
+            Some(session) => session.poll_ready(),
+            None => return,
+        };
+        match polled {
+            Ok(samples) => {
+                self.poll_error_reported = false;
+                for sample in samples {
+                    // 没有提交调用可归因，耗时按 0 记；pts 缺失时按 0 交给上层忽略。
+                    self.stats
+                        .record(0, 0, sample.data.len(), sample.keyframe);
+                    self.queue.push_back(EncodedPacket {
+                        data: sample.data,
+                        pts_ns: (sample.pts_100ns.max(0) as u64) * 100,
+                        is_keyframe: sample.keyframe,
+                        suggested_shard_bytes: 0,
+                    });
+                }
+            }
+            Err(error) => {
+                if !self.poll_error_reported {
+                    self.poll_error_reported = true;
+                    eprintln!("[enc] poll_ready 失败: {error}");
+                }
+            }
+        }
     }
 
     /// 用已激活的 MFT 创建会话（分辨率变化时复用同一激活对象重建）。
@@ -343,14 +379,19 @@ impl VideoEncoder for PlatformEncoder {
         Ok(())
     }
 
-    /// 取出一包编码结果。
+    /// 取出一包编码结果，并主动驱动异步 MFT 的输出。
+    ///
+    /// 为什么不能只 `queue.pop_front()`：异步 MF MFT 的 `ProcessOutput` 必须被驱动，
+    /// 输出才会从 MFT 内部取出；只读本地队列会让「等包 → 不提交下一帧 → 更不出包」
+    /// 形成死锁（见 `logs/TESTPLAN-capture-blackframe.md` J4）。
     ///
     /// # Returns
-    /// 队列非空时返回一包；空队列返回 `None`。
+    /// 队列（含本次 drain 出的包）非空时返回一包；否则返回 `None`。
     ///
     /// # Errors
-    /// 不会失败。
+    /// 不会失败；drain 失败只记录一次，下一轮继续尝试。
     fn poll_packet(&mut self) -> Option<EncodedPacket> {
+        self.drain_async_outputs();
         self.queue.pop_front()
     }
 
@@ -471,6 +512,25 @@ impl VideoEncoder for PlatformEncoder {
             });
         }
         Ok(packets)
+    }
+
+    /// 重建编码会话（看门狗自愈用）。
+    ///
+    /// # Returns
+    /// 重建成功返回 `Ok(())`，并清空本地待取队列。
+    ///
+    /// # Errors
+    /// 尚未配置或重建失败时返回会话错误。
+    fn reset_session(&mut self) -> Result<(), CodecError> {
+        let Some(config) = self.config else {
+            return Err(CodecError::InvalidConfig("编码器尚未配置".to_owned()));
+        };
+        self.queue.clear();
+        // 先丢掉旧会话，确保 build_session 走「新建」而不是热更新分支。
+        self.session = None;
+        self.build_session(&config)?;
+        self.started = Some(Instant::now());
+        Ok(())
     }
 }
 
@@ -599,6 +659,16 @@ impl rdc_protocol::codec::Encoder for PlatformEncoder {
 }
 
 // =====** 能力探测 =====**
+
+/// 是否存在可枚举的硬件 H.264 MFT。
+///
+/// 为什么只枚举不激活：选择阶段只需要「有没有」，激活 + 类型协商有百毫秒级开销，
+/// 真实驱动名在 `configure` 之后由 `backend_name()` 给出。
+pub fn has_hardware_h264_mft() -> bool {
+    mf::enumerate_h264(false)
+        .map(|list| !list.is_empty())
+        .unwrap_or(false)
+}
 
 /// 探测本机可用编码器并给出完整能力报告。
 ///

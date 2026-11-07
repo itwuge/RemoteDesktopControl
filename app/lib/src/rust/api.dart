@@ -12,7 +12,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'session_service.dart';
 
-// These functions are ignored because they are not marked as `pub`: `append_audit`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `template_of`, `to_control_status_linux`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
+// These functions are ignored because they are not marked as `pub`: `append_audit`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `template_of`, `to_control_status`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// 返回 Rust 核心版本号。
@@ -786,8 +786,11 @@ class ControlStatusDto {
   /// 采集后端。
   final String backend;
 
-  /// 编码器名称。
+  /// 编码器名称（configure 之后的真实后端/驱动名）。
   final String encoder;
+
+  /// 编码器选择理由（探测链与跳过项；回退不静默）。
+  final String? encoderFallbackReason;
 
   /// 解码器名称。
   final String decoder;
@@ -852,10 +855,17 @@ class ControlStatusDto {
   /// 最近错误。
   final String? lastError;
 
+  /// 编码会话重建次数（看门狗）。
+  final BigInt encoderResets;
+
+  /// 当前在飞帧数（已提交、未出包；有界 ≤ 3）。
+  final BigInt encoderInFlight;
+
   const ControlStatusDto({
     required this.running,
     required this.backend,
     required this.encoder,
+    this.encoderFallbackReason,
     required this.decoder,
     required this.texturePath,
     required this.decodePath,
@@ -877,6 +887,8 @@ class ControlStatusDto {
     required this.eventA,
     required this.eventB,
     this.lastError,
+    required this.encoderResets,
+    required this.encoderInFlight,
   });
 
   static Future<ControlStatusDto> default_() =>
@@ -887,6 +899,7 @@ class ControlStatusDto {
       running.hashCode ^
       backend.hashCode ^
       encoder.hashCode ^
+      encoderFallbackReason.hashCode ^
       decoder.hashCode ^
       texturePath.hashCode ^
       decodePath.hashCode ^
@@ -907,7 +920,9 @@ class ControlStatusDto {
       shareHandleB.hashCode ^
       eventA.hashCode ^
       eventB.hashCode ^
-      lastError.hashCode;
+      lastError.hashCode ^
+      encoderResets.hashCode ^
+      encoderInFlight.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -917,6 +932,7 @@ class ControlStatusDto {
           running == other.running &&
           backend == other.backend &&
           encoder == other.encoder &&
+          encoderFallbackReason == other.encoderFallbackReason &&
           decoder == other.decoder &&
           texturePath == other.texturePath &&
           decodePath == other.decodePath &&
@@ -937,7 +953,9 @@ class ControlStatusDto {
           shareHandleB == other.shareHandleB &&
           eventA == other.eventA &&
           eventB == other.eventB &&
-          lastError == other.lastError;
+          lastError == other.lastError &&
+          encoderResets == other.encoderResets &&
+          encoderInFlight == other.encoderInFlight;
 }
 
 /// 设备条目（跨 FFI 的可复制快照）。

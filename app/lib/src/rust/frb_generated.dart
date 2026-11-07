@@ -1814,33 +1814,36 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ControlStatusDto dco_decode_control_status_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 24)
-      throw Exception('unexpected arr length: expect 24 but see ${arr.length}');
+    if (arr.length != 27)
+      throw Exception('unexpected arr length: expect 27 but see ${arr.length}');
     return ControlStatusDto(
       running: dco_decode_bool(arr[0]),
       backend: dco_decode_String(arr[1]),
       encoder: dco_decode_String(arr[2]),
-      decoder: dco_decode_String(arr[3]),
-      texturePath: dco_decode_String(arr[4]),
-      decodePath: dco_decode_String(arr[5]),
-      width: dco_decode_u_32(arr[6]),
-      height: dco_decode_u_32(arr[7]),
-      fps: dco_decode_f_64(arr[8]),
-      capturedFrames: dco_decode_u_64(arr[9]),
-      encodedFrames: dco_decode_u_64(arr[10]),
-      decodedFrames: dco_decode_u_64(arr[11]),
-      droppedFrames: dco_decode_u_64(arr[12]),
-      encodedBytes: dco_decode_u_64(arr[13]),
-      bitrateKbps: dco_decode_u_64(arr[14]),
-      latencyLastUs: dco_decode_u_64(arr[15]),
-      latencyP50Us: dco_decode_u_64(arr[16]),
-      latencyP99Us: dco_decode_u_64(arr[17]),
-      readbackCount: dco_decode_u_64(arr[18]),
-      shareHandleA: dco_decode_i_64(arr[19]),
-      shareHandleB: dco_decode_i_64(arr[20]),
-      eventA: dco_decode_i_64(arr[21]),
-      eventB: dco_decode_i_64(arr[22]),
-      lastError: dco_decode_opt_String(arr[23]),
+      encoderFallbackReason: dco_decode_opt_String(arr[3]),
+      decoder: dco_decode_String(arr[4]),
+      texturePath: dco_decode_String(arr[5]),
+      decodePath: dco_decode_String(arr[6]),
+      width: dco_decode_u_32(arr[7]),
+      height: dco_decode_u_32(arr[8]),
+      fps: dco_decode_f_64(arr[9]),
+      capturedFrames: dco_decode_u_64(arr[10]),
+      encodedFrames: dco_decode_u_64(arr[11]),
+      decodedFrames: dco_decode_u_64(arr[12]),
+      droppedFrames: dco_decode_u_64(arr[13]),
+      encodedBytes: dco_decode_u_64(arr[14]),
+      bitrateKbps: dco_decode_u_64(arr[15]),
+      latencyLastUs: dco_decode_u_64(arr[16]),
+      latencyP50Us: dco_decode_u_64(arr[17]),
+      latencyP99Us: dco_decode_u_64(arr[18]),
+      readbackCount: dco_decode_u_64(arr[19]),
+      shareHandleA: dco_decode_i_64(arr[20]),
+      shareHandleB: dco_decode_i_64(arr[21]),
+      eventA: dco_decode_i_64(arr[22]),
+      eventB: dco_decode_i_64(arr[23]),
+      lastError: dco_decode_opt_String(arr[24]),
+      encoderResets: dco_decode_u_64(arr[25]),
+      encoderInFlight: dco_decode_u_64(arr[26]),
     );
   }
 
@@ -2390,6 +2393,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_running = sse_decode_bool(deserializer);
     var var_backend = sse_decode_String(deserializer);
     var var_encoder = sse_decode_String(deserializer);
+    var var_encoderFallbackReason = sse_decode_opt_String(deserializer);
     var var_decoder = sse_decode_String(deserializer);
     var var_texturePath = sse_decode_String(deserializer);
     var var_decodePath = sse_decode_String(deserializer);
@@ -2411,10 +2415,13 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_eventA = sse_decode_i_64(deserializer);
     var var_eventB = sse_decode_i_64(deserializer);
     var var_lastError = sse_decode_opt_String(deserializer);
+    var var_encoderResets = sse_decode_u_64(deserializer);
+    var var_encoderInFlight = sse_decode_u_64(deserializer);
     return ControlStatusDto(
       running: var_running,
       backend: var_backend,
       encoder: var_encoder,
+      encoderFallbackReason: var_encoderFallbackReason,
       decoder: var_decoder,
       texturePath: var_texturePath,
       decodePath: var_decodePath,
@@ -2436,6 +2443,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       eventA: var_eventA,
       eventB: var_eventB,
       lastError: var_lastError,
+      encoderResets: var_encoderResets,
+      encoderInFlight: var_encoderInFlight,
     );
   }
 
@@ -3143,6 +3152,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_bool(self.running, serializer);
     sse_encode_String(self.backend, serializer);
     sse_encode_String(self.encoder, serializer);
+    sse_encode_opt_String(self.encoderFallbackReason, serializer);
     sse_encode_String(self.decoder, serializer);
     sse_encode_String(self.texturePath, serializer);
     sse_encode_String(self.decodePath, serializer);
@@ -3164,6 +3174,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_64(self.eventA, serializer);
     sse_encode_i_64(self.eventB, serializer);
     sse_encode_opt_String(self.lastError, serializer);
+    sse_encode_u_64(self.encoderResets, serializer);
+    sse_encode_u_64(self.encoderInFlight, serializer);
   }
 
   @protected
