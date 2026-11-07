@@ -435,7 +435,7 @@ impl MfH264Decoder {
         }
 
         let output = make_output_type(width, height, fps)?;
-        let input = make_input_type()?;
+        let input = make_input_type(width, height, fps)?;
         // 该 MFT 是否声明 DXVA 能力（MF_SA_D3D11_AWARE=1 表示可以接 D3D11 设备管理器做硬解）。
         let dxva_aware = unsafe {
             transform
@@ -1047,12 +1047,28 @@ fn make_output_type(width: u32, height: u32, fps: u32) -> Result<IMFMediaType, D
 }
 
 /// 构造 H.264 输入类型。
-fn make_input_type() -> Result<IMFMediaType, DecodeError> {
+///
+/// 参数：`width`/`height`/`fps` 为码流参数。系统内置解码 MFT 在只给
+/// major/subtype 时会以 E_FAIL 拒绝后续的 `SetOutputType`，因此这里显式写入
+/// 帧尺寸、帧率与像素宽高比，让它能预先算出输出缓冲与步幅。
+fn make_input_type(width: u32, height: u32, fps: u32) -> Result<IMFMediaType, DecodeError> {
     let media_type = unsafe { MFCreateMediaType() }
         .map_err(|e| DecodeError::DecodeFailure(format!("MFCreateMediaType(in): {e}")))?;
     unsafe {
         set_guid(&media_type, &MF_MT_MAJOR_TYPE, &MFMediaType_Video)?;
         set_guid(&media_type, &MF_MT_SUBTYPE, &MFVideoFormat_H264)?;
+        media_type
+            .SetUINT64(&MF_MT_FRAME_SIZE, pack_u64(width, height))
+            .map_err(invalid)?;
+        media_type
+            .SetUINT64(&MF_MT_FRAME_RATE, pack_u64(fps.max(1), 1))
+            .map_err(invalid)?;
+        media_type
+            .SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, pack_u64(1, 1))
+            .map_err(invalid)?;
+        media_type
+            .SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)
+            .map_err(invalid)?;
     }
     Ok(media_type)
 }
