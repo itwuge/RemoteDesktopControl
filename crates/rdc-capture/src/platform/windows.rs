@@ -495,15 +495,29 @@ fn capture_loop_dxgi(
             break;
         }
         let timeout_ms = (frame_interval_us / 1000).max(1) as u32;
-        match capturer.capture(timeout_ms, gpu_pool.as_ref(), gpu_mode == 2) {
+        // 候选①（S7-7 块 2）：先借池块，再由 `read_frame` 直接写入，去掉
+        // 「read_frame 分配整帧 Vec → 再整帧拷进池块」的第二次拷贝（1080p 每帧少一次
+        // 8.3MB memset + 8.3MB memcpy）。只有 CPU 路径（gpu_mode==0）需要预借。
+        let mut prebuf = if gpu_mode == 0 { pool.acquire() } else { None };
+        if gpu_mode == 0 && prebuf.is_none() {
+            // 池满：丢帧而不是等待（docs/06 §1.3）；不消耗 DDA 帧，稍让 CPU 后重试。
+            stats.add_pool_exhausted();
+            stats.add_dropped(1);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            continue;
+        }
+        match capturer.capture(
+            timeout_ms,
+            gpu_pool.as_ref(),
+            gpu_mode == 2,
+            prebuf.as_mut().map(|buffer| buffer.as_mut_slice()),
+        ) {
             Ok(Acquired::Cpu(shot)) => {
-                let Some(mut buffer) = pool.acquire() else {
-                    // 池满：丢帧而不是等待（docs/06 §1.3）。
+                let Some(buffer) = prebuf.take() else {
                     stats.add_pool_exhausted();
                     stats.add_dropped(1);
                     continue;
                 };
-                shot.copy_into(buffer.as_mut_slice());
                 let qpc = shot.qpc_us;
                 let interval = stats.record_frame(qpc, shot.cost_us);
                 let frame = Frame {
@@ -668,11 +682,15 @@ struct Shot {
     /// 移动矩形。
     move_rects: Vec<MoveRect>,
     /// 像素数据（BGRA8，紧凑排布）。
+    /// 直接写池块（`capture` 传 `dst`）时为空，调用方不再二次拷贝。
     pixels: Vec<u8>,
 }
 
 impl Shot {
     /// 把像素拷贝进池化缓冲（长度不足时按行截断，绝不越界）。
+    ///
+    /// DDA CPU 路径已改为直接写入池块（`pixels` 为空，本方法空转）；
+    /// GDI 路径仍走这里。
     ///
     /// # Arguments
     /// * `dst` - 目标缓冲。
@@ -1088,6 +1106,7 @@ impl DxgiCapturer {
         timeout_ms: u32,
         gpu_pool: Option<&Arc<GpuTexturePool>>,
         dda_direct: bool,
+        dst: Option<&mut [u8]>,
     ) -> Result<Acquired, CaptureError> {
         unsafe {
             let mut frame_info = DXGI_OUTDUPL_FRAME_INFO::default();
@@ -1112,8 +1131,8 @@ impl DxgiCapturer {
                 match gpu_pool {
                     Some(pool) => self.copy_to_pool(&frame_info, &resource, pool),
                     None => self
-                        .read_frame(&frame_info, &resource)
-                        .map(|shot| Acquired::Cpu(shot)),
+                        .read_frame(&frame_info, &resource, dst)
+                        .map(Acquired::Cpu),
                 }
             };
             let _ = self.duplication.ReleaseFrame();
@@ -1295,10 +1314,14 @@ impl DxgiCapturer {
     }
 
     /// 把 GPU 纹理读回 CPU 并收集脏区。
+    ///
+    /// `dst` 为 `Some` 时逐行直接写进调用方缓冲（去二次拷贝），此时返回的
+    /// [`Shot::pixels`] 为空；为 `None` 时按旧路径自建整帧缓冲。
     unsafe fn read_frame(
         &mut self,
         frame_info: &DXGI_OUTDUPL_FRAME_INFO,
         resource: &IDXGIResource,
+        dst: Option<&mut [u8]>,
     ) -> Result<Shot, CaptureError> {
         let texture: ID3D11Texture2D = resource
             .cast()
@@ -1345,18 +1368,31 @@ impl DxgiCapturer {
             .map_err(|e| CaptureError::Internal(format!("Map: {e}")))?;
         let mapped: windows::Win32::Graphics::Direct3D11::D3D11_MAPPED_SUBRESOURCE = mapped;
 
-        let mut pixels = vec![0u8; PixelFormat::Bgra8.buffer_size(w, h)];
+        let mut pixels = Vec::new();
         // 逐行拷贝：源行距可能大于宽度*4（GPU 对齐），目标使用紧凑排布；
         // 每行字节数必须是 宽度*4，之前误传像素数导致每行只拷到左侧 1/4 画面。
         let row_bytes = w as usize * 4;
-        copy_rows(
-            mapped.pData as *const u8,
-            mapped.RowPitch as usize,
-            &mut pixels,
-            row_bytes,
-            row_bytes,
-            h as usize,
-        );
+        match dst {
+            Some(buf) => copy_rows(
+                mapped.pData as *const u8,
+                mapped.RowPitch as usize,
+                buf,
+                row_bytes,
+                row_bytes,
+                h as usize,
+            ),
+            None => {
+                pixels = vec![0u8; PixelFormat::Bgra8.buffer_size(w, h)];
+                copy_rows(
+                    mapped.pData as *const u8,
+                    mapped.RowPitch as usize,
+                    &mut pixels,
+                    row_bytes,
+                    row_bytes,
+                    h as usize,
+                );
+            }
+        }
         self.context.Unmap(staging, 0);
 
         // 脏区/移动矩形：有多少算多少；拿不到就留空，由编码侧按整帧处理。
