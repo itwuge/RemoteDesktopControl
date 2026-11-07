@@ -317,13 +317,46 @@ Linux 被控端 `rdc-serve` 的 **S8-2 明文 TCP 协议**（`kind 1..4`，见
 | B5 | **未覆盖**：本机无 Android SDK / JDK / NDK / cargo-ndk / Gradle 缓存，`flutter doctor` 明确 `Unable to locate Android SDK` | `flutter doctor -v` |
 | B6 | **未覆盖**：无 adb、无真机、无模拟器 | `flutter devices` |
 | C1 | **代码就绪**：直连对话框含 IP/端口字段与字段级校验（端口 1..65535），未做设备验证 | `session_page.dart` |
-| C2 | **部分覆盖**：`direct_connect` 的错误码常量与「未连接发送输入必须报错」有单测；连接受理/拒绝/超时/无 CONFIG 四条路径未做回环联调 | `direct_session.rs` 单测 6 条 |
+| C2 | **宿主已验证**：连接被拒/超时/无 CONFIG/参数校验 4 条异常路径由 D2–D5 实跑通过；跨机真实网络未覆盖 | §2.13 D 组 |
 | C3 | **未覆盖**：需被控端 `rdc-serve` + 设备；本轮只做宿主编译 | — |
 | C4 | **未覆盖**：需设备与被控端；已知风险为 Linux 注入器对 `InputEvent::Text` 返回 `Unsupported`（G10） | — |
-| C5 | **代码就绪**：`disconnect()` 幂等由「未连接时发送输入报错」单测间接覆盖；socket/线程回收未做回环联调 | `direct_session.rs` |
+| C5 | **宿主已验证**：D1 实测断开后 `connected=false`、BYE 送达服务端、重复 `direct_disconnect()` 不 panic；socket/线程回收由 `join` 阻塞返回证明 | §2.13 D1 |
 
 **本轮构建产物占用**：`target/` 1.40 GB、`app/build/` 0.05 GB；C 盘空闲 13.68 GB → **8.85 GB**。
 **出包能力结论**：宿主侧四类检查（B1–B4）全部通过；APK（B5/B6）在本机**不可执行**，不记通过。
+
+---
+
+### 2.13 宿主回环联调判据（D 组，2026-11-08 先落盘，后动手）
+
+范围：用本地 `TcpListener` 扮演 `rdc-serve`，只验证 Rust 直连会话层的线格式与状态机；
+**不含** Android 解码上屏、真机触摸命中、跨机时钟延迟（这三项保持「未验证」）。
+
+| # | 判据 | 阈值 / 判定方式 | 覆盖点 |
+|---|---|---|---|
+| D1 | 正常全链路 | 假服务端：accept → 发 `kind=3 CONFIG(1280×800@60)` → 发一帧 `kind=1 VIDEO(IDR, flags=0x01)` → 读客户端输入 → 读 `kind=4 BYE`。客户端：`direct_connect` 返回 `connected=true, configured=true, 1280×800@60`；`frames_received ≥ 1`、`frames_dropped = 0`、`ingest_errors = 0`；`video_poll_frame()` 取出的帧为 `keyframe=true` 且字节与发送一致；`direct_send_input` 返回 1 且 `input_sent = 1`；`direct_disconnect()` 后服务端收到 `kind=4`；断开后 `direct_status().connected = false`；再次 `direct_disconnect()` 不 panic | C2/C5 |
+| D2 | 连接被拒 | 先 bind 再 drop 的本地端口，`direct_connect` 返回 `E_CONNECT_REFUSED: …` | C2 |
+| D3 | 连接超时 | `direct_connect("192.0.2.1", 45900)`（RFC 5737 不可路由）返回 `E_CONNECT_TIMEOUT: …`，耗时约 3 s；若宿主网络策略立即返回不可达等其它码，**如实记录实际码并记该项未通过**，不改判据 | C2 |
+| D4 | 未收到 CONFIG | 假服务端 accept 后保持沉默，`direct_connect` 在 8 s 窗口后返回 `E_CONFIG_TIMEOUT: …`（实测耗时 7.5–10 s） | C2 |
+| D5 | 参数校验 | 空 host → `E_ARGS`；`port=0` → `E_ARGS`（均在发起连接前返回） | C2 |
+
+**判定纪律**：D 组全部为宿主可测，必须实跑并留原始输出；任一条失败只记失败与实际错误码，不得改为「通过」或删用例。D1 通过也只能证明「Rust 会话层线格式与状态机可用」，不替代设备侧 C3/C4。
+
+#### D 组结果（执行后回填）
+
+**执行命令**：`cargo test -p rdc-bridge --test direct_session_loopback -- --test-threads=1 --nocapture`
+**原始输出**：`running 5 tests` → `5 passed; 0 failed; 0 ignored`，`finished in 13.22s`，退出码 0。
+
+| # | 结果 | 证据 |
+|---|---|---|
+| D1 | **通过** | 连接→CONFIG→VIDEO→输入→BYE 全链路断言全绿：`configured=true`、`1280×800@60`、`frames_received≥1`、`frames_dropped=0`、`ingest_errors=0`、重组帧字节与发送逐字节一致且 `keyframe=true`、`video_stats().completed=1`、`direct_send_input` 返回 1、服务端读到非空 `kind=2` 载荷、断开后 `connected=false` 且服务端收到空载荷 `kind=4`、二次断开无 panic |
+| D2 | **通过** | bind 后立即 drop 的本地端口 → 返回 `E_CONNECT_REFUSED: 连接 … 失败` |
+| D3 | **通过** | `192.0.2.1:45900` 实测走满 3 s 超时窗口并返回 `E_CONNECT_TIMEOUT`（本机网络策略未提前拒绝） |
+| D4 | **通过** | 只监听不 accept 的本地端口 → 8 s 后返回 `E_CONFIG_TIMEOUT`，实测耗时落在 7.5–10 s 判定窗 |
+| D5 | **通过** | 空 host、空白 host、`port=0` 均返回 `E_ARGS` |
+
+**结论**：C2/C5 从「部分覆盖」升为「宿主已验证（Rust 会话层）」。
+**仍保持未验证**：真机/模拟器上的画面解码上屏（C3）、触摸命中与中文 IME 回读（C4）、跨机时钟延迟 p50/p99。
 
 ---
 
