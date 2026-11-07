@@ -5,3 +5,4 @@
 //! 调用方：rdc-cli 的 `demo-wall`、后续 rdc-bridge。
 
 pub mod devices;
+pub mod multi;
