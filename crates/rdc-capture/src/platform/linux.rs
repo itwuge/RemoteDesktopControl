@@ -905,6 +905,8 @@ impl XSession {
             move_rects: Vec::new(),
             capture_cost_us: cost_us as u32,
             interval_us: interval as u32,
+            // X11 采集路径没有 GPU 纹理，像素始终在 `buffer` 里。
+            gpu: None,
         });
         Ok(())
     }
