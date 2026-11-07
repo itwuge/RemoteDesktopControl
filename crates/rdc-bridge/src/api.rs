@@ -12,7 +12,11 @@ use rdc_core::s5::multi::{authorize_input, wall_capabilities, SessionRole};
 use rdc_core::s5::settings::AppSettings;
 use rdc_protocol::Capabilities;
 
+use crate::input_service;
 use crate::wall_service;
+
+/// 输入事件 DTO（定义见 `input_service`，此处再导出供 flutter_rust_bridge 扫描）。
+pub use crate::input_service::{InputEventDto, InputStatsDto};
 
 // =====** 版本与平台 =====**
 
@@ -705,4 +709,68 @@ fn to_control_status(snapshot: crate::control_service::ControlSnapshot) -> Contr
         event_b: snapshot.event_b,
         last_error: snapshot.last_error,
     }
+}
+
+// =====** 控制页输入注入（S5-4 块 1） =====**
+
+/// 启动本机回环输入通道（与 `control_start` 配对调用）。
+///
+/// # Arguments
+/// * `desktop_width` - 被控端桌面物理宽（来自控制页状态）
+/// * `desktop_height` - 被控端桌面物理高
+///
+/// # Returns
+/// 启动后的统计快照。
+///
+/// # Errors
+/// 平台注入器创建失败时返回错误文本。
+pub fn input_start(desktop_width: u32, desktop_height: u32) -> Result<InputStatsDto, String> {
+    input_service::start(desktop_width, desktop_height)
+}
+
+/// 推送一批输入事件；坐标已由 Dart 侧 `ViewportController` 映射为桌面物理像素。
+///
+/// # Arguments
+/// * `events` - 事件数组，注入顺序与数组顺序一致
+///
+/// # Returns
+/// 处理后的统计快照。
+///
+/// # Errors
+/// 通道未启动或事件非法时返回错误文本。
+pub fn input_push(events: Vec<InputEventDto>) -> Result<InputStatsDto, String> {
+    input_service::push(events)
+}
+
+/// 冲刷合并器中挂起的移动（指针抬起后调用，避免最后一个点丢失）。
+///
+/// # Returns
+/// 处理后的统计快照。
+///
+/// # Errors
+/// 通道未启动时返回错误文本。
+pub fn input_flush() -> Result<InputStatsDto, String> {
+    input_service::flush()
+}
+
+/// 停止输入通道并抬起所有仍按下的键/钮。
+///
+/// # Returns
+/// 收尾后的统计快照（`keys_down` 必须为 0）。
+///
+/// # Errors
+/// 不会失败。
+pub fn input_stop() -> Result<InputStatsDto, String> {
+    input_service::stop()
+}
+
+/// 读取输入统计。
+///
+/// # Returns
+/// 运行中为实时快照，停止后为最近一次收尾快照。
+///
+/// # Errors
+/// 不会失败。
+pub fn input_status() -> Result<InputStatsDto, String> {
+    input_service::status()
 }

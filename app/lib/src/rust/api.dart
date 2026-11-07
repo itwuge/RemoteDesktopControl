@@ -4,6 +4,7 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import 'frb_generated.dart';
+import 'input_service.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
@@ -255,6 +256,66 @@ Future<ControlStatusDto> controlStop() =>
 /// 内部锁异常时返回错误文本。
 Future<ControlStatusDto> controlStatus() =>
     RustLib.instance.api.crateApiControlStatus();
+
+/// 启动本机回环输入通道（与 `control_start` 配对调用）。
+///
+/// # Arguments
+/// * `desktop_width` - 被控端桌面物理宽（来自控制页状态）
+/// * `desktop_height` - 被控端桌面物理高
+///
+/// # Returns
+/// 启动后的统计快照。
+///
+/// # Errors
+/// 平台注入器创建失败时返回错误文本。
+Future<InputStatsDto> inputStart({
+  required int desktopWidth,
+  required int desktopHeight,
+}) => RustLib.instance.api.crateApiInputStart(
+  desktopWidth: desktopWidth,
+  desktopHeight: desktopHeight,
+);
+
+/// 推送一批输入事件；坐标已由 Dart 侧 `ViewportController` 映射为桌面物理像素。
+///
+/// # Arguments
+/// * `events` - 事件数组，注入顺序与数组顺序一致
+///
+/// # Returns
+/// 处理后的统计快照。
+///
+/// # Errors
+/// 通道未启动或事件非法时返回错误文本。
+Future<InputStatsDto> inputPush({required List<InputEventDto> events}) =>
+    RustLib.instance.api.crateApiInputPush(events: events);
+
+/// 冲刷合并器中挂起的移动（指针抬起后调用，避免最后一个点丢失）。
+///
+/// # Returns
+/// 处理后的统计快照。
+///
+/// # Errors
+/// 通道未启动时返回错误文本。
+Future<InputStatsDto> inputFlush() => RustLib.instance.api.crateApiInputFlush();
+
+/// 停止输入通道并抬起所有仍按下的键/钮。
+///
+/// # Returns
+/// 收尾后的统计快照（`keys_down` 必须为 0）。
+///
+/// # Errors
+/// 不会失败。
+Future<InputStatsDto> inputStop() => RustLib.instance.api.crateApiInputStop();
+
+/// 读取输入统计。
+///
+/// # Returns
+/// 运行中为实时快照，停止后为最近一次收尾快照。
+///
+/// # Errors
+/// 不会失败。
+Future<InputStatsDto> inputStatus() =>
+    RustLib.instance.api.crateApiInputStatus();
 
 /// 控制页预览状态。
 class ControlStatusDto {

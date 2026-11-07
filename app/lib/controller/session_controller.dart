@@ -48,6 +48,20 @@ class SessionController {
   /// 画面启动失败原因。
   final ValueNotifier<String?> previewError = ValueNotifier(null);
 
+  /// 输入注入统计（来自 Rust 的真实计数，每秒刷新）。
+  final ValueNotifier<InputStatsInfo> inputStats = ValueNotifier(
+    InputStatsInfo.empty(),
+  );
+
+  /// 输入通道错误（与画面错误分开，输入失败不中断画面）。
+  final ValueNotifier<String?> inputError = ValueNotifier(null);
+
+  /// 输入通道是否已启动。
+  bool _inputRunning = false;
+
+  /// 输入事件串行链：保证按键/指针按构造顺序抵达 Rust（FFI 调用本身是异步的）。
+  Future<void> _inputChain = Future<void>.value();
+
   /// 状态轮询定时器。
   Timer? _statusTimer;
 
@@ -95,6 +109,8 @@ class SessionController {
         await gateway.stopControlPreview();
       } else {
         textureId.value = id;
+        // 画面接通后才启动输入通道：没有画面就没有可靠的坐标映射。
+        await _startInput(info);
         _statusTimer?.cancel();
         _statusTimer = Timer.periodic(
           const Duration(seconds: 1),
@@ -115,7 +131,7 @@ class SessionController {
     }
   }
 
-  /// 停止画面管线：先注销纹理，再停止 Rust（避免句柄提前释放）。
+  /// 停止画面管线：先注销纹理，再停止输入与 Rust（避免句柄提前释放）。
   Future<void> stopPreview() async {
     _statusTimer?.cancel();
     _statusTimer = null;
@@ -124,6 +140,7 @@ class SessionController {
     } catch (error) {
       RdcLogger.log('SessionController', '注销纹理失败: $error');
     }
+    await _stopInput();
     try {
       await gateway.stopControlPreview();
     } catch (error) {
@@ -133,12 +150,91 @@ class SessionController {
     preview.value = null;
   }
 
+  /// 启动输入通道；失败时只记录错误，不影响画面。
+  Future<void> _startInput(ControlPreviewInfo info) async {
+    try {
+      inputStats.value = await gateway.startInput(
+        width: info.width,
+        height: info.height,
+      );
+      _inputRunning = true;
+      inputError.value = null;
+    } catch (error, stackTrace) {
+      _inputRunning = false;
+      inputError.value = '$error';
+      RdcLogger.log(
+        'SessionController',
+        '输入通道启动失败',
+        level: LogLevel.error,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  /// 停止输入通道：先排空串行链，再让 Rust 抬起所有键/钮并返回收尾统计。
+  Future<void> _stopInput() async {
+    if (!_inputRunning) return;
+    _inputRunning = false;
+    try {
+      await _inputChain;
+    } catch (_) {
+      // 链内已记录，收尾继续。
+    }
+    try {
+      inputStats.value = await gateway.stopInput();
+    } catch (error) {
+      RdcLogger.log('SessionController', '输入通道停止失败: $error');
+    }
+  }
+
+  /// 推送一批输入事件（指针/键盘）。
+  ///
+  /// 参数 [events]：已映射到桌面物理像素的事件；空数组直接忽略。
+  /// 顺序保证：所有批次串行提交，不会因 FFI 并发而乱序。
+  void sendInputEvents(List<InputEventSpec> events) {
+    if (!_inputRunning || events.isEmpty) return;
+    final batch = List<InputEventSpec>.unmodifiable(events);
+    _inputChain = _inputChain.then((_) async {
+      try {
+        inputStats.value = await gateway.pushInput(batch);
+      } catch (error, stackTrace) {
+        inputError.value = '$error';
+        RdcLogger.log(
+          'SessionController',
+          '输入注入失败',
+          level: LogLevel.error,
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    });
+  }
+
+  /// 冲刷挂起的移动（指针抬起后调用，避免末点丢失）。
+  void flushInputEvents() {
+    if (!_inputRunning) return;
+    _inputChain = _inputChain.then((_) async {
+      try {
+        inputStats.value = await gateway.flushInput();
+      } catch (error) {
+        RdcLogger.log('SessionController', '输入冲刷失败: $error');
+      }
+    });
+  }
+
   /// 刷新一次指标。
   Future<void> _refreshStatus() async {
     try {
       preview.value = await gateway.controlPreviewStatus();
     } catch (error) {
       RdcLogger.log('SessionController', '读取画面状态失败: $error');
+    }
+    if (!_inputRunning) return;
+    try {
+      inputStats.value = await gateway.inputStats();
+    } catch (error) {
+      RdcLogger.log('SessionController', '读取输入统计失败: $error');
     }
   }
 
@@ -161,12 +257,19 @@ class SessionController {
     textureId.dispose();
     preview.dispose();
     previewError.dispose();
+    inputStats.dispose();
+    inputError.dispose();
   }
 
   /// 无通知器写入的管线回收。
   Future<void> _teardown() async {
     try {
       await gateway.unregisterControlTexture();
+    } catch (_) {
+      // 窗口关闭路径，忽略失败。
+    }
+    try {
+      await gateway.stopInput();
     } catch (_) {
       // 窗口关闭路径，忽略失败。
     }

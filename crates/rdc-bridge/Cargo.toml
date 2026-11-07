@@ -24,6 +24,7 @@ rdc-protocol = { workspace = true }
 rdc-capture = { workspace = true }
 rdc-codec = { workspace = true }
 rdc-decode = { workspace = true }
+rdc-input = { workspace = true }
 flutter_rust_bridge = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]

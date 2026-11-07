@@ -1110,6 +1110,7 @@ dependencies = [
  "rdc-codec",
  "rdc-core",
  "rdc-decode",
+ "rdc-input",
  "rdc-protocol",
  "windows",
 ]

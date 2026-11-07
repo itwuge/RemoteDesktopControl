@@ -14,6 +14,7 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import '../../core/utils/logger.dart';
 import '../../src/rust/api.dart' as rust_api;
 import '../../src/rust/frb_generated.dart';
+import '../../src/rust/input_service.dart' as rust_input;
 import 'rust_types.dart';
 
 /// Rust 核心的唯一调用入口。
@@ -79,9 +80,7 @@ class RustGateway {
     final sep = Platform.pathSeparator;
     final fileName = _libraryFileName();
 
-    final candidates = <String>[
-      if (exeDir.isNotEmpty) '$exeDir$sep$fileName',
-    ];
+    final candidates = <String>[if (exeDir.isNotEmpty) '$exeDir$sep$fileName'];
 
     if (Platform.isMacOS) {
       // macOS 应用包规范：动态库放 Contents/Frameworks。
@@ -185,18 +184,20 @@ class RustGateway {
 
   /// 把 Rust 设备 DTO 转成值对象。
   DeviceListSnapshot _toDeviceSnapshot(rust_api.DeviceListDto dto) {
-    final entries = dto.devices.map((device) {
-      final millis = device.lastOnlineMs.toInt();
-      return DeviceEntry(
-        deviceId: device.deviceId,
-        name: device.name,
-        lastOnline: millis == 0
-            ? null
-            : DateTime.fromMillisecondsSinceEpoch(millis),
-        trusted: device.trusted,
-        sameAccount: device.sameAccount,
-      );
-    }).toList(growable: false);
+    final entries = dto.devices
+        .map((device) {
+          final millis = device.lastOnlineMs.toInt();
+          return DeviceEntry(
+            deviceId: device.deviceId,
+            name: device.name,
+            lastOnline: millis == 0
+                ? null
+                : DateTime.fromMillisecondsSinceEpoch(millis),
+            trusted: device.trusted,
+            sameAccount: device.sameAccount,
+          );
+        })
+        .toList(growable: false);
     return DeviceListSnapshot(entries: entries, filePath: dto.path);
   }
 
@@ -345,8 +346,9 @@ class RustGateway {
   // =========** 控制页真实画面（外部纹理） =========
 
   /// Windows runner 的纹理桥方法通道。
-  static const MethodChannel _controlTextureChannel =
-      MethodChannel('rdc/control_texture');
+  static const MethodChannel _controlTextureChannel = MethodChannel(
+    'rdc/control_texture',
+  );
 
   /// 启动控制页真实画面管线（被控端真实桌面采集）。
   Future<ControlPreviewInfo> startControlPreview() async {
@@ -371,15 +373,17 @@ class RustGateway {
   /// 返回：Flutter 纹理 ID；非 Windows 或注册失败时为 `null`。
   Future<int?> registerControlTexture(ControlPreviewInfo info) async {
     if (!Platform.isWindows) return null;
-    final reply = await _controlTextureChannel
-        .invokeMapMethod<String, Object?>('register', <String, Object?>{
-      'handle_a': info.shareHandleA,
-      'handle_b': info.shareHandleB,
-      'event_a': info.eventA,
-      'event_b': info.eventB,
-      'width': info.width,
-      'height': info.height,
-    });
+    final reply = await _controlTextureChannel.invokeMapMethod<String, Object?>(
+      'register',
+      <String, Object?>{
+        'handle_a': info.shareHandleA,
+        'handle_b': info.shareHandleB,
+        'event_a': info.eventA,
+        'event_b': info.eventB,
+        'width': info.width,
+        'height': info.height,
+      },
+    );
     return (reply?['texture_id'] as num?)?.toInt();
   }
 
@@ -413,6 +417,79 @@ class RustGateway {
       shareHandleB: dto.shareHandleB,
       eventA: dto.eventA,
       eventB: dto.eventB,
+      lastError: dto.lastError,
+    );
+  }
+
+  // =========** 控制页输入注入 =========
+
+  /// 启动本机回环输入通道；[width]/[height] 为被控端桌面物理尺寸。
+  Future<InputStatsInfo> startInput({
+    required int width,
+    required int height,
+  }) async {
+    _ensureInitialized();
+    return _toInputStats(
+      await rust_api.inputStart(desktopWidth: width, desktopHeight: height),
+    );
+  }
+
+  /// 推送一批输入事件（顺序即注入顺序）。
+  Future<InputStatsInfo> pushInput(List<InputEventSpec> events) async {
+    _ensureInitialized();
+    final dtos = events
+        .map(
+          (event) => rust_input.InputEventDto(
+            kind: event.kind,
+            x: event.x,
+            y: event.y,
+            button: event.button,
+            pressed: event.pressed,
+            deltaX: event.deltaX,
+            deltaY: event.deltaY,
+            scanCode: event.scanCode,
+            modifiers: event.modifiers,
+          ),
+        )
+        .toList(growable: false);
+    return _toInputStats(await rust_api.inputPush(events: dtos));
+  }
+
+  /// 冲刷挂起的移动（指针抬起后调用）。
+  Future<InputStatsInfo> flushInput() async {
+    _ensureInitialized();
+    return _toInputStats(await rust_api.inputFlush());
+  }
+
+  /// 停止输入通道并抬起所有键/钮。
+  Future<InputStatsInfo> stopInput() async {
+    _ensureInitialized();
+    return _toInputStats(await rust_api.inputStop());
+  }
+
+  /// 读取输入统计。
+  Future<InputStatsInfo> inputStats() async {
+    _ensureInitialized();
+    return _toInputStats(await rust_api.inputStatus());
+  }
+
+  /// 把 Rust 输入统计 DTO 转成值对象。
+  InputStatsInfo _toInputStats(rust_input.InputStatsDto dto) {
+    return InputStatsInfo(
+      running: dto.running,
+      received: dto.received.toInt(),
+      emitted: dto.emitted.toInt(),
+      injected: dto.injected.toInt(),
+      rejected: dto.rejected.toInt(),
+      merged: dto.merged.toInt(),
+      throttled: dto.throttled.toInt(),
+      pointerEvents: dto.pointerEvents.toInt(),
+      keyEvents: dto.keyEvents.toInt(),
+      wheelEvents: dto.wheelEvents.toInt(),
+      keysDown: dto.keysDown.toInt(),
+      lastX: dto.lastX,
+      lastY: dto.lastY,
+      successRate: dto.successRate,
       lastError: dto.lastError,
     );
   }

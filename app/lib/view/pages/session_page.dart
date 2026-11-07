@@ -12,8 +12,11 @@
 
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../controller/key_scan_map.dart';
 import '../../controller/session_controller.dart';
 import '../../controller/shell_controller.dart';
 import '../../controller/viewport_controller.dart';
@@ -28,11 +31,7 @@ class SessionPage extends StatefulWidget {
   /// 创建控制页。
   ///
   /// [controller] 角色与全屏状态；[shell] 当前设备与断开返回。
-  const SessionPage({
-    super.key,
-    required this.controller,
-    required this.shell,
-  });
+  const SessionPage({super.key, required this.controller, required this.shell});
 
   /// 会话控制器。
   final SessionController controller;
@@ -61,6 +60,12 @@ class _SessionPageState extends State<SessionPage> {
   /// 上一次手势的累计缩放（ScaleUpdateDetails.scale 是累计值）。
   double _gestureScale = 1.0;
 
+  /// 键盘注入的焦点节点：画面区获得焦点后才把按键送往被控端。
+  final FocusNode _focusNode = FocusNode(debugLabel: 'rdc-session-input');
+
+  /// 当前按下的鼠标键（`0` 无、`1` 左、`2` 右、`3` 中）；拖动时随移动下发。
+  int _activeButton = 0;
+
   /// 会话控制器。
   SessionController get controller => widget.controller;
 
@@ -82,6 +87,7 @@ class _SessionPageState extends State<SessionPage> {
     controller.preview.removeListener(_syncRemoteSize);
     _hideTimer?.cancel();
     _viewport.dispose();
+    _focusNode.dispose();
     // 离开页面时释放纹理与采集管线。
     controller.stopPreview();
     super.dispose();
@@ -155,9 +161,143 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 提示某功能待接线。
   void _pending(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text(AppStrings.pendingWiring)),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text(AppStrings.pendingWiring)));
+  }
+
+  // =====** 输入注入：指针与键盘 =====**
+
+  /// 本地像素 → 被控端桌面物理像素（唯一坐标入口，走 ViewportController 矩阵）。
+  ///
+  /// [local] 为画面区内的本地坐标；[clamp] 为真时把越界点钳到画面边缘
+  /// （抬手/取消必须能复位按键，即使指针已移出内容区）。
+  Offset? _desktopPoint(Offset local, {bool clamp = false}) {
+    if (_viewport.matrixDirty) return null;
+    final remote = _viewport.remoteSize;
+    if (remote.isEmpty) return null;
+    final normalized = _viewport.screenToRemote(local);
+    if (!clamp &&
+        (normalized.dx < 0 ||
+            normalized.dx > 1 ||
+            normalized.dy < 0 ||
+            normalized.dy > 1)) {
+      return null;
+    }
+    final nx = normalized.dx.clamp(0.0, 1.0).toDouble();
+    final ny = normalized.dy.clamp(0.0, 1.0).toDouble();
+    final x = (nx * remote.width).round().clamp(0, remote.width.floor() - 1);
+    final y = (ny * remote.height).round().clamp(0, remote.height.floor() - 1);
+    return Offset(x.toDouble(), y.toDouble());
+  }
+
+  /// 指针按键编码：`1` 左、`2` 右、`3` 中（与 S4 线格式一致）。
+  int _buttonCode(int buttons) {
+    if (buttons & kPrimaryButton != 0) return 1;
+    if (buttons & kSecondaryButton != 0) return 2;
+    if (buttons & kMiddleMouseButton != 0) return 3;
+    return 0;
+  }
+
+  /// 指针按下：请求键盘焦点并下发按键按下事件。
+  void _onPointerDown(PointerDownEvent event) {
+    if (!controller.canInjectInput.value) return;
+    _focusNode.requestFocus();
+    final code = _buttonCode(event.buttons);
+    if (code == 0) return;
+    final point = _desktopPoint(event.localPosition);
+    if (point == null) return;
+    _activeButton = code;
+    controller.sendInputEvents([
+      InputEventSpec.button(
+        x: point.dx.toInt(),
+        y: point.dy.toInt(),
+        button: code,
+        pressed: true,
+      ),
+    ]);
+  }
+
+  /// 指针移动：无按键时是纯移动；按住时带上按键，交由合并器按拖动限频。
+  void _onPointerMove(PointerMoveEvent event) {
+    if (!controller.canInjectInput.value) return;
+    final point = _desktopPoint(event.localPosition);
+    if (point == null) return;
+    final x = point.dx.toInt();
+    final y = point.dy.toInt();
+    if (_activeButton == 0) {
+      controller.sendInputEvents([InputEventSpec.move(x: x, y: y)]);
+    } else {
+      controller.sendInputEvents([
+        InputEventSpec.button(x: x, y: y, button: _activeButton, pressed: true),
+      ]);
+    }
+  }
+
+  /// 指针抬起/取消：先抬起按键，再冲刷挂起移动（末点不丢）。
+  void _onPointerRelease(Offset local) {
+    if (!controller.canInjectInput.value) return;
+    final code = _activeButton;
+    _activeButton = 0;
+    if (code == 0) {
+      controller.flushInputEvents();
+      return;
+    }
+    final point = _desktopPoint(local, clamp: true);
+    if (point == null) {
+      controller.flushInputEvents();
+      return;
+    }
+    controller.sendInputEvents([
+      InputEventSpec.button(
+        x: point.dx.toInt(),
+        y: point.dy.toInt(),
+        button: code,
+        pressed: false,
+      ),
+    ]);
+    controller.flushInputEvents();
+  }
+
+  /// 滚轮：Flutter 的像素增量换算为刻度（100 px ≈ 1 格）；方向与被控端一致。
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (!controller.canInjectInput.value) return;
+    if (event is! PointerScrollEvent) return;
+    if (_desktopPoint(event.localPosition) == null) return;
+    var dx = (event.scrollDelta.dx / 100).round();
+    var dy = (event.scrollDelta.dy / 100).round();
+    if (dx == 0 && event.scrollDelta.dx != 0) {
+      dx = event.scrollDelta.dx > 0 ? 1 : -1;
+    }
+    if (dy == 0 && event.scrollDelta.dy != 0) {
+      dy = event.scrollDelta.dy > 0 ? 1 : -1;
+    }
+    if (dx == 0 && dy == 0) return;
+    controller.sendInputEvents([InputEventSpec.wheel(deltaX: dx, deltaY: dy)]);
+    controller.flushInputEvents();
+  }
+
+  /// 键盘：物理键 → 扫描码，按下/抬起原序下发；修饰位随事件携带。
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (!controller.canInjectInput.value) return KeyEventResult.ignored;
+    final scanCode = scanCodeFor(event.physicalKey);
+    if (scanCode == null) return KeyEventResult.ignored;
+    final bool? pressed;
+    if (event is KeyDownEvent || event is KeyRepeatEvent) {
+      pressed = true;
+    } else if (event is KeyUpEvent) {
+      pressed = false;
+    } else {
+      pressed = null;
+    }
+    if (pressed == null) return KeyEventResult.ignored;
+    controller.sendInputEvents([
+      InputEventSpec.key(
+        scanCode: scanCode,
+        pressed: pressed,
+        modifiers: currentModifierMask(),
+      ),
+    ]);
+    return KeyEventResult.handled;
   }
 
   // =====** 组件：视频区 =====**
@@ -169,44 +309,52 @@ class _SessionPageState extends State<SessionPage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         _syncViewport(constraints.biggest);
-        return GestureDetector(
+        return Listener(
           behavior: HitTestBehavior.opaque,
-          onTap: () => _onSurfaceTap(wide),
-          onDoubleTap: _viewport.reset,
-          onScaleStart: (_) => _gestureScale = 1.0,
-          onScaleUpdate: _handleScaleUpdate,
-          child: ValueListenableBuilder<int?>(
-            valueListenable: controller.textureId,
-            builder: (context, textureId, _) {
-              if (textureId == null) return _buildPlaceholder();
-              return ListenableBuilder(
-                listenable: _viewport,
-                builder: (context, _) {
-                  // 显示矩形完全由 ViewportController 的同一矩阵推出；
-                  // 用定位矩形而不是 Transform，避免外部纹身在变换下漏绘。
-                  final rect = _viewport.displayRect;
-                  return ClipRect(
-                    child: ColoredBox(
-                      color: Colors.black,
-                      child: Stack(
-                        children: [
-                          Positioned(
-                            left: rect.left,
-                            top: rect.top,
-                            width: rect.width,
-                            height: rect.height,
-                            child: Texture(
-                              textureId: textureId,
-                              filterQuality: FilterQuality.low,
+          onPointerDown: _onPointerDown,
+          onPointerMove: _onPointerMove,
+          onPointerUp: (event) => _onPointerRelease(event.localPosition),
+          onPointerCancel: (event) => _onPointerRelease(event.localPosition),
+          onPointerSignal: _onPointerSignal,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _onSurfaceTap(wide),
+            onDoubleTap: _viewport.reset,
+            onScaleStart: (_) => _gestureScale = 1.0,
+            onScaleUpdate: _handleScaleUpdate,
+            child: ValueListenableBuilder<int?>(
+              valueListenable: controller.textureId,
+              builder: (context, textureId, _) {
+                if (textureId == null) return _buildPlaceholder();
+                return ListenableBuilder(
+                  listenable: _viewport,
+                  builder: (context, _) {
+                    // 显示矩形完全由 ViewportController 的同一矩阵推出；
+                    // 用定位矩形而不是 Transform，避免外部纹身在变换下漏绘。
+                    final rect = _viewport.displayRect;
+                    return ClipRect(
+                      child: ColoredBox(
+                        color: Colors.black,
+                        child: Stack(
+                          children: [
+                            Positioned(
+                              left: rect.left,
+                              top: rect.top,
+                              width: rect.width,
+                              height: rect.height,
+                              child: Texture(
+                                textureId: textureId,
+                                filterQuality: FilterQuality.low,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  );
-                },
-              );
-            },
+                    );
+                  },
+                );
+              },
+            ),
           ),
         );
       },
@@ -450,9 +598,7 @@ class _SessionPageState extends State<SessionPage> {
             child: AnimatedOpacity(
               opacity: _toolbarVisible ? 1.0 : 0.0,
               duration: const Duration(milliseconds: 220),
-              child: Center(
-                child: _buildToolbar(floating: true, wide: true),
-              ),
+              child: Center(child: _buildToolbar(floating: true, wide: true)),
             ),
           ),
         ),
@@ -526,14 +672,18 @@ class _SessionPageState extends State<SessionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // 断点用约束几何，不用 Orientation（平板分屏时 Orientation 会撒谎）。
-        final wide = ViewportController.resolveWide(constraints.biggest);
-        return wide
-            ? _buildWideLayout()
-            : _buildNarrowLayout(constraints);
-      },
+    // 焦点收口在页面根节点：画面区按下即获焦，键盘事件统一走 _handleKeyEvent。
+    return Focus(
+      focusNode: _focusNode,
+      autofocus: true,
+      onKeyEvent: _handleKeyEvent,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // 断点用约束几何，不用 Orientation（平板分屏时 Orientation 会撒谎）。
+          final wide = ViewportController.resolveWide(constraints.biggest);
+          return wide ? _buildWideLayout() : _buildNarrowLayout(constraints);
+        },
+      ),
     );
   }
 }

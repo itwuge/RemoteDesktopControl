@@ -18,9 +18,9 @@ class CoreInfo {
 
   /// 未初始化时的占位值（用于 UI 首帧，避免空字符串闪烁）。
   const CoreInfo.empty()
-      : coreVersion = '-',
-        platform = '-',
-        bridgeStatus = '-';
+    : coreVersion = '-',
+      platform = '-',
+      bridgeStatus = '-';
 
   /// Rust 核心版本号。
   final String coreVersion;
@@ -371,4 +371,163 @@ class WallPreviewFrame {
 
   /// RGBA 像素。
   final Uint8List bytes;
+}
+
+/// 一个待注入的输入事件（Dart → Rust）。
+///
+/// 坐标是**被控端桌面物理像素**：由 [ViewportController] 的矩阵
+/// （letterbox + DPI + 缩放/平移）换算，Rust 侧只做线格式往返与注入。
+class InputEventSpec {
+  /// 创建事件。
+  const InputEventSpec({
+    required this.kind,
+    this.x = 0,
+    this.y = 0,
+    this.button = 0,
+    this.pressed = false,
+    this.deltaX = 0,
+    this.deltaY = 0,
+    this.scanCode = 0,
+    this.modifiers = 0,
+  });
+
+  /// 指针移动（无按键）。
+  const InputEventSpec.move({required int x, required int y})
+    : this(kind: 'move', x: x, y: y);
+
+  /// 指针按键（按下或抬起）。
+  const InputEventSpec.button({
+    required int x,
+    required int y,
+    required int button,
+    required bool pressed,
+  }) : this(kind: 'button', x: x, y: y, button: button, pressed: pressed);
+
+  /// 滚轮（刻度）。
+  const InputEventSpec.wheel({int deltaX = 0, int deltaY = 0})
+    : this(kind: 'wheel', deltaX: deltaX, deltaY: deltaY);
+
+  /// 键盘（扫描码）。
+  const InputEventSpec.key({
+    required int scanCode,
+    required bool pressed,
+    int modifiers = 0,
+  }) : this(
+         kind: 'key',
+         scanCode: scanCode,
+         pressed: pressed,
+         modifiers: modifiers,
+       );
+
+  /// 事件类型：`move` / `button` / `wheel` / `key`。
+  final String kind;
+
+  /// 桌面横坐标（物理像素）。
+  final int x;
+
+  /// 桌面纵坐标（物理像素）。
+  final int y;
+
+  /// 指针按键：`0` 无、`1` 左、`2` 右、`3` 中。
+  final int button;
+
+  /// 按下为 `true`（指针与键盘共用）。
+  final bool pressed;
+
+  /// 滚轮水平刻度。
+  final int deltaX;
+
+  /// 滚轮垂直刻度（正值为下）。
+  final int deltaY;
+
+  /// PC/AT Set 1 扫描码。
+  final int scanCode;
+
+  /// 修饰键位掩码：`1=Shift`、`2=Ctrl`、`4=Alt`、`8=Meta`。
+  final int modifiers;
+}
+
+/// 输入注入统计（Rust → Dart）。
+class InputStatsInfo {
+  /// 创建统计快照。
+  const InputStatsInfo({
+    required this.running,
+    required this.received,
+    required this.emitted,
+    required this.injected,
+    required this.rejected,
+    required this.merged,
+    required this.throttled,
+    required this.pointerEvents,
+    required this.keyEvents,
+    required this.wheelEvents,
+    required this.keysDown,
+    required this.lastX,
+    required this.lastY,
+    required this.successRate,
+    required this.lastError,
+  });
+
+  /// 未启动时的空快照。
+  const InputStatsInfo.empty()
+    : running = false,
+      received = 0,
+      emitted = 0,
+      injected = 0,
+      rejected = 0,
+      merged = 0,
+      throttled = 0,
+      pointerEvents = 0,
+      keyEvents = 0,
+      wheelEvents = 0,
+      keysDown = 0,
+      lastX = 0,
+      lastY = 0,
+      successRate = 0,
+      lastError = null;
+
+  /// 通道是否运行。
+  final bool running;
+
+  /// 收到事件数。
+  final int received;
+
+  /// 合并器输出事件数。
+  final int emitted;
+
+  /// 注入成功数。
+  final int injected;
+
+  /// 注入被拒数。
+  final int rejected;
+
+  /// 合并计数。
+  final int merged;
+
+  /// 限频计数。
+  final int throttled;
+
+  /// 指针事件数。
+  final int pointerEvents;
+
+  /// 键盘事件数。
+  final int keyEvents;
+
+  /// 滚轮事件数。
+  final int wheelEvents;
+
+  /// 当前按下的键数。
+  final int keysDown;
+
+  /// 最近指针横坐标。
+  final int lastX;
+
+  /// 最近指针纵坐标。
+  final int lastY;
+
+  /// 注入成功率。
+  final double successRate;
+
+  /// 最近错误。
+  final String? lastError;
 }
