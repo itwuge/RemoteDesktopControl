@@ -310,7 +310,20 @@ Linux 被控端 `rdc-serve` 的 **S8-2 明文 TCP 协议**（`kind 1..4`，见
 
 | # | 结果 | 证据 |
 |---|---|---|
-| B1–B6 / C1–C5 | 待执行 | — |
+| B1 | **通过**：`cargo check -p rdc-bridge` 退出码 0，耗时 1m26s；4 条 `dead_code` 警告（`video_service::snapshot_lock`、`video_transport::{build_datagram,build_plain_datagram,reset_stats}`），其中 `build_plain_datagram` 为本次重构新增且仅被测试路径间接引用 | 2026-11-08 本机执行 |
+| B2 | **通过**：`cargo test -p rdc-protocol -p rdc-bridge` → `rdc-bridge 27/27`（含 `direct_session` 6 条）、`rdc-protocol 45/45`，0 failed | 同上 |
+| B3 | **通过**：`flutter analyze` → `No issues found!`（21.1 s） | 同上 |
+| B4 | **通过**：`flutter test` → `41/41 All tests passed!` | 同上 |
+| B5 | **未覆盖**：本机无 Android SDK / JDK / NDK / cargo-ndk / Gradle 缓存，`flutter doctor` 明确 `Unable to locate Android SDK` | `flutter doctor -v` |
+| B6 | **未覆盖**：无 adb、无真机、无模拟器 | `flutter devices` |
+| C1 | **代码就绪**：直连对话框含 IP/端口字段与字段级校验（端口 1..65535），未做设备验证 | `session_page.dart` |
+| C2 | **部分覆盖**：`direct_connect` 的错误码常量与「未连接发送输入必须报错」有单测；连接受理/拒绝/超时/无 CONFIG 四条路径未做回环联调 | `direct_session.rs` 单测 6 条 |
+| C3 | **未覆盖**：需被控端 `rdc-serve` + 设备；本轮只做宿主编译 | — |
+| C4 | **未覆盖**：需设备与被控端；已知风险为 Linux 注入器对 `InputEvent::Text` 返回 `Unsupported`（G10） | — |
+| C5 | **代码就绪**：`disconnect()` 幂等由「未连接时发送输入报错」单测间接覆盖；socket/线程回收未做回环联调 | `direct_session.rs` |
+
+**本轮构建产物占用**：`target/` 1.40 GB、`app/build/` 0.05 GB；C 盘空闲 13.68 GB → **8.85 GB**。
+**出包能力结论**：宿主侧四类检查（B1–B4）全部通过；APK（B5/B6）在本机**不可执行**，不记通过。
 
 ---
 
