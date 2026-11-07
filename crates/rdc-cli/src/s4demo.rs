@@ -11,7 +11,7 @@
 use std::error::Error;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -110,19 +110,69 @@ impl CtrlRuntime {
     }
 }
 
+/// 建链里程碑（失败时打印整条轨迹，成功时不输出）。
+static MILESTONES: Mutex<Vec<(u128, &'static str, &'static str)>> = Mutex::new(Vec::new());
+/// 里程碑计时原点。
+static MILESTONE_ORIGIN: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+/// 记录一个建链里程碑（设置 `RDC_S4_DEBUG` 时同步输出到 stderr）。
+fn trace(side: &'static str, step: &'static str) {
+    let at = MILESTONE_ORIGIN
+        .get_or_init(Instant::now)
+        .elapsed()
+        .as_millis();
+    if let Ok(mut list) = MILESTONES.lock() {
+        list.push((at, side, step));
+    }
+    if std::env::var_os("RDC_S4_DEBUG").is_some() {
+        eprintln!("[setup] +{at} ms {side}: {step}");
+    }
+}
+
+/// 把已记录的建链轨迹拼成多行文本（仅在失败时调用）。
+fn dump_marks() -> String {
+    use std::fmt::Write as _;
+    let Ok(list) = MILESTONES.lock() else {
+        return "[setup] 建链轨迹不可用".to_string();
+    };
+    let mut text = String::from("[setup] 建链轨迹:");
+    for (at, side, step) in list.iter() {
+        let _ = write!(text, "\n  +{at} ms {side}: {step}");
+    }
+    text
+}
+
 /// 被控端建链：监听 → 注册 → 应答 → 候选 → 直连 → 握手。
 ///
 /// # Errors
-/// 端口、信令、直连、握手任一步失败时返回错误。
+/// 端口、信令、直连、握手任一步失败时返回错误（失败时会打印建链轨迹）。
 async fn setup_host(
     server_addr: SocketAddr,
     cert: &[u8],
     key: &[u8],
     host_id: IdentityKeyPair,
     code: PairingCode,
+    registered: Arc<tokio::sync::Notify>,
+) -> DemoResult<HostRuntime> {
+    let result = setup_host_inner(server_addr, cert, key, host_id, code, registered).await;
+    if let Err(err) = &result {
+        eprintln!("[setup] 被控端建链失败：{err}\n{}", dump_marks());
+    }
+    result
+}
+
+/// `setup_host` 的实际实现（便于统一打印失败轨迹）。
+async fn setup_host_inner(
+    server_addr: SocketAddr,
+    cert: &[u8],
+    key: &[u8],
+    host_id: IdentityKeyPair,
+    code: PairingCode,
+    registered: Arc<tokio::sync::Notify>,
 ) -> DemoResult<HostRuntime> {
     let listener = listen("127.0.0.1:0".parse::<SocketAddr>()?, cert, key).await?;
     let host_addr = listener.local_addr()?;
+    trace("host", "listen 就绪");
     let mut client = QuicSignalClient::connect_and_register(
         server_addr,
         cert,
@@ -133,6 +183,9 @@ async fn setup_host(
         Capabilities::DEFAULT,
     )
     .await?;
+    trace("host", "信令已注册");
+    // 注册已在服务端生效后再放行呼叫方，避免 PeerNotFound 竞态。
+    registered.notify_one();
     let (session, peer_pub) = loop {
         if let SignalMessage::Incoming {
             session, peer_pub, ..
@@ -141,6 +194,7 @@ async fn setup_host(
             break (session, peer_pub);
         }
     };
+    trace("host", "收到 Incoming");
     client.accept(&session).await?;
     client
         .candidates(
@@ -152,10 +206,14 @@ async fn setup_host(
             }],
         )
         .await?;
+    trace("host", "候选已上报");
     let direct = listener.accept().await?;
+    trace("host", "直连已接受");
     let handshake = SessionHandshake::new_host(session.clone(), host_id, code, peer_pub);
     let secure = establish(direct, handshake, false).await?;
+    trace("host", "握手完成");
     client.connected(&session, SignalPath::Udp).await?;
+    trace("host", "已 connected");
     Ok(HostRuntime {
         _listener: listener,
         client,
@@ -166,13 +224,30 @@ async fn setup_host(
 /// 主控端建链：注册 → 呼叫 → 候选 → punch → 拨号 → 握手。
 ///
 /// # Errors
-/// 信令、拨号、握手任一步失败时返回错误。
+/// 信令、拨号、握手任一步失败时返回错误（失败时会打印建链轨迹）。
 async fn setup_ctrl(
     server_addr: SocketAddr,
     cert: &[u8],
     ctrl_id: IdentityKeyPair,
     code: PairingCode,
     code_proof: String,
+    registered: Arc<tokio::sync::Notify>,
+) -> DemoResult<CtrlRuntime> {
+    let result = setup_ctrl_inner(server_addr, cert, ctrl_id, code, code_proof, registered).await;
+    if let Err(err) = &result {
+        eprintln!("[setup] 主控端建链失败：{err}\n{}", dump_marks());
+    }
+    result
+}
+
+/// `setup_ctrl` 的实际实现（便于统一打印失败轨迹）。
+async fn setup_ctrl_inner(
+    server_addr: SocketAddr,
+    cert: &[u8],
+    ctrl_id: IdentityKeyPair,
+    code: PairingCode,
+    code_proof: String,
+    registered: Arc<tokio::sync::Notify>,
 ) -> DemoResult<CtrlRuntime> {
     let mut client = QuicSignalClient::connect_and_register(
         server_addr,
@@ -184,6 +259,12 @@ async fn setup_ctrl(
         Capabilities::DEFAULT,
     )
     .await?;
+    trace("ctrl", "信令已注册");
+    // 等被控端注册在服务端生效后再呼叫，避免 PeerNotFound 竞态。
+    tokio::time::timeout(Duration::from_secs(5), registered.notified())
+        .await
+        .map_err(|_| "等待被控端注册超时")?;
+    trace("ctrl", "被控端已注册");
     let reply = client
         .call("host-01", CallMode::Code, 0, &code_proof)
         .await?;
@@ -191,17 +272,22 @@ async fn setup_ctrl(
         SignalMessage::Accept { session, .. } => session,
         other => return Err(format!("呼叫响应类型非法: {}", other.type_name()).into()),
     };
+    trace("ctrl", "收到 Accept");
     client.candidates(&session, Vec::new()).await?;
     let peer_addr = loop {
         if let SignalMessage::Punch { peer_addr, .. } = client.recv_push().await?.body {
             break peer_addr;
         }
     };
+    trace("ctrl", "收到 Punch");
     let peer_addr: SocketAddr = peer_addr.parse()?;
     let direct = dial(peer_addr, cert).await?;
+    trace("ctrl", "拨号完成");
     let handshake = SessionHandshake::new_controller(session.clone(), ctrl_id, code);
     let secure = establish(direct, handshake, true).await?;
+    trace("ctrl", "握手完成");
     client.connected(&session, SignalPath::Udp).await?;
+    trace("ctrl", "已 connected");
     Ok(CtrlRuntime { client, secure })
 }
 
@@ -230,15 +316,24 @@ pub async fn run_input() -> DemoResult<()> {
     let host_id = IdentityKeyPair::generate();
     let ctrl_id = IdentityKeyPair::generate();
     let code_proof = hmac_sha256_b64(code.as_str().as_bytes(), b"rdc-s4");
+    let ready = Arc::new(tokio::sync::Notify::new());
     let (host_rt, ctrl_rt) = tokio::join!(
         setup_host(
             fixture.addr,
             &fixture.cert,
             &fixture.key,
             host_id,
-            code.clone()
+            code.clone(),
+            ready.clone()
         ),
-        setup_ctrl(fixture.addr, &fixture.cert, ctrl_id, code, code_proof)
+        setup_ctrl(
+            fixture.addr,
+            &fixture.cert,
+            ctrl_id,
+            code,
+            code_proof,
+            ready.clone()
+        )
     );
     let mut host_rt = host_rt?;
     let mut ctrl_rt = ctrl_rt?;
@@ -498,22 +593,31 @@ pub async fn run_keys() -> DemoResult<()> {
     let host_id = IdentityKeyPair::generate();
     let ctrl_id = IdentityKeyPair::generate();
     let code_proof = hmac_sha256_b64(code.as_str().as_bytes(), b"rdc-s4");
+    let ready = Arc::new(tokio::sync::Notify::new());
     let (host_rt, ctrl_rt) = tokio::join!(
         setup_host(
             fixture.addr,
             &fixture.cert,
             &fixture.key,
             host_id,
-            code.clone()
+            code.clone(),
+            ready.clone()
         ),
-        setup_ctrl(fixture.addr, &fixture.cert, ctrl_id, code, code_proof)
+        setup_ctrl(
+            fixture.addr,
+            &fixture.cert,
+            ctrl_id,
+            code,
+            code_proof,
+            ready.clone()
+        )
     );
     let mut host_rt = host_rt?;
     let mut ctrl_rt = ctrl_rt?;
 
     let max_events = events.len() as u32;
     let host_fut = async {
-        match create_injector() {
+        let out = match create_injector() {
             Ok(mut injector) => {
                 rdc_core::s4::input::run_host(
                     &mut host_rt.secure,
@@ -525,9 +629,34 @@ pub async fn run_keys() -> DemoResult<()> {
                 .await
             }
             Err(err) => Err(rdc_core::s4::S4Error::Input(err)),
+        };
+        match &out {
+            Ok(count) => println!(
+                "[keys] host 完成注入 {count} 条 +{} ms",
+                start.elapsed().as_millis()
+            ),
+            Err(err) => println!(
+                "[keys] host 失败: {err} +{} ms",
+                start.elapsed().as_millis()
+            ),
         }
+        out
     };
-    let ctrl_fut = async { rdc_core::s4::input::run_ctrl(&mut ctrl_rt.secure, &events).await };
+    let ctrl_fut = async {
+        let out = rdc_core::s4::input::run_ctrl(&mut ctrl_rt.secure, &events).await;
+        match &out {
+            Ok(counters) => println!(
+                "[keys] ctrl 收到确认 {} 条 +{} ms",
+                counters.injected,
+                start.elapsed().as_millis()
+            ),
+            Err(err) => println!(
+                "[keys] ctrl 失败: {err} +{} ms",
+                start.elapsed().as_millis()
+            ),
+        }
+        out
+    };
     let (host_result, ctrl_result) = tokio::join!(host_fut, ctrl_fut);
     host_rt.close();
     ctrl_rt.close();
@@ -606,15 +735,24 @@ pub async fn run_clipboard() -> DemoResult<()> {
     let host_id = IdentityKeyPair::generate();
     let ctrl_id = IdentityKeyPair::generate();
     let code_proof = hmac_sha256_b64(code.as_str().as_bytes(), b"rdc-s4");
+    let ready = Arc::new(tokio::sync::Notify::new());
     let (host_rt, ctrl_rt) = tokio::join!(
         setup_host(
             fixture.addr,
             &fixture.cert,
             &fixture.key,
             host_id,
-            code.clone()
+            code.clone(),
+            ready.clone()
         ),
-        setup_ctrl(fixture.addr, &fixture.cert, ctrl_id, code, code_proof)
+        setup_ctrl(
+            fixture.addr,
+            &fixture.cert,
+            ctrl_id,
+            code,
+            code_proof,
+            ready.clone()
+        )
     );
     let mut host_rt = host_rt?;
     let mut ctrl_rt = ctrl_rt?;
@@ -803,15 +941,24 @@ pub async fn run_file() -> DemoResult<()> {
     let host_id = IdentityKeyPair::generate();
     let ctrl_id = IdentityKeyPair::generate();
     let code_proof = hmac_sha256_b64(code.as_str().as_bytes(), b"rdc-s4");
+    let ready = Arc::new(tokio::sync::Notify::new());
     let (host_rt, ctrl_rt) = tokio::join!(
         setup_host(
             fixture.addr,
             &fixture.cert,
             &fixture.key,
             host_id,
-            code.clone()
+            code.clone(),
+            ready.clone()
         ),
-        setup_ctrl(fixture.addr, &fixture.cert, ctrl_id, code, code_proof)
+        setup_ctrl(
+            fixture.addr,
+            &fixture.cert,
+            ctrl_id,
+            code,
+            code_proof,
+            ready.clone()
+        )
     );
     let mut host_rt = host_rt?;
     let mut ctrl_rt = ctrl_rt?;
