@@ -79,6 +79,8 @@
     "headerScanLines": 25,
     "requireDocForPublic": true,
     "requireParamSections": false,
+    "uiGlobs": ["app/lib/view/**"],
+    "controlGlobs": ["app/lib/controller/**", "app/lib/model/**"],
     "minLinesForSection": 200,
     "minLinesForControlMarker": 400,
     "placeholderNames": ["组件名", "Component", "TODO"]

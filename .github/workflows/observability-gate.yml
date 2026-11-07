@@ -19,4 +19,5 @@ jobs:
 
       - name: Gate changed files
         shell: pwsh
+        # 全量规则（含版本一致性/构建落盘）一并执行；基线违规按 logs/gate-baseline-*.txt 排期修复。
         run: ./scripts/gate.ps1 -Changed -BaseRef origin/${{ github.base_ref || 'master' }}

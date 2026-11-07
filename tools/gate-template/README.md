@@ -113,7 +113,7 @@ let _ = tx.send(frame); // gate-allow R-C-2: 接收端已退出，丢弃是预�
 
 - `scan.include/exclude`：扫描范围与生成物排除。
 - `rust.cratesDir/sourceGlobs/streamingGlobs/pathSensitiveGlobs/requiredLogDeps`：Rust 规则适用范围。
-- `note.*`：头注释正则、扫描行数、分区标记正则、长文件阈值。
+- `note.*`：头注释正则、扫描行数、分区标记正则、视图/控制层路径（`uiGlobs`/`controlGlobs`）、长文件阈值。
 - `team.changeRecordGlobs`：改动记录文件；为空时 R-T-4 视为“未配置”而不是失败。
 - `command.smokeRecordGlobs`：冒烟记录；`-Build` 时检查。
 - `version.*`：版本源文件、产物目录与扩展名。

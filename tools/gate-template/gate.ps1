@@ -146,6 +146,8 @@ function New-DefaultConfig {
             paramSectionRegex = "#\s*(Arguments|Parameters|Args|参数)"
             componentMarkerRegex = "^\s*(//|#)\s*=====+\*\*"
             controlMarkerRegex = "^\s*(//|#)\s*========+\*\*"
+            uiGlobs = @("**/view/**", "**/views/**", "**/widget/**", "**/widgets/**", "**/page/**", "**/pages/**", "**/component/**", "**/components/**")
+            controlGlobs = @("**/controller/**", "**/controllers/**", "**/model/**", "**/models/**")
             minLinesForSection = 200
             minLinesForControlMarker = 400
             placeholderNames = @("组件名", "Component", "TODO")
@@ -868,10 +870,12 @@ function Invoke-Rule-NoteSection {
             }
             if ($line -match $controlRegex) { $hasControl = $true }
         }
-        if ($uiEnabled -and $lineCount -ge $minSection -and -not $hasComponent) {
+        $uiInScope = (Test-AnyGlob $rel $script:Config.note.uiGlobs)
+        $controlInScope = (Test-AnyGlob $rel $script:Config.note.controlGlobs)
+        if ($uiEnabled -and $uiInScope -and $lineCount -ge $minSection -and -not $hasComponent) {
             Add-Violation $ruleId $rel 1 ("R-N-4 file has " + $lineCount + " lines but no UI component section marker.")
         }
-        if ($controlEnabled -and $lineCount -ge $minControl -and -not $hasControl) {
+        if ($controlEnabled -and $controlInScope -and $lineCount -ge $minControl -and -not $hasControl) {
             Add-Violation $controlRuleId $rel 1 ("R-N-5 file has " + $lineCount + " lines but no controller/model section marker.")
         }
     }
@@ -1189,8 +1193,8 @@ function Get-SelfTestFixtureName {
         "source_encoding" { return "bad.cpp: non-ASCII, no BOM" }
         "note_header" { return "lib.rs: no header in first 25 lines" }
         "note_doc" { return "lib.rs: pub fn without ///" }
-        "note_section" { return "long.rs: >200 lines, no component marker" }
-        "note_section_control" { return "control.rs: >400 lines, no controller/model marker" }
+        "note_section" { return "view/long_widget.dart: >200 lines, no component marker" }
+        "note_section_control" { return "controller/control.dart: >400 lines, no controller/model marker" }
         "note_section_sync" { return "manual-only" }
         "log_print_bypass" { return "lib.rs println! + main.dart print" }
         "log_integration" { return "fake crate without tracing" }
@@ -1265,12 +1269,12 @@ let a = 2;
         # 长文件用于 R-N-4：没有分区标记。
         $longLines = @()
         for ($i = 0; $i -lt 240; $i++) { $longLines += ("// filler line " + $i) }
-        New-SelfTestFile (Join-Path $temp "crates/fake/src/long.rs") ($longLines -join "`n")
+        New-SelfTestFile (Join-Path $temp "app/lib/view/long_widget.dart") ($longLines -join "`n")
 
         # 更长的文件用于 R-N-5：超过 400 行且没有控制分区标记。
         $controlLines = @()
         for ($i = 0; $i -lt 420; $i++) { $controlLines += ("// filler line " + $i) }
-        New-SelfTestFile (Join-Path $temp "crates/fake/src/control.rs") ($controlLines -join "`n")
+        New-SelfTestFile (Join-Path $temp "app/lib/controller/control.dart") ($controlLines -join "`n")
 
         $script:Root = $temp
         $script:RootFull = [System.IO.Path]::GetFullPath($temp)
