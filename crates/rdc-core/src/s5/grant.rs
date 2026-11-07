@@ -262,6 +262,9 @@ pub enum GrantError {
     /// 签发者不在地址簿。
     #[error("授权签发者未被本机信任")]
     OwnerUntrusted,
+    /// 令牌授权的对象不是本次连接的对端。
+    #[error("令牌授权的对象与连接对端不一致")]
+    GranteeMismatch,
     /// 签名为空、格式错误或验签失败。
     #[error("授权签名无效")]
     SignatureInvalid,
@@ -303,6 +306,7 @@ impl GrantError {
         match self {
             Self::HostMismatch => "host_mismatch",
             Self::OwnerUntrusted => "owner_untrusted",
+            Self::GranteeMismatch => "grantee_mismatch",
             Self::SignatureInvalid => "signature_invalid",
             Self::NotYetValid => "not_yet_valid",
             Self::Expired => "expired",
@@ -508,6 +512,8 @@ impl ReplayGuard {
 pub struct VerifyContext<'a> {
     /// 本机身份公钥。
     pub local_host_pub: &'a str,
+    /// 本次连接的对端身份公钥；`None` 表示离线批量校验，跳过对端绑定检查。
+    pub peer_pub: Option<&'a str>,
     /// 地址簿里已配对的 owner 公钥（信任根，不从网络拉取）。
     pub trusted_owner_pubs: &'a [String],
     /// 本机允许授予的最大权限位。
@@ -562,6 +568,12 @@ pub fn verify_grant(
     }
     verify_signature_b64(&token.owner_pub, &token.canonical_bytes(), signature)
         .map_err(|_| GrantError::SignatureInvalid)?;
+    // 步骤 2b：令牌必须确实签给本次连接的对端，防止 A 的令牌被 B 拿去用。
+    if let Some(peer) = context.peer_pub {
+        if token.grantee_pub != peer {
+            return Err(GrantError::GranteeMismatch);
+        }
+    }
     // 步骤 3：时间窗与有效期上限。
     if now_ms < token.not_before {
         return Err(GrantError::NotYetValid);
@@ -1735,6 +1747,7 @@ mod tests {
     fn context<'a>(trusted: &'a [String], host_pub: &'a str) -> VerifyContext<'a> {
         VerifyContext {
             local_host_pub: host_pub,
+            peer_pub: None,
             trusted_owner_pubs: trusted,
             owner_ceiling: PermBits(PermBits::ALL),
             local_revoked_epoch: 0,
@@ -1838,6 +1851,20 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err.code(), "owner_untrusted");
+
+        // 2a2) 令牌不是签给本次连接的对端。
+        let other_peer = IdentityKeyPair::from_seed(&[8u8; 32]).public_key_b64();
+        let mut peer_ctx = context(&trusted, &host_pub);
+        peer_ctx.peer_pub = Some(other_peer.as_str());
+        let err = verify_grant(
+            &valid.token,
+            &valid.signature,
+            &peer_ctx,
+            T0 + 1_000,
+            &mut ReplayGuard::new(),
+        )
+        .unwrap_err();
+        assert_eq!(err.code(), "grantee_mismatch");
 
         // 2b) 篡改签名。
         let err = verify_grant(

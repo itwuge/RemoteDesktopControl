@@ -9,8 +9,10 @@
 
 import 'package:flutter/foundation.dart';
 
+import '../core/l10n/strings.dart';
 import '../core/utils/logger.dart';
 import '../model/gateway/rust_gateway.dart';
+import '../model/gateway/rust_types.dart';
 import '../model/settings/app_settings_model.dart';
 import '../model/settings/settings_repository.dart';
 
@@ -54,28 +56,39 @@ class PermissionController {
   final ValueNotifier<List<TrustedDeviceRow>> trustedDevices =
       ValueNotifier(const []);
 
+  /// 权限内核快照（授权、本机保护区、信任设备、会话、审计）。
+  final ValueNotifier<PermissionSnapshot?> kernel =
+      ValueNotifier<PermissionSnapshot?>(null);
+
+  /// 内核数据加载中。
+  final ValueNotifier<bool> loadingKernel = ValueNotifier(false);
+
   /// 保存中。
   final ValueNotifier<bool> saving = ValueNotifier(false);
 
   /// 错误信息。
   final ValueNotifier<String?> errorMessage = ValueNotifier(null);
 
-  /// 权限位名称（bit0..bit6），顺序固定供 UI 生成。
+  /// 权限位名称（按 docs/07 §4 位序，bit0..bit8），顺序固定供 UI 生成。
   static const List<String> permissionBitLabels = [
     '查看屏幕',
     '控制鼠标键盘',
+    '文本剪贴板',
+    '图片剪贴板',
     '传输文件',
-    '剪贴板同步',
+    '音频回传',
     '重启/关机',
-    '音频播放',
-    '显示器切换',
+    '切换显示器',
+    '断线自动重连',
   ];
 
-  /// 当前权限模板对应的位图（readonly 仅查看，standard 到剪贴板，full 全开）。
+  /// 当前权限模板对应的位图（readonly 仅查看，standard 到剪贴板，full 全开安全位）。
+  ///
+  /// `full` 不含 bit6/bit7（电源、切换显示器需逐次本机确认）。
   static const Map<String, int> templateBits = {
     'readonly': 0x01,
-    'standard': 0x0F,
-    'full': 0x7F,
+    'standard': 0x07,
+    'full': 0x13F,
     'custom': 0,
   };
 
@@ -95,6 +108,113 @@ class PermissionController {
       );
     }
     await reloadTrustedDevices();
+    await loadKernel();
+  }
+
+  /// 读取权限内核快照（授权、本机保护区、信任设备、审计）。
+  Future<void> loadKernel() async {
+    loadingKernel.value = true;
+    try {
+      kernel.value = await gateway.loadPermissionSnapshot();
+    } catch (error, stackTrace) {
+      errorMessage.value = '${AppStrings.kernelError}：$error';
+      RdcLogger.log(
+        'PermissionController',
+        '读取权限内核失败',
+        level: LogLevel.error,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    } finally {
+      loadingKernel.value = false;
+    }
+  }
+
+  /// 为已配对设备签发授权。
+  Future<String?> createGrantForDevice({
+    required String deviceId,
+    required String template,
+    required int validityDays,
+  }) {
+    return _applyKernel(() => gateway.createGrantForDevice(
+          deviceId: deviceId,
+          template: template,
+          validityDays: validityDays,
+        ));
+  }
+
+  /// 换模板重签（权限提升必须换新令牌）。
+  Future<String?> reissueGrant({
+    required String grantId,
+    required String template,
+    required int validityDays,
+  }) {
+    return _applyKernel(() => gateway.reissueGrant(
+          grantId: grantId,
+          template: template,
+          validityDays: validityDays,
+        ));
+  }
+
+  /// 吊销授权（最终一致）。
+  Future<String?> revokeGrant(String grantId) {
+    return _applyKernel(() => gateway.revokeGrant(grantId));
+  }
+
+  /// 移除授权记录。
+  Future<String?> removeGrant(String grantId) {
+    return _applyKernel(() => gateway.removeGrant(grantId));
+  }
+
+  /// 立即停止远程访问：停输入 → 断流 → 审计，恢复需二次确认。
+  Future<RemoteStopReport?> stopRemoteAccess() async {
+    saving.value = true;
+    try {
+      final report = await gateway.stopRemoteAccess();
+      kernel.value = report.snapshot;
+      settings.value = await repository.load();
+      errorMessage.value = null;
+      return report;
+    } catch (error) {
+      errorMessage.value = '停止远程访问失败：$error';
+      return null;
+    } finally {
+      saving.value = false;
+    }
+  }
+
+  /// 恢复远程访问（调用方必须先完成本机二次确认）。
+  Future<String?> resumeRemoteAccess() async {
+    saving.value = true;
+    try {
+      kernel.value = await gateway.resumeRemoteAccess(confirm: true);
+      settings.value = await repository.load();
+      errorMessage.value = null;
+      return null;
+    } catch (error) {
+      errorMessage.value = '恢复远程访问失败：$error';
+      return error.toString();
+    } finally {
+      saving.value = false;
+    }
+  }
+
+  /// 统一执行内核写操作并回填快照。
+  Future<String?> _applyKernel(
+    Future<PermissionSnapshot> Function() action,
+  ) async {
+    saving.value = true;
+    try {
+      kernel.value = await action();
+      errorMessage.value = null;
+      return null;
+    } catch (error) {
+      final message = '操作失败：$error';
+      errorMessage.value = message;
+      return message;
+    } finally {
+      saving.value = false;
+    }
   }
 
   /// 重新读取信任设备。
@@ -117,12 +237,16 @@ class PermissionController {
   /// 取消信任某台设备（写回真实设备列表）。
   ///
   /// 返回：成功返回 `null`，失败返回可展示文案。
-  Future<String?> untrust(String deviceId) async {
-    final current = trustedDevices.value
-        .where((device) => device.id == deviceId)
-        .toList(growable: false);
-    if (current.isEmpty) return '设备不存在';
-    final device = current.first;
+  Future<String?> untrust(
+    String deviceId, {
+    String? name,
+    bool sameAccount = false,
+  }) async {
+    final device = TrustedDeviceRow(
+      id: deviceId,
+      name: name ?? deviceId,
+      sameAccount: sameAccount,
+    );
     try {
       await gateway.updateDevice(
         deviceId: device.id,
@@ -131,6 +255,7 @@ class PermissionController {
         sameAccount: device.sameAccount,
       );
       await reloadTrustedDevices();
+      await loadKernel();
       return null;
     } catch (error) {
       return '取消信任失败：$error';
@@ -232,6 +357,8 @@ class PermissionController {
   void dispose() {
     settings.dispose();
     trustedDevices.dispose();
+    kernel.dispose();
+    loadingKernel.dispose();
     saving.dispose();
     errorMessage.dispose();
   }

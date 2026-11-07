@@ -192,6 +192,21 @@ impl IdentityKeyPair {
         fingerprint_of(&self.signing.verifying_key())
     }
 
+    /// 导出 32 字节种子（**仅用于本地持久化**）。
+    ///
+    /// 为什么需要：桌面端身份密钥必须跨进程稳定，否则每次启动都会换指纹，
+    /// 已配对设备与已签发授权令牌全部失效。调用方必须把结果写入仅本用户可读
+    /// 的位置，且不得进入日志/崩溃上报。
+    ///
+    /// # Returns
+    /// Ed25519 私钥种子。
+    ///
+    /// # Errors
+    /// 不会失败。
+    pub fn to_seed_bytes(&self) -> [u8; 32] {
+        self.signing.to_bytes()
+    }
+
     /// 对字节内容签名。
     ///
     /// # Arguments
@@ -220,6 +235,22 @@ impl IdentityKeyPair {
     pub fn verify_b64(&self, payload: &[u8], sig_b64: &str) -> Result<(), SecurityError> {
         verify_signature_b64(&self.public_key_b64(), payload, sig_b64)
     }
+}
+
+/// 由 Base64 公钥计算指纹。
+///
+/// # Arguments
+/// * `public_key_b64` - 32 字节 Ed25519 公钥（Base64）
+///
+/// # Returns
+/// 形如 `AB:CD:...` 的 16 位十六进制指纹。
+///
+/// # Errors
+/// Base64/长度/曲线点非法时返回 [`SecurityError::SignatureInvalid`]。
+pub fn fingerprint_from_b64(public_key_b64: &str) -> Result<String, SecurityError> {
+    let bytes: [u8; 32] = from_b64_exact(public_key_b64, 32)?;
+    let key = VerifyingKey::from_bytes(&bytes).map_err(|_| SecurityError::SignatureInvalid)?;
+    Ok(fingerprint_of(&key))
 }
 
 /// 计算公钥指纹。

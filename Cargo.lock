@@ -1114,6 +1114,8 @@ dependencies = [
  "rdc-filetransfer",
  "rdc-input",
  "rdc-protocol",
+ "rdc-security",
+ "serde_json",
  "windows",
 ]
 

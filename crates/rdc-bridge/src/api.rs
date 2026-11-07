@@ -5,12 +5,19 @@
 //!       每个 `pub fn` 会生成一个同名 Dart 函数
 //! 调用方：生成的 Dart 绑定，再由 model/gateway/rust_gateway.dart 统一收口
 
+use std::io::Write as _;
 use std::path::PathBuf;
 
+use rdc_core::audit::AuditLog;
 use rdc_core::s5::devices::{now_ms, DeviceList, DeviceRecord};
+use rdc_core::s5::grant::{
+    issue_grant, template_bits, GrantRecord, GrantSpec, GrantStore, PermBits, DAY_MS,
+    DEFAULT_VALIDITY_MS, MAX_VALIDITY_MS, REVOCATION_UI_TEXT,
+};
 use rdc_core::s5::multi::{authorize_input, wall_capabilities, SessionRole};
 use rdc_core::s5::settings::AppSettings;
 use rdc_protocol::Capabilities;
+use rdc_security::{fingerprint_from_b64, IdentityKeyPair};
 
 use crate::clipboard_service;
 use crate::file_service;
@@ -945,4 +952,783 @@ pub fn session_status() -> Result<SessionStatusDto, String> {
 /// 锁异常时返回错误文本；bye 失败只记录在报告中。
 pub fn session_disconnect(reason: String) -> Result<SessionTeardownDto, String> {
     session_service::disconnect(&reason)
+}
+
+// =====** S5-5 授权与权限页 =====**
+
+/// 授权条目 DTO（跨 FFI）。
+#[derive(Debug, Clone)]
+pub struct GrantDto {
+    /// 授权 ID。
+    pub grant_id: String,
+    /// 被授权方公钥（Base64）。
+    pub grantee_pub: String,
+    /// 被授权方显示名。
+    pub grantee_name: String,
+    /// 被授权方公钥指纹（冒号分隔）。
+    pub grantee_fingerprint: String,
+    /// 模板名：`readonly` / `operate` / `full` / `custom`。
+    pub template: String,
+    /// 令牌权限位（u16）。
+    pub perms: u32,
+    /// 本机生效权限位（只减不增）。
+    pub effective_perms: u32,
+    /// 生效时间（Unix 毫秒）。
+    pub not_before_ms: u64,
+    /// 到期时间（Unix 毫秒）。
+    pub expires_at_ms: u64,
+    /// 是否已吊销。
+    pub revoked: bool,
+    /// 创建时间。
+    pub created_ms: u64,
+    /// 最后修改时间。
+    pub updated_ms: u64,
+}
+
+/// 信任设备 DTO（带公钥指纹与免密可用性）。
+#[derive(Debug, Clone)]
+pub struct TrustDeviceDto {
+    /// 设备 ID。
+    pub device_id: String,
+    /// 显示名。
+    pub name: String,
+    /// 是否信任。
+    pub trusted: bool,
+    /// 是否同账号。
+    pub same_account: bool,
+    /// 公钥指纹；未采集公钥时为空。
+    pub fingerprint: String,
+    /// 是否已具备免密条件（信任 + 有公钥）。
+    pub passwordless_ready: bool,
+    /// 本次实际会走的认证方式：`passwordless` / `pairing_code`。
+    pub auth_mode: String,
+    /// 最后在线（Unix 毫秒）。
+    pub last_online_ms: u64,
+}
+
+/// 审计条目 DTO。
+#[derive(Debug, Clone)]
+pub struct AuditEntryDto {
+    /// Unix 毫秒。
+    pub ts_ms: u64,
+    /// 事件类别。
+    pub kind: String,
+    /// 主体。
+    pub subject: String,
+    /// 动作。
+    pub action: String,
+    /// 旧值。
+    pub old_value: String,
+    /// 新值。
+    pub new_value: String,
+    /// 结果。
+    pub outcome: String,
+}
+
+/// 权限页快照（真实内核数据）。
+#[derive(Debug, Clone)]
+pub struct PermissionSnapshotDto {
+    /// 远程访问总开关。
+    pub remote_access_enabled: bool,
+    /// 是否处于「已停止，恢复需二次确认」状态。
+    pub resume_requires_confirm: bool,
+    /// 并发模式。
+    pub concurrent_mode: String,
+    /// 接管策略。
+    pub takeover_policy: String,
+    /// 本机确认超时（秒）。
+    pub takeover_timeout_s: u32,
+    /// 本机允许权限位（u16）。
+    pub local_perms: u32,
+    /// 本次运行可授予的最大权限位（u16，含敏感位）。
+    pub max_grant_perms: u32,
+    /// 未吊销授权数。
+    pub active_grants: u32,
+    /// 授权列表（含已吊销，按 ID 升序）。
+    pub grants: Vec<GrantDto>,
+    /// 撤销世代。
+    pub revoked_epoch: u64,
+    /// 已信任设备。
+    pub trust_devices: Vec<TrustDeviceDto>,
+    /// 当前是否有远程会话。
+    pub session_running: bool,
+    /// 当前会话角色（`controller` / `viewer` / 空）。
+    pub session_role: String,
+    /// 「谁在连接」展示文案。
+    pub connected_label: String,
+    /// 撤销最终一致文案（不得含「立即生效」）。
+    pub revocation_note: String,
+    /// 最近审计（新的在后，最多 20 条）。
+    pub audit_tail: Vec<AuditEntryDto>,
+    /// 授权存储路径。
+    pub grants_path: String,
+    /// 本机身份公钥指纹。
+    pub identity_fingerprint: String,
+    /// 非致命提示（如「尚无信任设备」）。
+    pub hint: String,
+}
+
+/// 立即停止远程访问报告。
+#[derive(Debug, Clone)]
+pub struct RemoteStopDto {
+    /// 输入通道是否已停。
+    pub input_stopped: bool,
+    /// 会话是否已断。
+    pub session_stopped: bool,
+    /// 收尾报告是否通过。
+    pub teardown_ok: bool,
+    /// 收尾摘要。
+    pub teardown_summary: String,
+    /// 审计是否落盘。
+    pub audit_written: bool,
+    /// 恢复是否需要本机二次确认。
+    pub resume_requires_confirm: bool,
+    /// 停止时刻（Unix 毫秒）。
+    pub stopped_at_ms: u64,
+    /// 停止后的权限页快照。
+    pub snapshot: PermissionSnapshotDto,
+}
+
+// =====** S5-5 路径与身份 =====**
+
+/// 授权存储文件路径。
+fn grants_path() -> PathBuf {
+    config_dir().join("grants.json")
+}
+
+/// 本机身份种子路径（仅本用户可读）。
+fn identity_path() -> PathBuf {
+    config_dir().join("identity.seed")
+}
+
+/// 审计 JSONL 路径。
+fn audit_path() -> PathBuf {
+    config_dir().join("s5-audit.jsonl")
+}
+
+/// 「已停止远程访问」闸门文件；存在即要求本机二次确认才能恢复。
+fn resume_gate_path() -> PathBuf {
+    config_dir().join("remote_access_stop.json")
+}
+
+/// 十六进制编码（小写）。
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+/// 十六进制解码（允许空白）。
+fn hex_decode(text: &str) -> Result<Vec<u8>, String> {
+    let clean: String = text.chars().filter(|ch| !ch.is_whitespace()).collect();
+    if clean.len() % 2 != 0 {
+        return Err("十六进制长度为奇数".to_owned());
+    }
+    let mut bytes = Vec::with_capacity(clean.len() / 2);
+    let chars: Vec<char> = clean.chars().collect();
+    for pair in chars.chunks(2) {
+        let hi = pair[0].to_digit(16).ok_or_else(|| "非十六进制字符".to_owned())?;
+        let lo = pair[1].to_digit(16).ok_or_else(|| "非十六进制字符".to_owned())?;
+        bytes.push(((hi << 4) | lo) as u8);
+    }
+    Ok(bytes)
+}
+
+/// 读取或创建本机身份密钥。
+///
+/// 为什么落盘：授权令牌的 owner 公钥必须跨进程稳定，否则签名与地址簿全部失效。
+fn load_or_create_identity() -> Result<IdentityKeyPair, String> {
+    let path = identity_path();
+    match std::fs::read_to_string(&path) {
+        Ok(text) => {
+            let bytes = hex_decode(text.trim())?;
+            let seed: [u8; 32] = bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| "identity.seed 必须是 32 字节（64 位十六进制）".to_owned())?;
+            Ok(IdentityKeyPair::from_seed(&seed))
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+            }
+            let identity = IdentityKeyPair::generate();
+            let mut file = std::fs::File::create(&path).map_err(|error| error.to_string())?;
+            file.write_all(hex_encode(&identity.to_seed_bytes()).as_bytes())
+                .map_err(|error| error.to_string())?;
+            file.sync_all().map_err(|error| error.to_string())?;
+            Ok(identity)
+        }
+        Err(err) => Err(format!("读取 identity.seed 失败：{err}")),
+    }
+}
+
+/// 安全计算公钥指纹（非法公钥返回空串，不中断页面）。
+fn safe_fingerprint(public_key_b64: &str) -> String {
+    if public_key_b64.is_empty() {
+        return String::new();
+    }
+    fingerprint_from_b64(public_key_b64).unwrap_or_default()
+}
+
+/// 读取授权存储。
+fn load_grants() -> Result<GrantStore, String> {
+    GrantStore::load(grants_path()).map_err(|error| error.to_string())
+}
+
+/// 保存授权存储。
+fn save_grants(store: &GrantStore) -> Result<(), String> {
+    store.save(grants_path()).map_err(|error| error.to_string())
+}
+
+/// 追加审计 JSONL。
+fn append_audit(log: &AuditLog) -> Result<(), String> {
+    if log.is_empty() {
+        return Ok(());
+    }
+    let path = audit_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|error| error.to_string())?;
+    file.write_all(log.to_jsonl().as_bytes())
+        .map_err(|error| error.to_string())?;
+    file.write_all(b"\n").map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// 读取最近审计（文件尾部）。
+fn read_audit_tail(limit: usize) -> Vec<AuditEntryDto> {
+    let Ok(text) = std::fs::read_to_string(audit_path()) else {
+        return Vec::new();
+    };
+    let lines: Vec<&str> = text.lines().filter(|line| !line.trim().is_empty()).collect();
+    let start = lines.len().saturating_sub(limit);
+    lines[start..]
+        .iter()
+        .filter_map(|line| {
+            let value: serde_json::Value = serde_json::from_str(line).ok()?;
+            Some(AuditEntryDto {
+                ts_ms: value.get("ts_ms")?.as_u64()?,
+                kind: value.get("kind")?.as_str()?.to_owned(),
+                subject: value.get("subject")?.as_str()?.to_owned(),
+                action: value.get("action")?.as_str()?.to_owned(),
+                old_value: value
+                    .get("old_value")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or_default()
+                    .to_owned(),
+                new_value: value
+                    .get("new_value")
+                    .and_then(|item| item.as_str())
+                    .unwrap_or_default()
+                    .to_owned(),
+                outcome: value.get("outcome")?.as_str()?.to_owned(),
+            })
+        })
+        .collect()
+}
+
+/// 由权限位推断模板名。
+fn template_of(perms: u16) -> String {
+    let bits = PermBits::new(perms);
+    let readonly = PermBits(PermBits::VIEW);
+    let operate = PermBits(PermBits::VIEW | PermBits::CONTROL | PermBits::CLIPBOARD_TEXT);
+    let full = PermBits(PermBits::SAFE_FULL);
+    if bits == readonly {
+        "readonly".to_owned()
+    } else if bits == operate {
+        "operate".to_owned()
+    } else if bits == full {
+        "full".to_owned()
+    } else {
+        "custom".to_owned()
+    }
+}
+
+/// 授权记录转 DTO。
+fn to_grant_dto(record: &GrantRecord) -> GrantDto {
+    GrantDto {
+        grant_id: record.token.grant_id.clone(),
+        grantee_pub: record.token.grantee_pub.clone(),
+        grantee_name: record.grantee_name.clone(),
+        grantee_fingerprint: safe_fingerprint(&record.token.grantee_pub),
+        template: template_of(record.token.perms),
+        perms: u32::from(record.token.perms),
+        effective_perms: u32::from(record.local_perms().to_bits()),
+        not_before_ms: record.token.not_before,
+        expires_at_ms: record.token.expires_at,
+        revoked: record.revoked,
+        created_ms: record.created_ms,
+        updated_ms: record.updated_ms,
+    }
+}
+
+/// 构建设备 DTO（带认证方式）。
+fn to_trust_dto(record: &DeviceRecord, passwordless_enabled: bool) -> TrustDeviceDto {
+    let ready = record.trusted && !record.public_key_b64.is_empty();
+    TrustDeviceDto {
+        device_id: record.device_id.clone(),
+        name: record.name.clone(),
+        trusted: record.trusted,
+        same_account: record.same_account,
+        fingerprint: safe_fingerprint(&record.public_key_b64),
+        passwordless_ready: ready,
+        auth_mode: if ready && passwordless_enabled {
+            "passwordless".to_owned()
+        } else {
+            "pairing_code".to_owned()
+        },
+        last_online_ms: record.last_online_ms,
+    }
+}
+
+/// 组装权限页快照。
+fn build_snapshot() -> Result<PermissionSnapshotDto, String> {
+    let settings = AppSettings::load(settings_path()).map_err(|error| error.to_string())?;
+    let identity = load_or_create_identity()?;
+    let store = load_grants()?;
+    let devices = DeviceList::load(device_path()).map_err(|error| error.to_string())?;
+    let status = session_service::status().unwrap_or_default();
+
+    let grants: Vec<GrantDto> = store.grants().iter().map(|record| to_grant_dto(record)).collect();
+    let trust_devices: Vec<TrustDeviceDto> = devices
+        .devices()
+        .iter()
+        .filter(|record| record.trusted)
+        .map(|record| to_trust_dto(record, settings.passwordless_policy))
+        .collect();
+
+    let connected_label = if status.running {
+        let role_zh = if status.role == "controller" {
+            "控制端"
+        } else {
+            "观看端"
+        };
+        format!("正在连接：{role_zh}（{}）", status.session_id)
+    } else {
+        "无远程会话".to_owned()
+    };
+    let hint = if trust_devices.is_empty() {
+        "尚无信任设备：先在设备列表配对并标记信任，才能签发授权。".to_owned()
+    } else if trust_devices.iter().all(|device| device.fingerprint.is_empty()) {
+        "信任设备尚未采集公钥：需要重新配对一次才能免密直连。".to_owned()
+    } else {
+        String::new()
+    };
+
+    Ok(PermissionSnapshotDto {
+        remote_access_enabled: settings.remote_access_enabled,
+        resume_requires_confirm: resume_gate_path().exists(),
+        concurrent_mode: settings.concurrent_mode.clone(),
+        takeover_policy: settings.takeover_policy.clone(),
+        takeover_timeout_s: settings.takeover_timeout_s,
+        local_perms: settings.permission_bits,
+        max_grant_perms: u32::from(PermBits::ALL),
+        active_grants: store.active_count() as u32,
+        grants,
+        revoked_epoch: store.revoked_epoch(),
+        trust_devices,
+        session_running: status.running,
+        session_role: status.role.clone(),
+        connected_label,
+        revocation_note: REVOCATION_UI_TEXT.to_owned(),
+        audit_tail: read_audit_tail(20),
+        grants_path: grants_path().display().to_string(),
+        identity_fingerprint: identity.fingerprint(),
+        hint,
+    })
+}
+
+/// 校验有效期天数（0 视为默认 30，超过 90 拒绝）。
+fn validity_from_days(days: u32) -> Result<u64, String> {
+    if days == 0 {
+        return Ok(DEFAULT_VALIDITY_MS);
+    }
+    let millis = u64::from(days)
+        .checked_mul(DAY_MS)
+        .ok_or_else(|| "有效期天数溢出".to_owned())?;
+    if millis > MAX_VALIDITY_MS {
+        return Err("有效期超过 90 天，拒绝签发".to_owned());
+    }
+    Ok(millis)
+}
+
+/// 内部签发：校验公钥、签名、落盘并审计。
+fn issue_and_store(
+    grantee_pub: &str,
+    grantee_name: &str,
+    template: &str,
+    validity_days: u32,
+    now: u64,
+    audit: &mut AuditLog,
+) -> Result<(), String> {
+    if grantee_pub.trim().is_empty() {
+        return Err("被授权方公钥不能为空（请先从已配对设备选择）".to_owned());
+    }
+    fingerprint_from_b64(grantee_pub).map_err(|_| "被授权方公钥格式非法".to_owned())?;
+    let bits = template_bits(template).ok_or_else(|| format!("未知模板：{template}"))?;
+    let validity = validity_from_days(validity_days)?;
+    let identity = load_or_create_identity()?;
+    let owner_pub = identity.public_key_b64();
+    let mut store = load_grants()?;
+    let issued = issue_grant(
+        &identity,
+        &GrantSpec {
+            host_pub: &owner_pub,
+            grantee_pub,
+            perms: bits,
+            validity_ms: Some(validity),
+            revoked_epoch_base: store.revoked_epoch(),
+        },
+        now,
+    )
+    .map_err(|error| format!("{}: {}", error.code(), error))?;
+    store
+        .add(
+            GrantRecord {
+                token: issued.token,
+                signature: issued.signature,
+                grantee_name: grantee_name.to_owned(),
+                created_ms: now,
+                updated_ms: now,
+                revoked: false,
+                effective_perms: bits.to_bits(),
+            },
+            now,
+            audit,
+        )
+        .map_err(|error| error.to_string())?;
+    save_grants(&store)
+}
+
+/// 读取权限页快照。
+///
+/// # Returns
+/// 真实授权/信任设备/会话/审计数据。
+///
+/// # Errors
+/// 授权文件或设备文件损坏、身份无法落盘时返回错误文本。
+pub fn permission_snapshot() -> Result<PermissionSnapshotDto, String> {
+    build_snapshot()
+}
+
+/// 签发授权（按模板）。
+///
+/// # Arguments
+/// * `grantee_pub` - 被授权方公钥（Base64）
+/// * `grantee_name` - 显示名
+/// * `template` - `readonly` / `operate` / `full`
+/// * `validity_days` - 有效期天数（0=30，最大 90）
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 公钥非法、模板未知、超 90 天或落盘失败时返回错误文本。
+pub fn grant_create(
+    grantee_pub: String,
+    grantee_name: String,
+    template: String,
+    validity_days: u32,
+    now_ms: u64,
+) -> Result<PermissionSnapshotDto, String> {
+    let mut audit = AuditLog::new(0);
+    issue_and_store(
+        &grantee_pub,
+        &grantee_name,
+        &template,
+        validity_days,
+        now_ms,
+        &mut audit,
+    )?;
+    append_audit(&audit)?;
+    build_snapshot()
+}
+
+/// 为已配对设备签发授权。
+///
+/// # Arguments
+/// * `device_id` - 地址簿设备 ID
+/// * `template` - 模板名
+/// * `validity_days` - 有效期天数
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 设备不存在、未信任、未采集公钥或签发失败时返回错误文本。
+pub fn grant_create_for_device(
+    device_id: String,
+    template: String,
+    validity_days: u32,
+    now_ms: u64,
+) -> Result<PermissionSnapshotDto, String> {
+    let devices = DeviceList::load(device_path()).map_err(|error| error.to_string())?;
+    let record = devices
+        .get(&device_id)
+        .ok_or_else(|| format!("设备不存在：{device_id}"))?;
+    if !record.trusted {
+        return Err("该设备尚未信任，不能签发授权".to_owned());
+    }
+    if record.public_key_b64.is_empty() {
+        return Err("该设备尚未采集公钥，请重新配对后再授权".to_owned());
+    }
+    let mut audit = AuditLog::new(0);
+    issue_and_store(
+        &record.public_key_b64,
+        &record.name,
+        &template,
+        validity_days,
+        now_ms,
+        &mut audit,
+    )?;
+    append_audit(&audit)?;
+    build_snapshot()
+}
+
+/// 削减授权权限（只能减，不能加）。
+///
+/// # Arguments
+/// * `grant_id` - 授权 ID
+/// * `perms` - 新权限位（u16）
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 授权不存在、已吊销或尝试追加权限时返回错误文本。
+pub fn grant_update_perms(
+    grant_id: String,
+    perms: u32,
+    now_ms: u64,
+) -> Result<PermissionSnapshotDto, String> {
+    let mut audit = AuditLog::new(0);
+    let mut store = load_grants()?;
+    store
+        .update_perms(&grant_id, PermBits::new(perms as u16), now_ms, &mut audit)
+        .map_err(|error| error.to_string())?;
+    save_grants(&store)?;
+    append_audit(&audit)?;
+    build_snapshot()
+}
+
+/// 换模板重签（权限提升必须换新令牌，不能篡改旧令牌）。
+///
+/// # Arguments
+/// * `grant_id` - 旧授权 ID
+/// * `template` - 新模板
+/// * `validity_days` - 新有效期
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 旧授权不存在/已吊销、模板非法或落盘失败时返回错误文本。
+pub fn grant_reissue(
+    grant_id: String,
+    template: String,
+    validity_days: u32,
+    now_ms: u64,
+) -> Result<PermissionSnapshotDto, String> {
+    let mut audit = AuditLog::new(0);
+    let mut store = load_grants()?;
+    let old = store
+        .get(&grant_id)
+        .ok_or_else(|| format!("授权不存在：{grant_id}"))?
+        .clone();
+    if old.revoked {
+        return Err("授权已吊销，不能重签".to_owned());
+    }
+    issue_and_store(
+        &old.token.grantee_pub,
+        &old.grantee_name,
+        &template,
+        validity_days,
+        now_ms,
+        &mut audit,
+    )?;
+    store
+        .revoke(&grant_id, now_ms, &mut audit)
+        .map_err(|error| error.to_string())?;
+    save_grants(&store)?;
+    append_audit(&audit)?;
+    build_snapshot()
+}
+
+/// 吊销授权（最终一致，UI 不得承诺「立即生效」）。
+///
+/// # Arguments
+/// * `grant_id` - 授权 ID
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 授权不存在或落盘失败时返回错误文本。
+pub fn grant_revoke(grant_id: String, now_ms: u64) -> Result<PermissionSnapshotDto, String> {
+    let mut audit = AuditLog::new(0);
+    let mut store = load_grants()?;
+    store
+        .revoke(&grant_id, now_ms, &mut audit)
+        .map_err(|error| error.to_string())?;
+    save_grants(&store)?;
+    append_audit(&audit)?;
+    build_snapshot()
+}
+
+/// 从本机列表移除授权记录（不广播撤销）。
+///
+/// # Arguments
+/// * `grant_id` - 授权 ID
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 落盘失败时返回错误文本。
+pub fn grant_remove(grant_id: String) -> Result<PermissionSnapshotDto, String> {
+    let mut store = load_grants()?;
+    store.remove(&grant_id);
+    save_grants(&store)?;
+    build_snapshot()
+}
+
+/// 立即停止远程访问：停输入 → 断会话 → 落闸门 → 审计。
+///
+/// # Arguments
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 停止报告（含恢复需二次确认状态）。
+///
+/// # Errors
+/// 设置或闸门落盘失败时返回错误文本。
+pub fn remote_access_stop(now_ms: u64) -> Result<RemoteStopDto, String> {
+    let input_stopped = input_service::stop().is_ok();
+    let teardown = session_service::disconnect("owner_stop_remote_access");
+    let (session_stopped, teardown_ok, teardown_summary) = match &teardown {
+        Ok(report) => (
+            true,
+            report.ok,
+            format!(
+                "bye_sent={} acked={} services_running_after={} ports_released={}",
+                report.bye_sent, report.bye_acked, report.services_running_after,
+                report.ports_released
+            ),
+        ),
+        Err(error) => (true, false, error.clone()),
+    };
+
+    let mut settings = AppSettings::load(settings_path()).map_err(|error| error.to_string())?;
+    settings.remote_access_enabled = false;
+    settings
+        .save(settings_path())
+        .map_err(|error| error.to_string())?;
+    let gate = serde_json::json!({ "stopped_ms": now_ms });
+    std::fs::write(resume_gate_path(), gate.to_string()).map_err(|error| error.to_string())?;
+
+    let mut audit = AuditLog::new(0);
+    audit.record(
+        now_ms,
+        "remote_access_stop",
+        "local",
+        "stop_remote_access",
+        Some("remote_access_enabled=true"),
+        Some("remote_access_enabled=false"),
+        if teardown_ok { "ok" } else { "partial" },
+    );
+    let audit_written = append_audit(&audit).is_ok();
+    Ok(RemoteStopDto {
+        input_stopped,
+        session_stopped,
+        teardown_ok,
+        teardown_summary,
+        audit_written,
+        resume_requires_confirm: true,
+        stopped_at_ms: now_ms,
+        snapshot: build_snapshot()?,
+    })
+}
+
+/// 恢复远程访问（必须显式二次确认）。
+///
+/// # Arguments
+/// * `confirm` - 本机二次确认结果；`false` 一律拒绝
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 未确认、设置或闸门写入失败时返回错误文本。
+pub fn remote_access_resume(
+    confirm: bool,
+    now_ms: u64,
+) -> Result<PermissionSnapshotDto, String> {
+    if !confirm {
+        return Err("恢复远程访问需要本机二次确认".to_owned());
+    }
+    let mut settings = AppSettings::load(settings_path()).map_err(|error| error.to_string())?;
+    settings.remote_access_enabled = true;
+    settings
+        .save(settings_path())
+        .map_err(|error| error.to_string())?;
+    match std::fs::remove_file(resume_gate_path()) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(format!("清理恢复闸门失败：{err}")),
+    }
+    let mut audit = AuditLog::new(0);
+    audit.record(
+        now_ms,
+        "remote_access_resume",
+        "local",
+        "resume_remote_access",
+        Some("remote_access_enabled=false"),
+        Some("remote_access_enabled=true"),
+        "allowed",
+    );
+    append_audit(&audit)?;
+    build_snapshot()
+}
+
+/// 写入一台设备的身份公钥（配对成功后调用；页面无此入口，供配对流程使用）。
+///
+/// # Arguments
+/// * `device_id` - 设备 ID
+/// * `public_key_b64` - 对端公钥
+///
+/// # Returns
+/// 更新后的信任设备快照。
+///
+/// # Errors
+/// 设备不存在、公钥非法或落盘失败时返回错误文本。
+pub fn device_set_public_key(
+    device_id: String,
+    public_key_b64: String,
+) -> Result<PermissionSnapshotDto, String> {
+    let mut devices = DeviceList::load(device_path()).map_err(|error| error.to_string())?;
+    if devices.get(&device_id).is_none() {
+        return Err(format!("设备不存在：{device_id}"));
+    }
+    if !public_key_b64.is_empty() {
+        fingerprint_from_b64(&public_key_b64).map_err(|_| "公钥格式非法".to_owned())?;
+    }
+    devices.set_public_key(&device_id, &public_key_b64);
+    devices
+        .save(device_path())
+        .map_err(|error| error.to_string())?;
+    build_snapshot()
 }

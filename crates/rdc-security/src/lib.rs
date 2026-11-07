@@ -27,8 +27,8 @@ pub use handshake::{
     SessionHandshake,
 };
 pub use keys::{
-    derive_channel_keys, derive_sas, from_b64_exact, hmac_sha256_b64, verify_hmac_sha256_b64,
-    verify_signature_b64, ChannelKeys, EphemeralKey, IdentityKeyPair,
+    derive_channel_keys, derive_sas, fingerprint_from_b64, from_b64_exact, hmac_sha256_b64,
+    verify_hmac_sha256_b64, verify_signature_b64, ChannelKeys, EphemeralKey, IdentityKeyPair,
 };
 pub use pake::{
     PakeRole, PakeSession, PairingCode, PAIRING_CODE_TTL_MS, PAIRING_CODE_MAX_FAILURES,

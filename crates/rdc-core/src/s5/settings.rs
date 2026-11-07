@@ -145,10 +145,9 @@ impl AppSettings {
             self.audit_retention_days = 30;
         }
         // VIEW 位不可取消：最低位强制为 1。
-        self.permission_bits = (self.permission_bits & 0x7F) | 0x01;
-        if self.permission_bits > 0x7F {
-            self.permission_bits &= 0x7F;
-        }
+        // 掩码按 docs/07 §4 的九位（0x1FF）收敛，避免 DISPLAY_SWITCH / RECONNECT
+        // 被旧 0x7F 掩码静默丢弃（docs/13 的「七位」表述与 docs/07 冲突，记决策待办）。
+        self.permission_bits = (self.permission_bits & 0x1FF) | 0x01;
         if !matches!(
             self.connection_policy.as_str(),
             "strict_p2p" | "ask_then_fallback" | "auto_fallback"

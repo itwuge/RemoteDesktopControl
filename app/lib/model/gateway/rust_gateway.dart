@@ -652,6 +652,206 @@ class RustGateway {
     );
   }
 
+  // =========** 权限页与授权（S5-5） =========
+
+  /// 读取权限页快照（真实授权/信任设备/会话/审计）。
+  Future<PermissionSnapshot> loadPermissionSnapshot() async {
+    _ensureInitialized();
+    return _toPermissionSnapshot(await rust_api.permissionSnapshot());
+  }
+
+  /// 为已配对设备签发授权。
+  ///
+  /// [validityDays] 为 0 时按默认 30 天；超过 90 天会被 Rust 拒绝。
+  Future<PermissionSnapshot> createGrantForDevice({
+    required String deviceId,
+    required String template,
+    required int validityDays,
+  }) async {
+    _ensureInitialized();
+    final dto = await rust_api.grantCreateForDevice(
+      deviceId: deviceId,
+      template: template,
+      validityDays: validityDays,
+      nowMs: _nowMs(),
+    );
+    return _toPermissionSnapshot(dto);
+  }
+
+  /// 按公钥直接签发授权（高级入口）。
+  Future<PermissionSnapshot> createGrant({
+    required String granteePub,
+    required String granteeName,
+    required String template,
+    required int validityDays,
+  }) async {
+    _ensureInitialized();
+    final dto = await rust_api.grantCreate(
+      granteePub: granteePub,
+      granteeName: granteeName,
+      template: template,
+      validityDays: validityDays,
+      nowMs: _nowMs(),
+    );
+    return _toPermissionSnapshot(dto);
+  }
+
+  /// 削减授权权限（只能减，不能加）。
+  Future<PermissionSnapshot> updateGrantPerms({
+    required String grantId,
+    required int perms,
+  }) async {
+    _ensureInitialized();
+    final dto = await rust_api.grantUpdatePerms(
+      grantId: grantId,
+      perms: perms,
+      nowMs: _nowMs(),
+    );
+    return _toPermissionSnapshot(dto);
+  }
+
+  /// 换模板重签（权限提升必须换新令牌）。
+  Future<PermissionSnapshot> reissueGrant({
+    required String grantId,
+    required String template,
+    required int validityDays,
+  }) async {
+    _ensureInitialized();
+    final dto = await rust_api.grantReissue(
+      grantId: grantId,
+      template: template,
+      validityDays: validityDays,
+      nowMs: _nowMs(),
+    );
+    return _toPermissionSnapshot(dto);
+  }
+
+  /// 吊销授权（最终一致）。
+  Future<PermissionSnapshot> revokeGrant(String grantId) async {
+    _ensureInitialized();
+    final dto = await rust_api.grantRevoke(
+      grantId: grantId,
+      nowMs: _nowMs(),
+    );
+    return _toPermissionSnapshot(dto);
+  }
+
+  /// 从本机列表移除授权。
+  Future<PermissionSnapshot> removeGrant(String grantId) async {
+    _ensureInitialized();
+    final dto = await rust_api.grantRemove(grantId: grantId);
+    return _toPermissionSnapshot(dto);
+  }
+
+  /// 立即停止远程访问（停输入 → 断流 → 审计）。
+  Future<RemoteStopReport> stopRemoteAccess() async {
+    _ensureInitialized();
+    final dto = await rust_api.remoteAccessStop(nowMs: _nowMs());
+    return RemoteStopReport(
+      inputStopped: dto.inputStopped,
+      sessionStopped: dto.sessionStopped,
+      teardownOk: dto.teardownOk,
+      teardownSummary: dto.teardownSummary,
+      auditWritten: dto.auditWritten,
+      resumeRequiresConfirm: dto.resumeRequiresConfirm,
+      stoppedAtMs: dto.stoppedAtMs.toInt(),
+      snapshot: _toPermissionSnapshot(dto.snapshot),
+    );
+  }
+
+  /// 恢复远程访问；[confirm] 必须由本机二次确认后置为 true。
+  Future<PermissionSnapshot> resumeRemoteAccess({bool confirm = false}) async {
+    _ensureInitialized();
+    final dto = await rust_api.remoteAccessResume(
+      confirm: confirm,
+      nowMs: _nowMs(),
+    );
+    return _toPermissionSnapshot(dto);
+  }
+
+  /// 写入设备公钥（配对流程调用；页面无入口）。
+  Future<PermissionSnapshot> setDevicePublicKey({
+    required String deviceId,
+    required String publicKeyB64,
+  }) async {
+    _ensureInitialized();
+    final dto = await rust_api.deviceSetPublicKey(
+      deviceId: deviceId,
+      publicKeyB64: publicKeyB64,
+    );
+    return _toPermissionSnapshot(dto);
+  }
+
+  /// 当前 Unix 毫秒（u64 在 Dart 侧是 BigInt）。
+  BigInt _nowMs() => BigInt.from(DateTime.now().millisecondsSinceEpoch);
+
+  /// 权限快照 DTO → 值对象。
+  PermissionSnapshot _toPermissionSnapshot(rust_api.PermissionSnapshotDto dto) {
+    return PermissionSnapshot(
+      remoteAccessEnabled: dto.remoteAccessEnabled,
+      resumeRequiresConfirm: dto.resumeRequiresConfirm,
+      concurrentMode: dto.concurrentMode,
+      takeoverPolicy: dto.takeoverPolicy,
+      takeoverTimeoutS: dto.takeoverTimeoutS,
+      localPerms: dto.localPerms,
+      maxGrantPerms: dto.maxGrantPerms,
+      activeGrants: dto.activeGrants,
+      grants: dto.grants
+          .map(
+            (grant) => GrantEntry(
+              grantId: grant.grantId,
+              granteePub: grant.granteePub,
+              granteeName: grant.granteeName,
+              granteeFingerprint: grant.granteeFingerprint,
+              template: grant.template,
+              perms: grant.perms,
+              effectivePerms: grant.effectivePerms,
+              notBeforeMs: grant.notBeforeMs.toInt(),
+              expiresAtMs: grant.expiresAtMs.toInt(),
+              revoked: grant.revoked,
+              createdMs: grant.createdMs.toInt(),
+              updatedMs: grant.updatedMs.toInt(),
+            ),
+          )
+          .toList(growable: false),
+      revokedEpoch: dto.revokedEpoch.toInt(),
+      trustDevices: dto.trustDevices
+          .map(
+            (device) => TrustDeviceEntry(
+              deviceId: device.deviceId,
+              name: device.name,
+              trusted: device.trusted,
+              sameAccount: device.sameAccount,
+              fingerprint: device.fingerprint,
+              passwordlessReady: device.passwordlessReady,
+              authMode: device.authMode,
+              lastOnlineMs: device.lastOnlineMs.toInt(),
+            ),
+          )
+          .toList(growable: false),
+      sessionRunning: dto.sessionRunning,
+      sessionRole: dto.sessionRole,
+      connectedLabel: dto.connectedLabel,
+      revocationNote: dto.revocationNote,
+      auditTail: dto.auditTail
+          .map(
+            (entry) => PermissionAuditEntry(
+              tsMs: entry.tsMs.toInt(),
+              kind: entry.kind,
+              subject: entry.subject,
+              action: entry.action,
+              oldValue: entry.oldValue,
+              newValue: entry.newValue,
+              outcome: entry.outcome,
+            ),
+          )
+          .toList(growable: false),
+      grantsPath: dto.grantsPath,
+      identityFingerprint: dto.identityFingerprint,
+      hint: dto.hint,
+    );
+  }
+
   /// 断言桥接已初始化。
   ///
   /// 抛出：[StateError] 当调用方在 init 之前发起命令（属编程错误，应在 main 中避免）。

@@ -12,8 +12,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'session_service.dart';
 
-// These functions are ignored because they are not marked as `pub`: `config_dir`, `device_path`, `from_settings_dto`, `parse_role`, `settings_path`, `to_control_status`, `to_device_dto`, `to_settings_dto`, `to_wall_status`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `append_audit`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `template_of`, `to_control_status`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// 返回 Rust 核心版本号。
 ///
@@ -462,6 +462,253 @@ Future<SessionStatusDto> sessionStatus() =>
 Future<SessionTeardownDto> sessionDisconnect({required String reason}) =>
     RustLib.instance.api.crateApiSessionDisconnect(reason: reason);
 
+/// 读取权限页快照。
+///
+/// # Returns
+/// 真实授权/信任设备/会话/审计数据。
+///
+/// # Errors
+/// 授权文件或设备文件损坏、身份无法落盘时返回错误文本。
+Future<PermissionSnapshotDto> permissionSnapshot() =>
+    RustLib.instance.api.crateApiPermissionSnapshot();
+
+/// 签发授权（按模板）。
+///
+/// # Arguments
+/// * `grantee_pub` - 被授权方公钥（Base64）
+/// * `grantee_name` - 显示名
+/// * `template` - `readonly` / `operate` / `full`
+/// * `validity_days` - 有效期天数（0=30，最大 90）
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 公钥非法、模板未知、超 90 天或落盘失败时返回错误文本。
+Future<PermissionSnapshotDto> grantCreate({
+  required String granteePub,
+  required String granteeName,
+  required String template,
+  required int validityDays,
+  required BigInt nowMs,
+}) => RustLib.instance.api.crateApiGrantCreate(
+  granteePub: granteePub,
+  granteeName: granteeName,
+  template: template,
+  validityDays: validityDays,
+  nowMs: nowMs,
+);
+
+/// 为已配对设备签发授权。
+///
+/// # Arguments
+/// * `device_id` - 地址簿设备 ID
+/// * `template` - 模板名
+/// * `validity_days` - 有效期天数
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 设备不存在、未信任、未采集公钥或签发失败时返回错误文本。
+Future<PermissionSnapshotDto> grantCreateForDevice({
+  required String deviceId,
+  required String template,
+  required int validityDays,
+  required BigInt nowMs,
+}) => RustLib.instance.api.crateApiGrantCreateForDevice(
+  deviceId: deviceId,
+  template: template,
+  validityDays: validityDays,
+  nowMs: nowMs,
+);
+
+/// 削减授权权限（只能减，不能加）。
+///
+/// # Arguments
+/// * `grant_id` - 授权 ID
+/// * `perms` - 新权限位（u16）
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 授权不存在、已吊销或尝试追加权限时返回错误文本。
+Future<PermissionSnapshotDto> grantUpdatePerms({
+  required String grantId,
+  required int perms,
+  required BigInt nowMs,
+}) => RustLib.instance.api.crateApiGrantUpdatePerms(
+  grantId: grantId,
+  perms: perms,
+  nowMs: nowMs,
+);
+
+/// 换模板重签（权限提升必须换新令牌，不能篡改旧令牌）。
+///
+/// # Arguments
+/// * `grant_id` - 旧授权 ID
+/// * `template` - 新模板
+/// * `validity_days` - 新有效期
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 旧授权不存在/已吊销、模板非法或落盘失败时返回错误文本。
+Future<PermissionSnapshotDto> grantReissue({
+  required String grantId,
+  required String template,
+  required int validityDays,
+  required BigInt nowMs,
+}) => RustLib.instance.api.crateApiGrantReissue(
+  grantId: grantId,
+  template: template,
+  validityDays: validityDays,
+  nowMs: nowMs,
+);
+
+/// 吊销授权（最终一致，UI 不得承诺「立即生效」）。
+///
+/// # Arguments
+/// * `grant_id` - 授权 ID
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 授权不存在或落盘失败时返回错误文本。
+Future<PermissionSnapshotDto> grantRevoke({
+  required String grantId,
+  required BigInt nowMs,
+}) => RustLib.instance.api.crateApiGrantRevoke(grantId: grantId, nowMs: nowMs);
+
+/// 从本机列表移除授权记录（不广播撤销）。
+///
+/// # Arguments
+/// * `grant_id` - 授权 ID
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 落盘失败时返回错误文本。
+Future<PermissionSnapshotDto> grantRemove({required String grantId}) =>
+    RustLib.instance.api.crateApiGrantRemove(grantId: grantId);
+
+/// 立即停止远程访问：停输入 → 断会话 → 落闸门 → 审计。
+///
+/// # Arguments
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 停止报告（含恢复需二次确认状态）。
+///
+/// # Errors
+/// 设置或闸门落盘失败时返回错误文本。
+Future<RemoteStopDto> remoteAccessStop({required BigInt nowMs}) =>
+    RustLib.instance.api.crateApiRemoteAccessStop(nowMs: nowMs);
+
+/// 恢复远程访问（必须显式二次确认）。
+///
+/// # Arguments
+/// * `confirm` - 本机二次确认结果；`false` 一律拒绝
+/// * `now_ms` - 当前 Unix 毫秒
+///
+/// # Returns
+/// 更新后的快照。
+///
+/// # Errors
+/// 未确认、设置或闸门写入失败时返回错误文本。
+Future<PermissionSnapshotDto> remoteAccessResume({
+  required bool confirm,
+  required BigInt nowMs,
+}) => RustLib.instance.api.crateApiRemoteAccessResume(
+  confirm: confirm,
+  nowMs: nowMs,
+);
+
+/// 写入一台设备的身份公钥（配对成功后调用；页面无此入口，供配对流程使用）。
+///
+/// # Arguments
+/// * `device_id` - 设备 ID
+/// * `public_key_b64` - 对端公钥
+///
+/// # Returns
+/// 更新后的信任设备快照。
+///
+/// # Errors
+/// 设备不存在、公钥非法或落盘失败时返回错误文本。
+Future<PermissionSnapshotDto> deviceSetPublicKey({
+  required String deviceId,
+  required String publicKeyB64,
+}) => RustLib.instance.api.crateApiDeviceSetPublicKey(
+  deviceId: deviceId,
+  publicKeyB64: publicKeyB64,
+);
+
+/// 审计条目 DTO。
+class AuditEntryDto {
+  /// Unix 毫秒。
+  final BigInt tsMs;
+
+  /// 事件类别。
+  final String kind;
+
+  /// 主体。
+  final String subject;
+
+  /// 动作。
+  final String action;
+
+  /// 旧值。
+  final String oldValue;
+
+  /// 新值。
+  final String newValue;
+
+  /// 结果。
+  final String outcome;
+
+  const AuditEntryDto({
+    required this.tsMs,
+    required this.kind,
+    required this.subject,
+    required this.action,
+    required this.oldValue,
+    required this.newValue,
+    required this.outcome,
+  });
+
+  @override
+  int get hashCode =>
+      tsMs.hashCode ^
+      kind.hashCode ^
+      subject.hashCode ^
+      action.hashCode ^
+      oldValue.hashCode ^
+      newValue.hashCode ^
+      outcome.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AuditEntryDto &&
+          runtimeType == other.runtimeType &&
+          tsMs == other.tsMs &&
+          kind == other.kind &&
+          subject == other.subject &&
+          action == other.action &&
+          oldValue == other.oldValue &&
+          newValue == other.newValue &&
+          outcome == other.outcome;
+}
+
 /// 控制页预览状态。
 class ControlStatusDto {
   /// 是否运行。
@@ -688,6 +935,285 @@ class DeviceListDto {
           path == other.path;
 }
 
+/// 授权条目 DTO（跨 FFI）。
+class GrantDto {
+  /// 授权 ID。
+  final String grantId;
+
+  /// 被授权方公钥（Base64）。
+  final String granteePub;
+
+  /// 被授权方显示名。
+  final String granteeName;
+
+  /// 被授权方公钥指纹（冒号分隔）。
+  final String granteeFingerprint;
+
+  /// 模板名：`readonly` / `operate` / `full` / `custom`。
+  final String template;
+
+  /// 令牌权限位（u16）。
+  final int perms;
+
+  /// 本机生效权限位（只减不增）。
+  final int effectivePerms;
+
+  /// 生效时间（Unix 毫秒）。
+  final BigInt notBeforeMs;
+
+  /// 到期时间（Unix 毫秒）。
+  final BigInt expiresAtMs;
+
+  /// 是否已吊销。
+  final bool revoked;
+
+  /// 创建时间。
+  final BigInt createdMs;
+
+  /// 最后修改时间。
+  final BigInt updatedMs;
+
+  const GrantDto({
+    required this.grantId,
+    required this.granteePub,
+    required this.granteeName,
+    required this.granteeFingerprint,
+    required this.template,
+    required this.perms,
+    required this.effectivePerms,
+    required this.notBeforeMs,
+    required this.expiresAtMs,
+    required this.revoked,
+    required this.createdMs,
+    required this.updatedMs,
+  });
+
+  @override
+  int get hashCode =>
+      grantId.hashCode ^
+      granteePub.hashCode ^
+      granteeName.hashCode ^
+      granteeFingerprint.hashCode ^
+      template.hashCode ^
+      perms.hashCode ^
+      effectivePerms.hashCode ^
+      notBeforeMs.hashCode ^
+      expiresAtMs.hashCode ^
+      revoked.hashCode ^
+      createdMs.hashCode ^
+      updatedMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is GrantDto &&
+          runtimeType == other.runtimeType &&
+          grantId == other.grantId &&
+          granteePub == other.granteePub &&
+          granteeName == other.granteeName &&
+          granteeFingerprint == other.granteeFingerprint &&
+          template == other.template &&
+          perms == other.perms &&
+          effectivePerms == other.effectivePerms &&
+          notBeforeMs == other.notBeforeMs &&
+          expiresAtMs == other.expiresAtMs &&
+          revoked == other.revoked &&
+          createdMs == other.createdMs &&
+          updatedMs == other.updatedMs;
+}
+
+/// 权限页快照（真实内核数据）。
+class PermissionSnapshotDto {
+  /// 远程访问总开关。
+  final bool remoteAccessEnabled;
+
+  /// 是否处于「已停止，恢复需二次确认」状态。
+  final bool resumeRequiresConfirm;
+
+  /// 并发模式。
+  final String concurrentMode;
+
+  /// 接管策略。
+  final String takeoverPolicy;
+
+  /// 本机确认超时（秒）。
+  final int takeoverTimeoutS;
+
+  /// 本机允许权限位（u16）。
+  final int localPerms;
+
+  /// 本次运行可授予的最大权限位（u16，含敏感位）。
+  final int maxGrantPerms;
+
+  /// 未吊销授权数。
+  final int activeGrants;
+
+  /// 授权列表（含已吊销，按 ID 升序）。
+  final List<GrantDto> grants;
+
+  /// 撤销世代。
+  final BigInt revokedEpoch;
+
+  /// 已信任设备。
+  final List<TrustDeviceDto> trustDevices;
+
+  /// 当前是否有远程会话。
+  final bool sessionRunning;
+
+  /// 当前会话角色（`controller` / `viewer` / 空）。
+  final String sessionRole;
+
+  /// 「谁在连接」展示文案。
+  final String connectedLabel;
+
+  /// 撤销最终一致文案（不得含「立即生效」）。
+  final String revocationNote;
+
+  /// 最近审计（新的在后，最多 20 条）。
+  final List<AuditEntryDto> auditTail;
+
+  /// 授权存储路径。
+  final String grantsPath;
+
+  /// 本机身份公钥指纹。
+  final String identityFingerprint;
+
+  /// 非致命提示（如「尚无信任设备」）。
+  final String hint;
+
+  const PermissionSnapshotDto({
+    required this.remoteAccessEnabled,
+    required this.resumeRequiresConfirm,
+    required this.concurrentMode,
+    required this.takeoverPolicy,
+    required this.takeoverTimeoutS,
+    required this.localPerms,
+    required this.maxGrantPerms,
+    required this.activeGrants,
+    required this.grants,
+    required this.revokedEpoch,
+    required this.trustDevices,
+    required this.sessionRunning,
+    required this.sessionRole,
+    required this.connectedLabel,
+    required this.revocationNote,
+    required this.auditTail,
+    required this.grantsPath,
+    required this.identityFingerprint,
+    required this.hint,
+  });
+
+  @override
+  int get hashCode =>
+      remoteAccessEnabled.hashCode ^
+      resumeRequiresConfirm.hashCode ^
+      concurrentMode.hashCode ^
+      takeoverPolicy.hashCode ^
+      takeoverTimeoutS.hashCode ^
+      localPerms.hashCode ^
+      maxGrantPerms.hashCode ^
+      activeGrants.hashCode ^
+      grants.hashCode ^
+      revokedEpoch.hashCode ^
+      trustDevices.hashCode ^
+      sessionRunning.hashCode ^
+      sessionRole.hashCode ^
+      connectedLabel.hashCode ^
+      revocationNote.hashCode ^
+      auditTail.hashCode ^
+      grantsPath.hashCode ^
+      identityFingerprint.hashCode ^
+      hint.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is PermissionSnapshotDto &&
+          runtimeType == other.runtimeType &&
+          remoteAccessEnabled == other.remoteAccessEnabled &&
+          resumeRequiresConfirm == other.resumeRequiresConfirm &&
+          concurrentMode == other.concurrentMode &&
+          takeoverPolicy == other.takeoverPolicy &&
+          takeoverTimeoutS == other.takeoverTimeoutS &&
+          localPerms == other.localPerms &&
+          maxGrantPerms == other.maxGrantPerms &&
+          activeGrants == other.activeGrants &&
+          grants == other.grants &&
+          revokedEpoch == other.revokedEpoch &&
+          trustDevices == other.trustDevices &&
+          sessionRunning == other.sessionRunning &&
+          sessionRole == other.sessionRole &&
+          connectedLabel == other.connectedLabel &&
+          revocationNote == other.revocationNote &&
+          auditTail == other.auditTail &&
+          grantsPath == other.grantsPath &&
+          identityFingerprint == other.identityFingerprint &&
+          hint == other.hint;
+}
+
+/// 立即停止远程访问报告。
+class RemoteStopDto {
+  /// 输入通道是否已停。
+  final bool inputStopped;
+
+  /// 会话是否已断。
+  final bool sessionStopped;
+
+  /// 收尾报告是否通过。
+  final bool teardownOk;
+
+  /// 收尾摘要。
+  final String teardownSummary;
+
+  /// 审计是否落盘。
+  final bool auditWritten;
+
+  /// 恢复是否需要本机二次确认。
+  final bool resumeRequiresConfirm;
+
+  /// 停止时刻（Unix 毫秒）。
+  final BigInt stoppedAtMs;
+
+  /// 停止后的权限页快照。
+  final PermissionSnapshotDto snapshot;
+
+  const RemoteStopDto({
+    required this.inputStopped,
+    required this.sessionStopped,
+    required this.teardownOk,
+    required this.teardownSummary,
+    required this.auditWritten,
+    required this.resumeRequiresConfirm,
+    required this.stoppedAtMs,
+    required this.snapshot,
+  });
+
+  @override
+  int get hashCode =>
+      inputStopped.hashCode ^
+      sessionStopped.hashCode ^
+      teardownOk.hashCode ^
+      teardownSummary.hashCode ^
+      auditWritten.hashCode ^
+      resumeRequiresConfirm.hashCode ^
+      stoppedAtMs.hashCode ^
+      snapshot.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RemoteStopDto &&
+          runtimeType == other.runtimeType &&
+          inputStopped == other.inputStopped &&
+          sessionStopped == other.sessionStopped &&
+          teardownOk == other.teardownOk &&
+          teardownSummary == other.teardownSummary &&
+          auditWritten == other.auditWritten &&
+          resumeRequiresConfirm == other.resumeRequiresConfirm &&
+          stoppedAtMs == other.stoppedAtMs &&
+          snapshot == other.snapshot;
+}
+
 /// 会话角色信息。
 class RoleInfoDto {
   /// 角色字符串：`viewer` / `controller`。
@@ -864,6 +1390,69 @@ class SettingsDto {
           sameAccountPolicy == other.sameAccountPolicy &&
           passwordlessPolicy == other.passwordlessPolicy &&
           path == other.path;
+}
+
+/// 信任设备 DTO（带公钥指纹与免密可用性）。
+class TrustDeviceDto {
+  /// 设备 ID。
+  final String deviceId;
+
+  /// 显示名。
+  final String name;
+
+  /// 是否信任。
+  final bool trusted;
+
+  /// 是否同账号。
+  final bool sameAccount;
+
+  /// 公钥指纹；未采集公钥时为空。
+  final String fingerprint;
+
+  /// 是否已具备免密条件（信任 + 有公钥）。
+  final bool passwordlessReady;
+
+  /// 本次实际会走的认证方式：`passwordless` / `pairing_code`。
+  final String authMode;
+
+  /// 最后在线（Unix 毫秒）。
+  final BigInt lastOnlineMs;
+
+  const TrustDeviceDto({
+    required this.deviceId,
+    required this.name,
+    required this.trusted,
+    required this.sameAccount,
+    required this.fingerprint,
+    required this.passwordlessReady,
+    required this.authMode,
+    required this.lastOnlineMs,
+  });
+
+  @override
+  int get hashCode =>
+      deviceId.hashCode ^
+      name.hashCode ^
+      trusted.hashCode ^
+      sameAccount.hashCode ^
+      fingerprint.hashCode ^
+      passwordlessReady.hashCode ^
+      authMode.hashCode ^
+      lastOnlineMs.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TrustDeviceDto &&
+          runtimeType == other.runtimeType &&
+          deviceId == other.deviceId &&
+          name == other.name &&
+          trusted == other.trusted &&
+          sameAccount == other.sameAccount &&
+          fingerprint == other.fingerprint &&
+          passwordlessReady == other.passwordlessReady &&
+          authMode == other.authMode &&
+          lastOnlineMs == other.lastOnlineMs;
 }
 
 /// 一帧预览。

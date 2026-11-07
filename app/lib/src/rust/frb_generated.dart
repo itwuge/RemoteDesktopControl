@@ -72,7 +72,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 419041401;
+  int get rustContentHash => -1319243950;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -118,6 +118,11 @@ abstract class RustLibApi extends BaseApi {
 
   Future<DeviceListDto> crateApiDeviceRemove({required String deviceId});
 
+  Future<PermissionSnapshotDto> crateApiDeviceSetPublicKey({
+    required String deviceId,
+    required String publicKeyB64,
+  });
+
   Future<DeviceListDto> crateApiDeviceUpdate({
     required String deviceId,
     required String name,
@@ -137,6 +142,41 @@ abstract class RustLibApi extends BaseApi {
     required BigInt chunkSize,
   });
 
+  Future<PermissionSnapshotDto> crateApiGrantCreate({
+    required String granteePub,
+    required String granteeName,
+    required String template,
+    required int validityDays,
+    required BigInt nowMs,
+  });
+
+  Future<PermissionSnapshotDto> crateApiGrantCreateForDevice({
+    required String deviceId,
+    required String template,
+    required int validityDays,
+    required BigInt nowMs,
+  });
+
+  Future<PermissionSnapshotDto> crateApiGrantReissue({
+    required String grantId,
+    required String template,
+    required int validityDays,
+    required BigInt nowMs,
+  });
+
+  Future<PermissionSnapshotDto> crateApiGrantRemove({required String grantId});
+
+  Future<PermissionSnapshotDto> crateApiGrantRevoke({
+    required String grantId,
+    required BigInt nowMs,
+  });
+
+  Future<PermissionSnapshotDto> crateApiGrantUpdatePerms({
+    required String grantId,
+    required int perms,
+    required BigInt nowMs,
+  });
+
   Future<bool> crateApiInputAllowed({required String role});
 
   Future<InputStatsDto> crateApiInputFlush();
@@ -154,7 +194,16 @@ abstract class RustLibApi extends BaseApi {
 
   Future<InputStatsDto> crateApiInputStop();
 
+  Future<PermissionSnapshotDto> crateApiPermissionSnapshot();
+
   Future<String> crateApiPlatformName();
+
+  Future<PermissionSnapshotDto> crateApiRemoteAccessResume({
+    required bool confirm,
+    required BigInt nowMs,
+  });
+
+  Future<RemoteStopDto> crateApiRemoteAccessStop({required BigInt nowMs});
 
   Future<RoleInfoDto> crateApiRoleInfo({required String role});
 
@@ -610,6 +659,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "device_remove", argNames: ["deviceId"]);
 
   @override
+  Future<PermissionSnapshotDto> crateApiDeviceSetPublicKey({
+    required String deviceId,
+    required String publicKeyB64,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(deviceId, serializer);
+          sse_encode_String(publicKeyB64, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 16,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_permission_snapshot_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiDeviceSetPublicKeyConstMeta,
+        argValues: [deviceId, publicKeyB64],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiDeviceSetPublicKeyConstMeta => const TaskConstMeta(
+    debugName: "device_set_public_key",
+    argNames: ["deviceId", "publicKeyB64"],
+  );
+
+  @override
   Future<DeviceListDto> crateApiDeviceUpdate({
     required String deviceId,
     required String name,
@@ -627,7 +710,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 17,
             port: port_,
           );
         },
@@ -656,7 +739,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 18,
             port: port_,
           );
         },
@@ -686,7 +769,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 19,
             port: port_,
           );
         },
@@ -713,7 +796,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 20,
             port: port_,
           );
         },
@@ -747,7 +830,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 21,
             port: port_,
           );
         },
@@ -768,6 +851,227 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   );
 
   @override
+  Future<PermissionSnapshotDto> crateApiGrantCreate({
+    required String granteePub,
+    required String granteeName,
+    required String template,
+    required int validityDays,
+    required BigInt nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(granteePub, serializer);
+          sse_encode_String(granteeName, serializer);
+          sse_encode_String(template, serializer);
+          sse_encode_u_32(validityDays, serializer);
+          sse_encode_u_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 22,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_permission_snapshot_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGrantCreateConstMeta,
+        argValues: [granteePub, granteeName, template, validityDays, nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGrantCreateConstMeta => const TaskConstMeta(
+    debugName: "grant_create",
+    argNames: [
+      "granteePub",
+      "granteeName",
+      "template",
+      "validityDays",
+      "nowMs",
+    ],
+  );
+
+  @override
+  Future<PermissionSnapshotDto> crateApiGrantCreateForDevice({
+    required String deviceId,
+    required String template,
+    required int validityDays,
+    required BigInt nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(deviceId, serializer);
+          sse_encode_String(template, serializer);
+          sse_encode_u_32(validityDays, serializer);
+          sse_encode_u_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 23,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_permission_snapshot_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGrantCreateForDeviceConstMeta,
+        argValues: [deviceId, template, validityDays, nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGrantCreateForDeviceConstMeta =>
+      const TaskConstMeta(
+        debugName: "grant_create_for_device",
+        argNames: ["deviceId", "template", "validityDays", "nowMs"],
+      );
+
+  @override
+  Future<PermissionSnapshotDto> crateApiGrantReissue({
+    required String grantId,
+    required String template,
+    required int validityDays,
+    required BigInt nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(grantId, serializer);
+          sse_encode_String(template, serializer);
+          sse_encode_u_32(validityDays, serializer);
+          sse_encode_u_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 24,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_permission_snapshot_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGrantReissueConstMeta,
+        argValues: [grantId, template, validityDays, nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGrantReissueConstMeta => const TaskConstMeta(
+    debugName: "grant_reissue",
+    argNames: ["grantId", "template", "validityDays", "nowMs"],
+  );
+
+  @override
+  Future<PermissionSnapshotDto> crateApiGrantRemove({required String grantId}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(grantId, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 25,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_permission_snapshot_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGrantRemoveConstMeta,
+        argValues: [grantId],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGrantRemoveConstMeta =>
+      const TaskConstMeta(debugName: "grant_remove", argNames: ["grantId"]);
+
+  @override
+  Future<PermissionSnapshotDto> crateApiGrantRevoke({
+    required String grantId,
+    required BigInt nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(grantId, serializer);
+          sse_encode_u_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 26,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_permission_snapshot_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGrantRevokeConstMeta,
+        argValues: [grantId, nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGrantRevokeConstMeta => const TaskConstMeta(
+    debugName: "grant_revoke",
+    argNames: ["grantId", "nowMs"],
+  );
+
+  @override
+  Future<PermissionSnapshotDto> crateApiGrantUpdatePerms({
+    required String grantId,
+    required int perms,
+    required BigInt nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(grantId, serializer);
+          sse_encode_u_32(perms, serializer);
+          sse_encode_u_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 27,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_permission_snapshot_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiGrantUpdatePermsConstMeta,
+        argValues: [grantId, perms, nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiGrantUpdatePermsConstMeta => const TaskConstMeta(
+    debugName: "grant_update_perms",
+    argNames: ["grantId", "perms", "nowMs"],
+  );
+
+  @override
   Future<bool> crateApiInputAllowed({required String role}) {
     return handler.executeNormal(
       NormalTask(
@@ -777,7 +1081,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 28,
             port: port_,
           );
         },
@@ -804,7 +1108,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 29,
             port: port_,
           );
         },
@@ -834,7 +1138,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 30,
             port: port_,
           );
         },
@@ -866,7 +1170,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 31,
             port: port_,
           );
         },
@@ -895,7 +1199,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 32,
             port: port_,
           );
         },
@@ -922,7 +1226,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 33,
             port: port_,
           );
         },
@@ -941,6 +1245,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "input_stop", argNames: []);
 
   @override
+  Future<PermissionSnapshotDto> crateApiPermissionSnapshot() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 34,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_permission_snapshot_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiPermissionSnapshotConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiPermissionSnapshotConstMeta =>
+      const TaskConstMeta(debugName: "permission_snapshot", argNames: []);
+
+  @override
   Future<String> crateApiPlatformName() {
     return handler.executeNormal(
       NormalTask(
@@ -949,7 +1280,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 27,
+            funcId: 35,
             port: port_,
           );
         },
@@ -968,6 +1299,68 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "platform_name", argNames: []);
 
   @override
+  Future<PermissionSnapshotDto> crateApiRemoteAccessResume({
+    required bool confirm,
+    required BigInt nowMs,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_bool(confirm, serializer);
+          sse_encode_u_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 36,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_permission_snapshot_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRemoteAccessResumeConstMeta,
+        argValues: [confirm, nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRemoteAccessResumeConstMeta => const TaskConstMeta(
+    debugName: "remote_access_resume",
+    argNames: ["confirm", "nowMs"],
+  );
+
+  @override
+  Future<RemoteStopDto> crateApiRemoteAccessStop({required BigInt nowMs}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_u_64(nowMs, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 37,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_remote_stop_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiRemoteAccessStopConstMeta,
+        argValues: [nowMs],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiRemoteAccessStopConstMeta =>
+      const TaskConstMeta(debugName: "remote_access_stop", argNames: ["nowMs"]);
+
+  @override
   Future<RoleInfoDto> crateApiRoleInfo({required String role}) {
     return handler.executeNormal(
       NormalTask(
@@ -977,7 +1370,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 28,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1007,7 +1400,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 29,
+            funcId: 39,
             port: port_,
           );
         },
@@ -1037,7 +1430,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 30,
+            funcId: 40,
             port: port_,
           );
         },
@@ -1064,7 +1457,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 41,
             port: port_,
           );
         },
@@ -1091,7 +1484,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 42,
             port: port_,
           );
         },
@@ -1119,7 +1512,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 43,
             port: port_,
           );
         },
@@ -1146,7 +1539,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 44,
             port: port_,
           );
         },
@@ -1173,7 +1566,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 35,
+            funcId: 45,
             port: port_,
           );
         },
@@ -1200,7 +1593,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 36,
+            funcId: 46,
             port: port_,
           );
         },
@@ -1227,7 +1620,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 37,
+            funcId: 47,
             port: port_,
           );
         },
@@ -1254,7 +1647,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 38,
+            funcId: 48,
             port: port_,
           );
         },
@@ -1276,6 +1669,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   String dco_decode_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as String;
+  }
+
+  @protected
+  AuditEntryDto dco_decode_audit_entry_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 7)
+      throw Exception('unexpected arr length: expect 7 but see ${arr.length}');
+    return AuditEntryDto(
+      tsMs: dco_decode_u_64(arr[0]),
+      kind: dco_decode_String(arr[1]),
+      subject: dco_decode_String(arr[2]),
+      action: dco_decode_String(arr[3]),
+      oldValue: dco_decode_String(arr[4]),
+      newValue: dco_decode_String(arr[5]),
+      outcome: dco_decode_String(arr[6]),
+    );
   }
 
   @protected
@@ -1405,6 +1815,28 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GrantDto dco_decode_grant_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 12)
+      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
+    return GrantDto(
+      grantId: dco_decode_String(arr[0]),
+      granteePub: dco_decode_String(arr[1]),
+      granteeName: dco_decode_String(arr[2]),
+      granteeFingerprint: dco_decode_String(arr[3]),
+      template: dco_decode_String(arr[4]),
+      perms: dco_decode_u_32(arr[5]),
+      effectivePerms: dco_decode_u_32(arr[6]),
+      notBeforeMs: dco_decode_u_64(arr[7]),
+      expiresAtMs: dco_decode_u_64(arr[8]),
+      revoked: dco_decode_bool(arr[9]),
+      createdMs: dco_decode_u_64(arr[10]),
+      updatedMs: dco_decode_u_64(arr[11]),
+    );
+  }
+
+  @protected
   int dco_decode_i_32(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -1467,9 +1899,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<AuditEntryDto> dco_decode_list_audit_entry_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_audit_entry_dto).toList();
+  }
+
+  @protected
   List<DeviceDto> dco_decode_list_device_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return (raw as List<dynamic>).map(dco_decode_device_dto).toList();
+  }
+
+  @protected
+  List<GrantDto> dco_decode_list_grant_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_grant_dto).toList();
   }
 
   @protected
@@ -1491,6 +1935,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TrustDeviceDto> dco_decode_list_trust_device_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    return (raw as List<dynamic>).map(dco_decode_trust_device_dto).toList();
+  }
+
+  @protected
   String? dco_decode_opt_String(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_String(raw);
@@ -1500,6 +1950,53 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   WallPreviewDto? dco_decode_opt_box_autoadd_wall_preview_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_wall_preview_dto(raw);
+  }
+
+  @protected
+  PermissionSnapshotDto dco_decode_permission_snapshot_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 19)
+      throw Exception('unexpected arr length: expect 19 but see ${arr.length}');
+    return PermissionSnapshotDto(
+      remoteAccessEnabled: dco_decode_bool(arr[0]),
+      resumeRequiresConfirm: dco_decode_bool(arr[1]),
+      concurrentMode: dco_decode_String(arr[2]),
+      takeoverPolicy: dco_decode_String(arr[3]),
+      takeoverTimeoutS: dco_decode_u_32(arr[4]),
+      localPerms: dco_decode_u_32(arr[5]),
+      maxGrantPerms: dco_decode_u_32(arr[6]),
+      activeGrants: dco_decode_u_32(arr[7]),
+      grants: dco_decode_list_grant_dto(arr[8]),
+      revokedEpoch: dco_decode_u_64(arr[9]),
+      trustDevices: dco_decode_list_trust_device_dto(arr[10]),
+      sessionRunning: dco_decode_bool(arr[11]),
+      sessionRole: dco_decode_String(arr[12]),
+      connectedLabel: dco_decode_String(arr[13]),
+      revocationNote: dco_decode_String(arr[14]),
+      auditTail: dco_decode_list_audit_entry_dto(arr[15]),
+      grantsPath: dco_decode_String(arr[16]),
+      identityFingerprint: dco_decode_String(arr[17]),
+      hint: dco_decode_String(arr[18]),
+    );
+  }
+
+  @protected
+  RemoteStopDto dco_decode_remote_stop_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return RemoteStopDto(
+      inputStopped: dco_decode_bool(arr[0]),
+      sessionStopped: dco_decode_bool(arr[1]),
+      teardownOk: dco_decode_bool(arr[2]),
+      teardownSummary: dco_decode_String(arr[3]),
+      auditWritten: dco_decode_bool(arr[4]),
+      resumeRequiresConfirm: dco_decode_bool(arr[5]),
+      stoppedAtMs: dco_decode_u_64(arr[6]),
+      snapshot: dco_decode_permission_snapshot_dto(arr[7]),
+    );
   }
 
   @protected
@@ -1604,6 +2101,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TrustDeviceDto dco_decode_trust_device_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 8)
+      throw Exception('unexpected arr length: expect 8 but see ${arr.length}');
+    return TrustDeviceDto(
+      deviceId: dco_decode_String(arr[0]),
+      name: dco_decode_String(arr[1]),
+      trusted: dco_decode_bool(arr[2]),
+      sameAccount: dco_decode_bool(arr[3]),
+      fingerprint: dco_decode_String(arr[4]),
+      passwordlessReady: dco_decode_bool(arr[5]),
+      authMode: dco_decode_String(arr[6]),
+      lastOnlineMs: dco_decode_u_64(arr[7]),
+    );
+  }
+
+  @protected
   int dco_decode_u_16(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as int;
@@ -1677,6 +2192,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var inner = sse_decode_list_prim_u_8_strict(deserializer);
     return utf8.decoder.convert(inner);
+  }
+
+  @protected
+  AuditEntryDto sse_decode_audit_entry_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_tsMs = sse_decode_u_64(deserializer);
+    var var_kind = sse_decode_String(deserializer);
+    var var_subject = sse_decode_String(deserializer);
+    var var_action = sse_decode_String(deserializer);
+    var var_oldValue = sse_decode_String(deserializer);
+    var var_newValue = sse_decode_String(deserializer);
+    var var_outcome = sse_decode_String(deserializer);
+    return AuditEntryDto(
+      tsMs: var_tsMs,
+      kind: var_kind,
+      subject: var_subject,
+      action: var_action,
+      oldValue: var_oldValue,
+      newValue: var_newValue,
+      outcome: var_outcome,
+    );
   }
 
   @protected
@@ -1846,6 +2382,37 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  GrantDto sse_decode_grant_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_grantId = sse_decode_String(deserializer);
+    var var_granteePub = sse_decode_String(deserializer);
+    var var_granteeName = sse_decode_String(deserializer);
+    var var_granteeFingerprint = sse_decode_String(deserializer);
+    var var_template = sse_decode_String(deserializer);
+    var var_perms = sse_decode_u_32(deserializer);
+    var var_effectivePerms = sse_decode_u_32(deserializer);
+    var var_notBeforeMs = sse_decode_u_64(deserializer);
+    var var_expiresAtMs = sse_decode_u_64(deserializer);
+    var var_revoked = sse_decode_bool(deserializer);
+    var var_createdMs = sse_decode_u_64(deserializer);
+    var var_updatedMs = sse_decode_u_64(deserializer);
+    return GrantDto(
+      grantId: var_grantId,
+      granteePub: var_granteePub,
+      granteeName: var_granteeName,
+      granteeFingerprint: var_granteeFingerprint,
+      template: var_template,
+      perms: var_perms,
+      effectivePerms: var_effectivePerms,
+      notBeforeMs: var_notBeforeMs,
+      expiresAtMs: var_expiresAtMs,
+      revoked: var_revoked,
+      createdMs: var_createdMs,
+      updatedMs: var_updatedMs,
+    );
+  }
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getInt32();
@@ -1932,6 +2499,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<AuditEntryDto> sse_decode_list_audit_entry_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <AuditEntryDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_audit_entry_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   List<DeviceDto> sse_decode_list_device_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -1939,6 +2520,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var ans_ = <DeviceDto>[];
     for (var idx_ = 0; idx_ < len_; ++idx_) {
       ans_.add(sse_decode_device_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
+  List<GrantDto> sse_decode_list_grant_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <GrantDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_grant_dto(deserializer));
     }
     return ans_;
   }
@@ -1979,6 +2572,20 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  List<TrustDeviceDto> sse_decode_list_trust_device_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+
+    var len_ = sse_decode_i_32(deserializer);
+    var ans_ = <TrustDeviceDto>[];
+    for (var idx_ = 0; idx_ < len_; ++idx_) {
+      ans_.add(sse_decode_trust_device_dto(deserializer));
+    }
+    return ans_;
+  }
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -2000,6 +2607,76 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     } else {
       return null;
     }
+  }
+
+  @protected
+  PermissionSnapshotDto sse_decode_permission_snapshot_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_remoteAccessEnabled = sse_decode_bool(deserializer);
+    var var_resumeRequiresConfirm = sse_decode_bool(deserializer);
+    var var_concurrentMode = sse_decode_String(deserializer);
+    var var_takeoverPolicy = sse_decode_String(deserializer);
+    var var_takeoverTimeoutS = sse_decode_u_32(deserializer);
+    var var_localPerms = sse_decode_u_32(deserializer);
+    var var_maxGrantPerms = sse_decode_u_32(deserializer);
+    var var_activeGrants = sse_decode_u_32(deserializer);
+    var var_grants = sse_decode_list_grant_dto(deserializer);
+    var var_revokedEpoch = sse_decode_u_64(deserializer);
+    var var_trustDevices = sse_decode_list_trust_device_dto(deserializer);
+    var var_sessionRunning = sse_decode_bool(deserializer);
+    var var_sessionRole = sse_decode_String(deserializer);
+    var var_connectedLabel = sse_decode_String(deserializer);
+    var var_revocationNote = sse_decode_String(deserializer);
+    var var_auditTail = sse_decode_list_audit_entry_dto(deserializer);
+    var var_grantsPath = sse_decode_String(deserializer);
+    var var_identityFingerprint = sse_decode_String(deserializer);
+    var var_hint = sse_decode_String(deserializer);
+    return PermissionSnapshotDto(
+      remoteAccessEnabled: var_remoteAccessEnabled,
+      resumeRequiresConfirm: var_resumeRequiresConfirm,
+      concurrentMode: var_concurrentMode,
+      takeoverPolicy: var_takeoverPolicy,
+      takeoverTimeoutS: var_takeoverTimeoutS,
+      localPerms: var_localPerms,
+      maxGrantPerms: var_maxGrantPerms,
+      activeGrants: var_activeGrants,
+      grants: var_grants,
+      revokedEpoch: var_revokedEpoch,
+      trustDevices: var_trustDevices,
+      sessionRunning: var_sessionRunning,
+      sessionRole: var_sessionRole,
+      connectedLabel: var_connectedLabel,
+      revocationNote: var_revocationNote,
+      auditTail: var_auditTail,
+      grantsPath: var_grantsPath,
+      identityFingerprint: var_identityFingerprint,
+      hint: var_hint,
+    );
+  }
+
+  @protected
+  RemoteStopDto sse_decode_remote_stop_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_inputStopped = sse_decode_bool(deserializer);
+    var var_sessionStopped = sse_decode_bool(deserializer);
+    var var_teardownOk = sse_decode_bool(deserializer);
+    var var_teardownSummary = sse_decode_String(deserializer);
+    var var_auditWritten = sse_decode_bool(deserializer);
+    var var_resumeRequiresConfirm = sse_decode_bool(deserializer);
+    var var_stoppedAtMs = sse_decode_u_64(deserializer);
+    var var_snapshot = sse_decode_permission_snapshot_dto(deserializer);
+    return RemoteStopDto(
+      inputStopped: var_inputStopped,
+      sessionStopped: var_sessionStopped,
+      teardownOk: var_teardownOk,
+      teardownSummary: var_teardownSummary,
+      auditWritten: var_auditWritten,
+      resumeRequiresConfirm: var_resumeRequiresConfirm,
+      stoppedAtMs: var_stoppedAtMs,
+      snapshot: var_snapshot,
+    );
   }
 
   @protected
@@ -2138,6 +2815,29 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TrustDeviceDto sse_decode_trust_device_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_deviceId = sse_decode_String(deserializer);
+    var var_name = sse_decode_String(deserializer);
+    var var_trusted = sse_decode_bool(deserializer);
+    var var_sameAccount = sse_decode_bool(deserializer);
+    var var_fingerprint = sse_decode_String(deserializer);
+    var var_passwordlessReady = sse_decode_bool(deserializer);
+    var var_authMode = sse_decode_String(deserializer);
+    var var_lastOnlineMs = sse_decode_u_64(deserializer);
+    return TrustDeviceDto(
+      deviceId: var_deviceId,
+      name: var_name,
+      trusted: var_trusted,
+      sameAccount: var_sameAccount,
+      fingerprint: var_fingerprint,
+      passwordlessReady: var_passwordlessReady,
+      authMode: var_authMode,
+      lastOnlineMs: var_lastOnlineMs,
+    );
+  }
+
+  @protected
   int sse_decode_u_16(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint16();
@@ -2222,6 +2922,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_String(String self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_list_prim_u_8_strict(utf8.encoder.convert(self), serializer);
+  }
+
+  @protected
+  void sse_encode_audit_entry_dto(
+    AuditEntryDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_u_64(self.tsMs, serializer);
+    sse_encode_String(self.kind, serializer);
+    sse_encode_String(self.subject, serializer);
+    sse_encode_String(self.action, serializer);
+    sse_encode_String(self.oldValue, serializer);
+    sse_encode_String(self.newValue, serializer);
+    sse_encode_String(self.outcome, serializer);
   }
 
   @protected
@@ -2344,6 +3059,23 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_grant_dto(GrantDto self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.grantId, serializer);
+    sse_encode_String(self.granteePub, serializer);
+    sse_encode_String(self.granteeName, serializer);
+    sse_encode_String(self.granteeFingerprint, serializer);
+    sse_encode_String(self.template, serializer);
+    sse_encode_u_32(self.perms, serializer);
+    sse_encode_u_32(self.effectivePerms, serializer);
+    sse_encode_u_64(self.notBeforeMs, serializer);
+    sse_encode_u_64(self.expiresAtMs, serializer);
+    sse_encode_bool(self.revoked, serializer);
+    sse_encode_u_64(self.createdMs, serializer);
+    sse_encode_u_64(self.updatedMs, serializer);
+  }
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putInt32(self);
@@ -2405,6 +3137,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_audit_entry_dto(
+    List<AuditEntryDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_audit_entry_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_list_device_dto(
     List<DeviceDto> self,
     SseSerializer serializer,
@@ -2413,6 +3157,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.length, serializer);
     for (final item in self) {
       sse_encode_device_dto(item, serializer);
+    }
+  }
+
+  @protected
+  void sse_encode_list_grant_dto(
+    List<GrantDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_grant_dto(item, serializer);
     }
   }
 
@@ -2451,6 +3207,18 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_list_trust_device_dto(
+    List<TrustDeviceDto> self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_i_32(self.length, serializer);
+    for (final item in self) {
+      sse_encode_trust_device_dto(item, serializer);
+    }
+  }
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
 
@@ -2471,6 +3239,49 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (self != null) {
       sse_encode_box_autoadd_wall_preview_dto(self, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_permission_snapshot_dto(
+    PermissionSnapshotDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.remoteAccessEnabled, serializer);
+    sse_encode_bool(self.resumeRequiresConfirm, serializer);
+    sse_encode_String(self.concurrentMode, serializer);
+    sse_encode_String(self.takeoverPolicy, serializer);
+    sse_encode_u_32(self.takeoverTimeoutS, serializer);
+    sse_encode_u_32(self.localPerms, serializer);
+    sse_encode_u_32(self.maxGrantPerms, serializer);
+    sse_encode_u_32(self.activeGrants, serializer);
+    sse_encode_list_grant_dto(self.grants, serializer);
+    sse_encode_u_64(self.revokedEpoch, serializer);
+    sse_encode_list_trust_device_dto(self.trustDevices, serializer);
+    sse_encode_bool(self.sessionRunning, serializer);
+    sse_encode_String(self.sessionRole, serializer);
+    sse_encode_String(self.connectedLabel, serializer);
+    sse_encode_String(self.revocationNote, serializer);
+    sse_encode_list_audit_entry_dto(self.auditTail, serializer);
+    sse_encode_String(self.grantsPath, serializer);
+    sse_encode_String(self.identityFingerprint, serializer);
+    sse_encode_String(self.hint, serializer);
+  }
+
+  @protected
+  void sse_encode_remote_stop_dto(
+    RemoteStopDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.inputStopped, serializer);
+    sse_encode_bool(self.sessionStopped, serializer);
+    sse_encode_bool(self.teardownOk, serializer);
+    sse_encode_String(self.teardownSummary, serializer);
+    sse_encode_bool(self.auditWritten, serializer);
+    sse_encode_bool(self.resumeRequiresConfirm, serializer);
+    sse_encode_u_64(self.stoppedAtMs, serializer);
+    sse_encode_permission_snapshot_dto(self.snapshot, serializer);
   }
 
   @protected
@@ -2556,6 +3367,22 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_String(self.name, serializer);
     sse_encode_bool(self.ok, serializer);
     sse_encode_String(self.detail, serializer);
+  }
+
+  @protected
+  void sse_encode_trust_device_dto(
+    TrustDeviceDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.deviceId, serializer);
+    sse_encode_String(self.name, serializer);
+    sse_encode_bool(self.trusted, serializer);
+    sse_encode_bool(self.sameAccount, serializer);
+    sse_encode_String(self.fingerprint, serializer);
+    sse_encode_bool(self.passwordlessReady, serializer);
+    sse_encode_String(self.authMode, serializer);
+    sse_encode_u_64(self.lastOnlineMs, serializer);
   }
 
   @protected

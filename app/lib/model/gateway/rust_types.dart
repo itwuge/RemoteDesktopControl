@@ -591,6 +591,259 @@ class ClipboardSyncInfo {
   final String? lastError;
 }
 
+// =====** S5-5 授权与权限页 =====**
+
+/// 授权条目。
+class GrantEntry {
+  /// 创建条目。
+  const GrantEntry({
+    required this.grantId,
+    required this.granteePub,
+    required this.granteeName,
+    required this.granteeFingerprint,
+    required this.template,
+    required this.perms,
+    required this.effectivePerms,
+    required this.notBeforeMs,
+    required this.expiresAtMs,
+    required this.revoked,
+    required this.createdMs,
+    required this.updatedMs,
+  });
+
+  /// 授权 ID。
+  final String grantId;
+
+  /// 被授权方公钥。
+  final String granteePub;
+
+  /// 被授权方显示名。
+  final String granteeName;
+
+  /// 公钥指纹。
+  final String granteeFingerprint;
+
+  /// 模板名。
+  final String template;
+
+  /// 令牌权限位。
+  final int perms;
+
+  /// 本机生效权限位。
+  final int effectivePerms;
+
+  /// 生效时间（Unix 毫秒）。
+  final int notBeforeMs;
+
+  /// 到期时间（Unix 毫秒）。
+  final int expiresAtMs;
+
+  /// 是否已吊销。
+  final bool revoked;
+
+  /// 创建时间。
+  final int createdMs;
+
+  /// 最后修改时间。
+  final int updatedMs;
+}
+
+/// 信任设备（权限页视角）。
+class TrustDeviceEntry {
+  /// 创建条目。
+  const TrustDeviceEntry({
+    required this.deviceId,
+    required this.name,
+    required this.trusted,
+    required this.sameAccount,
+    required this.fingerprint,
+    required this.passwordlessReady,
+    required this.authMode,
+    required this.lastOnlineMs,
+  });
+
+  /// 设备 ID。
+  final String deviceId;
+
+  /// 显示名。
+  final String name;
+
+  /// 是否信任。
+  final bool trusted;
+
+  /// 是否同账号。
+  final bool sameAccount;
+
+  /// 公钥指纹。
+  final String fingerprint;
+
+  /// 是否具备免密条件。
+  final bool passwordlessReady;
+
+  /// 实际认证方式。
+  final String authMode;
+
+  /// 最后在线（Unix 毫秒）。
+  final int lastOnlineMs;
+}
+
+/// 审计条目。
+class PermissionAuditEntry {
+  /// 创建条目。
+  const PermissionAuditEntry({
+    required this.tsMs,
+    required this.kind,
+    required this.subject,
+    required this.action,
+    required this.oldValue,
+    required this.newValue,
+    required this.outcome,
+  });
+
+  /// Unix 毫秒。
+  final int tsMs;
+
+  /// 事件类别。
+  final String kind;
+
+  /// 主体。
+  final String subject;
+
+  /// 动作。
+  final String action;
+
+  /// 旧值。
+  final String oldValue;
+
+  /// 新值。
+  final String newValue;
+
+  /// 结果。
+  final String outcome;
+}
+
+/// 权限页快照。
+class PermissionSnapshot {
+  /// 创建快照。
+  const PermissionSnapshot({
+    required this.remoteAccessEnabled,
+    required this.resumeRequiresConfirm,
+    required this.concurrentMode,
+    required this.takeoverPolicy,
+    required this.takeoverTimeoutS,
+    required this.localPerms,
+    required this.maxGrantPerms,
+    required this.activeGrants,
+    required this.grants,
+    required this.revokedEpoch,
+    required this.trustDevices,
+    required this.sessionRunning,
+    required this.sessionRole,
+    required this.connectedLabel,
+    required this.revocationNote,
+    required this.auditTail,
+    required this.grantsPath,
+    required this.identityFingerprint,
+    required this.hint,
+  });
+
+  /// 远程访问总开关。
+  final bool remoteAccessEnabled;
+
+  /// 是否处于「已停止，恢复需二次确认」状态。
+  final bool resumeRequiresConfirm;
+
+  /// 并发模式。
+  final String concurrentMode;
+
+  /// 接管策略。
+  final String takeoverPolicy;
+
+  /// 本机确认超时（秒）。
+  final int takeoverTimeoutS;
+
+  /// 本机允许权限位。
+  final int localPerms;
+
+  /// 可授予最大权限位。
+  final int maxGrantPerms;
+
+  /// 未吊销授权数。
+  final int activeGrants;
+
+  /// 授权列表。
+  final List<GrantEntry> grants;
+
+  /// 撤销世代。
+  final int revokedEpoch;
+
+  /// 信任设备。
+  final List<TrustDeviceEntry> trustDevices;
+
+  /// 是否有远程会话。
+  final bool sessionRunning;
+
+  /// 当前角色。
+  final String sessionRole;
+
+  /// 「谁在连接」文案。
+  final String connectedLabel;
+
+  /// 撤销最终一致说明。
+  final String revocationNote;
+
+  /// 最近审计。
+  final List<PermissionAuditEntry> auditTail;
+
+  /// 授权存储路径。
+  final String grantsPath;
+
+  /// 本机身份指纹。
+  final String identityFingerprint;
+
+  /// 非致命提示。
+  final String hint;
+}
+
+/// 立即停止远程访问报告。
+class RemoteStopReport {
+  /// 创建报告。
+  const RemoteStopReport({
+    required this.inputStopped,
+    required this.sessionStopped,
+    required this.teardownOk,
+    required this.teardownSummary,
+    required this.auditWritten,
+    required this.resumeRequiresConfirm,
+    required this.stoppedAtMs,
+    required this.snapshot,
+  });
+
+  /// 输入通道是否已停。
+  final bool inputStopped;
+
+  /// 会话是否已断。
+  final bool sessionStopped;
+
+  /// 收尾是否通过。
+  final bool teardownOk;
+
+  /// 收尾摘要。
+  final String teardownSummary;
+
+  /// 审计是否落盘。
+  final bool auditWritten;
+
+  /// 恢复是否需要二次确认。
+  final bool resumeRequiresConfirm;
+
+  /// 停止时刻。
+  final int stoppedAtMs;
+
+  /// 停止后的快照。
+  final PermissionSnapshot snapshot;
+}
+
 /// 文件传输结果（Rust → Dart）。
 class FileTransferInfo {
   /// 创建结果。

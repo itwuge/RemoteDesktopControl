@@ -30,6 +30,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  AuditEntryDto dco_decode_audit_entry_dto(dynamic raw);
+
+  @protected
   bool dco_decode_bool(dynamic raw);
 
   @protected
@@ -57,6 +60,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FileTransferDto dco_decode_file_transfer_dto(dynamic raw);
 
   @protected
+  GrantDto dco_decode_grant_dto(dynamic raw);
+
+  @protected
   int dco_decode_i_32(dynamic raw);
 
   @protected
@@ -72,7 +78,13 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
+  List<AuditEntryDto> dco_decode_list_audit_entry_dto(dynamic raw);
+
+  @protected
   List<DeviceDto> dco_decode_list_device_dto(dynamic raw);
+
+  @protected
+  List<GrantDto> dco_decode_list_grant_dto(dynamic raw);
 
   @protected
   List<InputEventDto> dco_decode_list_input_event_dto(dynamic raw);
@@ -84,10 +96,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<TeardownStepDto> dco_decode_list_teardown_step_dto(dynamic raw);
 
   @protected
+  List<TrustDeviceDto> dco_decode_list_trust_device_dto(dynamic raw);
+
+  @protected
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
   WallPreviewDto? dco_decode_opt_box_autoadd_wall_preview_dto(dynamic raw);
+
+  @protected
+  PermissionSnapshotDto dco_decode_permission_snapshot_dto(dynamic raw);
+
+  @protected
+  RemoteStopDto dco_decode_remote_stop_dto(dynamic raw);
 
   @protected
   RoleInfoDto dco_decode_role_info_dto(dynamic raw);
@@ -103,6 +124,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TeardownStepDto dco_decode_teardown_step_dto(dynamic raw);
+
+  @protected
+  TrustDeviceDto dco_decode_trust_device_dto(dynamic raw);
 
   @protected
   int dco_decode_u_16(dynamic raw);
@@ -127,6 +151,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   String sse_decode_String(SseDeserializer deserializer);
+
+  @protected
+  AuditEntryDto sse_decode_audit_entry_dto(SseDeserializer deserializer);
 
   @protected
   bool sse_decode_bool(SseDeserializer deserializer);
@@ -160,6 +187,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   FileTransferDto sse_decode_file_transfer_dto(SseDeserializer deserializer);
 
   @protected
+  GrantDto sse_decode_grant_dto(SseDeserializer deserializer);
+
+  @protected
   int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
@@ -175,7 +205,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
+  List<AuditEntryDto> sse_decode_list_audit_entry_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   List<DeviceDto> sse_decode_list_device_dto(SseDeserializer deserializer);
+
+  @protected
+  List<GrantDto> sse_decode_list_grant_dto(SseDeserializer deserializer);
 
   @protected
   List<InputEventDto> sse_decode_list_input_event_dto(
@@ -191,12 +229,25 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<TrustDeviceDto> sse_decode_list_trust_device_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
   WallPreviewDto? sse_decode_opt_box_autoadd_wall_preview_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  PermissionSnapshotDto sse_decode_permission_snapshot_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RemoteStopDto sse_decode_remote_stop_dto(SseDeserializer deserializer);
 
   @protected
   RoleInfoDto sse_decode_role_info_dto(SseDeserializer deserializer);
@@ -214,6 +265,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   TeardownStepDto sse_decode_teardown_step_dto(SseDeserializer deserializer);
+
+  @protected
+  TrustDeviceDto sse_decode_trust_device_dto(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_16(SseDeserializer deserializer);
@@ -238,6 +292,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_audit_entry_dto(AuditEntryDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_bool(bool self, SseSerializer serializer);
@@ -282,6 +339,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_grant_dto(GrantDto self, SseSerializer serializer);
+
+  @protected
   void sse_encode_i_32(int self, SseSerializer serializer);
 
   @protected
@@ -297,10 +357,19 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
 
   @protected
+  void sse_encode_list_audit_entry_dto(
+    List<AuditEntryDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_list_device_dto(
     List<DeviceDto> self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_list_grant_dto(List<GrantDto> self, SseSerializer serializer);
 
   @protected
   void sse_encode_list_input_event_dto(
@@ -321,6 +390,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_trust_device_dto(
+    List<TrustDeviceDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
 
   @protected
@@ -328,6 +403,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
     WallPreviewDto? self,
     SseSerializer serializer,
   );
+
+  @protected
+  void sse_encode_permission_snapshot_dto(
+    PermissionSnapshotDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_remote_stop_dto(RemoteStopDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_role_info_dto(RoleInfoDto self, SseSerializer serializer);
@@ -350,6 +434,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_teardown_step_dto(
     TeardownStepDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_trust_device_dto(
+    TrustDeviceDto self,
     SseSerializer serializer,
   );
 

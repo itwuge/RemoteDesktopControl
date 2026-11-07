@@ -419,7 +419,34 @@ class AppStrings {
   static const permGrantsSection = '授权访问者';
 
   /// 授权列表空状态。
-  static const grantsEmpty = '还没有授权访问者（授权列表内核接口待接线）';
+  static const grantsEmpty = '还没有授权访问者：点「签发授权」把已配对设备加入。';
+
+  /// 新增授权按钮。
+  static const grantAdd = '签发授权';
+
+  /// 吊销授权按钮。
+  static const grantRevoke = '吊销';
+
+  /// 修改授权按钮。
+  static const grantReissue = '改权限';
+
+  /// 已吊销徽章。
+  static const grantRevoked = '已吊销';
+
+  /// 停止远程访问按钮。
+  static const stopRemote = '立即停止远程访问';
+
+  /// 恢复远程访问按钮。
+  static const resumeRemote = '恢复远程访问（需本机确认）';
+
+  /// 审计空状态。
+  static const auditEmpty = '暂无审计记录';
+
+  /// 内核数据错误标题。
+  static const kernelError = '权限数据读取失败';
+
+  /// 重试按钮。
+  static const retry = '重试';
 
   /// ⑤ 连接提示。
   static const permNoticeSection = '连接提示';
