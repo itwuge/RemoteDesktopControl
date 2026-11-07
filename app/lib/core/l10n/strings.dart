@@ -680,4 +680,26 @@ class AppStrings {
 
   /// 密码框：隐藏密码。
   static const hidePassword = '隐藏密码';
+
+  // =====** 首启引导（P1-17） =====**
+
+  /// 首启标题。
+  static const firstRunTitle = '这台电脑可以被远程连接吗？';
+
+  /// 首启说明。
+  static const firstRunBody =
+      '连接前由你决定：允许后，只有你确认过的设备才能看到并操作这台电脑；'
+      '选择随时可以更改，不会自动对外开启。';
+
+  /// 首启：允许被连。
+  static const firstRunAllow = '允许被连';
+
+  /// 首启：暂不允许。
+  static const firstRunDeny = '暂不允许';
+
+  /// 首启：默认值说明。
+  static const firstRunDefaultNote = '默认「暂不允许」；之后可在「远程访问权限」页随时更改。';
+
+  /// 首启：保存失败提示。
+  static const firstRunSaveFailed = '保存失败，请重试；也可稍后在设置页手动开启。';
 }

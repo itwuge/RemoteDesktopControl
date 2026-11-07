@@ -812,6 +812,8 @@ class _PermissionPageState extends State<PermissionPage> {
         builder: (context, setDialogState) => RdcDialog(
           title: '签发授权',
           width: RdcTokens.dialogWidthLarge,
+          // 签发是非破坏性主动作：Enter 直接提交（清单 P2-6）。
+          onSubmit: () => Navigator.of(dialogContext).pop(true),
           actions: [
             RdcButton(
               label: AppStrings.cancel,
@@ -908,6 +910,8 @@ class _PermissionPageState extends State<PermissionPage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => RdcDialog(
           title: '改权限（换新令牌）',
+          // 重签是非破坏性主动作：Enter 直接提交（清单 P2-6）。
+          onSubmit: () => Navigator.of(dialogContext).pop(true),
           actions: [
             RdcButton(
               label: AppStrings.cancel,

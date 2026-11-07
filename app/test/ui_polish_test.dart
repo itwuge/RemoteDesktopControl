@@ -6,18 +6,24 @@
 // 数据来源：全部为纯 widget 组件，不触碰 Rust FFI，可在无会话环境运行。
 // ============================================================
 
+import 'dart:io';
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rdc/controller/settings_controller.dart';
 import 'package:rdc/core/l10n/strings.dart';
 import 'package:rdc/core/theme/tokens.dart';
+import 'package:rdc/model/settings/app_settings_model.dart';
+import 'package:rdc/model/settings/settings_repository.dart';
 import 'package:rdc/view/components/fields.dart';
 import 'package:rdc/view/components/home_access_card.dart';
 import 'package:rdc/view/components/info_row.dart';
 import 'package:rdc/view/components/pager.dart';
 import 'package:rdc/view/components/rdc_button.dart';
 import 'package:rdc/view/components/rdc_dialog.dart';
+import 'package:rdc/view/pages/first_run_page.dart';
 import 'package:rdc/view/theme/app_theme.dart';
 
 /// 测试宿主：统一使用应用主题，避免默认 M3 配色干扰断言。
@@ -282,4 +288,130 @@ void main() {
       }
     }
   });
+
+  // =====** 第三批：首启引导 / 弹窗键盘约定 =====**
+
+  testWidgets('首启页选择「暂不允许」后落盘：默认不允许且标记完成', (tester) async {
+    final repository = _MemorySettingsRepository();
+    final controller = SettingsController(repository: repository);
+    var doneCalled = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        home: FirstRunPage(
+          controller: controller,
+          onDone: () => doneCalled = true,
+        ),
+      ),
+    );
+
+    expect(find.text(AppStrings.firstRunAllow), findsOneWidget);
+    expect(find.text(AppStrings.firstRunDeny), findsOneWidget);
+    expect(find.text(AppStrings.firstRunDefaultNote), findsOneWidget);
+
+    await tester.tap(find.text(AppStrings.firstRunDeny));
+    await tester.pumpAndSettle();
+
+    expect(doneCalled, isTrue);
+    expect(repository.stored.firstRunCompleted, isTrue);
+    expect(repository.stored.remoteAccessEnabled, isFalse);
+  });
+
+  test('旧配置缺 first_run_completed 时按安全默认 false 读取', () async {
+    final dir = Directory.systemTemp.createTempSync('rdc-legacy-settings-');
+    File('${dir.path}${Platform.pathSeparator}settings.json').writeAsStringSync(
+      '{"version":1,"allow_relay":false,"remote_access_enabled":true}',
+    );
+    final loaded = await SettingsRepository(baseDirectory: dir.path).load();
+    expect(loaded.firstRunCompleted, isFalse);
+    expect(loaded.remoteAccessEnabled, isTrue);
+    dir.deleteSync(recursive: true);
+  });
+
+  testWidgets('非破坏性确认弹窗：Enter 直接确认', (tester) async {
+    bool? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: RdcButton(
+                label: '打开',
+                onPressed: () async {
+                  result = await showRdcConfirmDialog(
+                    context,
+                    title: '确认操作',
+                    body: '这是一次普通确认。',
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(result, isTrue);
+  });
+
+  testWidgets('谨慎确认弹窗：Enter 不确认，默认焦点在取消', (tester) async {
+    bool? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => Center(
+              child: RdcButton(
+                label: '打开',
+                onPressed: () async {
+                  result = await showRdcConfirmDialog(
+                    context,
+                    title: '恢复默认设置？',
+                    body: '只重置本页选项。',
+                    safeDefault: true,
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('打开'));
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    // 弹窗仍然开着，说明 Enter 没有触发确认。
+    expect(find.text('恢复默认设置？'), findsOneWidget);
+    expect(result, isNull);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pumpAndSettle();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(result, isFalse); // Tab 后聚焦「取消」并按 Enter，安全退出。
+  });
+}
+
+/// 内存版设置仓库。
+///
+/// widget 测试运行在 fake async 区域，真实文件 IO 的 Future 不会推进；
+/// 用内存实现替代，既避免挂起，也让「是否落盘」可断言。
+class _MemorySettingsRepository extends SettingsRepository {
+  /// 最近一次保存的设置。
+  AppSettings stored = const AppSettings.defaults();
+
+  @override
+  Future<AppSettings> load() async => stored;
+
+  @override
+  Future<bool> save(AppSettings settings) async {
+    stored = settings;
+    return true;
+  }
 }

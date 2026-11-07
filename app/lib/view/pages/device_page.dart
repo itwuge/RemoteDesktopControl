@@ -332,6 +332,8 @@ class _DevicePageState extends State<DevicePage> {
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => RdcDialog(
           title: editing ? AppStrings.edit : AppStrings.deviceAdd,
+          // 保存是非破坏性动作：Enter 直接提交（清单 P2-6）。
+          onSubmit: () => Navigator.of(dialogContext).pop(true),
           actions: [
             RdcButton(
               label: AppStrings.cancel,

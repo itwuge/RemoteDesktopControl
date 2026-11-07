@@ -16,6 +16,7 @@ class RdcButton extends StatelessWidget {
   /// [label] 文案；[icon] 唯一图标（功能区不重复放图标）；
   /// [onPressed] 为空表示禁用；[primary] 是否主按钮（蓝底白字）；
   /// [danger] 是否破坏性动作（红字红边；与 [primary] 同用时为红底白字）；
+  /// [autofocus] 弹窗打开时是否先聚焦本按钮；
   /// [semanticLabel] 可选的无障碍标签，缺省用 [label]。
   const RdcButton({
     super.key,
@@ -25,6 +26,7 @@ class RdcButton extends StatelessWidget {
     this.primary = false,
     this.compact = false,
     this.danger = false,
+    this.autofocus = false,
     this.semanticLabel,
   });
 
@@ -45,6 +47,9 @@ class RdcButton extends StatelessWidget {
 
   /// 是否为破坏性动作（删除/断开/吊销）。
   final bool danger;
+
+  /// 弹窗打开时是否先聚焦本按钮。
+  final bool autofocus;
 
   /// 无障碍标签。
   final String? semanticLabel;
@@ -111,8 +116,18 @@ class RdcButton extends StatelessWidget {
       ],
     );
     final button = primary
-        ? FilledButton(style: style, onPressed: onPressed, child: child)
-        : OutlinedButton(style: style, onPressed: onPressed, child: child);
+        ? FilledButton(
+            style: style,
+            onPressed: onPressed,
+            autofocus: autofocus,
+            child: child,
+          )
+        : OutlinedButton(
+            style: style,
+            onPressed: onPressed,
+            autofocus: autofocus,
+            child: child,
+          );
     // excludeSemantics：只暴露我们自己写的标签，避免内部 Text/Icon 再播报一遍。
     return Semantics(
       button: true,

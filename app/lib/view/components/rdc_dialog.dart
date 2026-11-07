@@ -6,6 +6,7 @@
 // ============================================================
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/theme/tokens.dart';
 import 'rdc_button.dart';
@@ -16,7 +17,12 @@ class RdcDialog extends StatelessWidget {
   ///
   /// [title] 标题；[child] 弹窗内容（可用 [RdcField] 排字段）；
   /// [actions] 底部按钮（建议 [RdcButton]）；[width] 弹窗宽度；
-  /// [padding] 内边距；[inset] 与其他组件的间距。
+  /// [padding] 内边距；[inset] 与其他组件的间距；
+  /// [onSubmit] 非破坏性弹窗的主动作：按 Enter 触发。
+  ///
+  /// **Enter 约定**：只有明确传入 [onSubmit] 才绑定 Enter；危险操作
+  /// （吊销、移除、恢复默认等）不传，默认焦点落在「取消」上，
+  /// 避免一路 Enter 误确认（清单 P2-6）。
   const RdcDialog({
     super.key,
     required this.title,
@@ -25,6 +31,7 @@ class RdcDialog extends StatelessWidget {
     this.width = RdcTokens.dialogWidth,
     this.padding = RdcTokens.dialogPadding,
     this.inset = RdcTokens.dialogPadding,
+    this.onSubmit,
   });
 
   /// 标题。
@@ -45,6 +52,9 @@ class RdcDialog extends StatelessWidget {
   /// 外边距。
   final double inset;
 
+  /// Enter 触发的主动作；`null` 表示不绑定（危险操作必须传 `null`）。
+  final VoidCallback? onSubmit;
+
   @override
   Widget build(BuildContext context) {
     final maxHeight = MediaQuery.sizeOf(context).height * 0.82;
@@ -55,7 +65,7 @@ class RdcDialog extends StatelessWidget {
       actionRow.add(actions[index]);
     }
 
-    return Semantics(
+    final dialog = Semantics(
       scopesRoute: true,
       namesRoute: true,
       explicitChildNodes: true,
@@ -107,13 +117,31 @@ class RdcDialog extends StatelessWidget {
         ),
       ),
     );
+
+    // 弹窗打开即把键盘焦点收入内部，Tab 按「取消 → 确认」的视觉顺序遍历；
+    // 只有调用方传入 onSubmit 才绑定 Enter（危险操作不传，见类注释）。
+    final shortcuts = onSubmit == null
+        ? const <ShortcutActivator, VoidCallback>{}
+        : <ShortcutActivator, VoidCallback>{
+            const SingleActivator(LogicalKeyboardKey.enter): onSubmit!,
+            const SingleActivator(LogicalKeyboardKey.numpadEnter): onSubmit!,
+          };
+    return CallbackShortcuts(
+      bindings: shortcuts,
+      child: Focus(autofocus: true, child: dialog),
+    );
   }
 }
 
 /// 二次确认弹窗：返回是否确认。
 ///
 /// [title] 标题；[body] 说明；[confirmLabel] 确认按钮文案；
-/// [danger] 确认动作是否破坏性（红底）。
+/// [danger] 确认动作是否破坏性（红底）；[safeDefault] 是否把默认焦点放到「取消」
+/// 且不绑定 Enter（用于「恢复默认」这类不希望一路 Enter 通过的确认）。
+///
+/// 键盘约定（清单 P2-6）：非破坏性弹窗默认聚焦「确认」且 Enter 直接确认；
+/// 破坏性或 [safeDefault] 弹窗默认聚焦「取消」且**不绑定 Enter**，
+/// 必须显式 Tab/点击确认。
 Future<bool> showRdcConfirmDialog(
   BuildContext context, {
   required String title,
@@ -121,22 +149,30 @@ Future<bool> showRdcConfirmDialog(
   String confirmLabel = '确认',
   String cancelLabel = '取消',
   bool danger = false,
+  bool safeDefault = false,
 }) async {
   final result = await showDialog<bool>(
     context: context,
     builder: (dialogContext) {
+      void confirm() => Navigator.of(dialogContext).pop(true);
+      final guardEnter = danger || safeDefault;
+      final focusCancel = danger || safeDefault;
       return RdcDialog(
         title: title,
+        // 危险/需谨慎的操作不绑定 Enter：避免连按 Enter 误删/误吊销/误重置。
+        onSubmit: guardEnter ? null : confirm,
         actions: [
           RdcButton(
             label: cancelLabel,
+            autofocus: focusCancel,
             onPressed: () => Navigator.of(dialogContext).pop(false),
           ),
           RdcButton(
             label: confirmLabel,
             primary: true,
             danger: danger,
-            onPressed: () => Navigator.of(dialogContext).pop(true),
+            autofocus: !focusCancel,
+            onPressed: confirm,
           ),
         ],
         // 正文说明用次要色，保持弹窗层次。

@@ -23,6 +23,7 @@ import 'core/utils/logger.dart';
 import 'model/account/account_repository.dart';
 import 'model/gateway/rust_gateway.dart';
 import 'model/settings/settings_repository.dart';
+import 'view/pages/first_run_page.dart';
 import 'view/pages/permission_page.dart';
 import 'view/pages/shell_page.dart';
 import 'view/theme/app_theme.dart';
@@ -73,6 +74,9 @@ Future<void> main() async {
   final accountController = AccountController(
     repository: AccountRepository(),
   );
+
+  // 首启引导与首页共用同一份设置：先读盘，避免首启页与设置页状态不一致。
+  await settingsController.load();
 
   // 首屏所需的最小数据：顶部状态与设备列表；失败由各控制器自己记录错误。
   await shellController.loadStatus();
@@ -167,15 +171,61 @@ class RdcApp extends StatelessWidget {
       theme: AppTheme.dark(),
       home: showPermissionPage
           ? PermissionPage(controller: permissionController)
-          : ShellPage(
-              shell: shellController,
-              devices: deviceController,
-              wall: wallController,
-              session: sessionController,
+          : _StartupGate(
               settings: settingsController,
-              permission: permissionController,
-              account: accountController,
+              shell: ShellPage(
+                shell: shellController,
+                devices: deviceController,
+                wall: wallController,
+                session: sessionController,
+                settings: settingsController,
+                permission: permissionController,
+                account: accountController,
+              ),
             ),
     );
+  }
+}
+
+/// 启动门：首启未完成时先展示「允许被连 / 不允许」，完成后进入主界面。
+///
+/// 首次进入读 [SettingsController.settings]；旧配置缺 `first_run_completed`
+/// 时按 `false` 处理，因此老用户也会看到一次引导（安全默认仍为不允许）。
+class _StartupGate extends StatefulWidget {
+  /// 创建启动门。
+  ///
+  /// [settings] 设置控制器；[shell] 已完成装配的主界面。
+  const _StartupGate({required this.settings, required this.shell});
+
+  /// 设置控制器。
+  final SettingsController settings;
+
+  /// 主界面。
+  final Widget shell;
+
+  @override
+  State<_StartupGate> createState() => _StartupGateState();
+}
+
+/// 启动门状态：只记「是否还需显示首启页」。
+class _StartupGateState extends State<_StartupGate> {
+  /// 是否还需要展示首启页。
+  late bool _needsFirstRun;
+
+  @override
+  void initState() {
+    super.initState();
+    _needsFirstRun = !widget.settings.settings.value.firstRunCompleted;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_needsFirstRun) {
+      return FirstRunPage(
+        controller: widget.settings,
+        onDone: () => setState(() => _needsFirstRun = false),
+      );
+    }
+    return widget.shell;
   }
 }

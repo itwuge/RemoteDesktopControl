@@ -476,6 +476,8 @@ class _SettingsPageState extends State<SettingsPage> {
       title: AppStrings.resetDefaultsTitle,
       body: AppStrings.resetDefaultsBody,
       confirmLabel: AppStrings.restoreDefaults,
+      // 恢复默认不希望在连按 Enter 时被误确认：默认焦点落在取消（清单 P2-6）。
+      safeDefault: true,
     );
     if (!confirmed || !mounted) return;
     widget.controller.resetDrafts();

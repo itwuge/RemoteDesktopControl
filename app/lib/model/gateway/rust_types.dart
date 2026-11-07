@@ -308,6 +308,7 @@ class SettingsSnapshot {
     required this.sameAccountPolicy,
     required this.passwordlessPolicy,
     required this.filePath,
+    this.firstRunCompleted = false,
   });
 
   /// 是否允许中继。
@@ -372,6 +373,9 @@ class SettingsSnapshot {
 
   /// 免密策略。
   final bool passwordlessPolicy;
+
+  /// 首启引导是否已完成（仅本地持久化，不参与握手）。
+  final bool firstRunCompleted;
 
   /// 落盘路径。
   final String filePath;

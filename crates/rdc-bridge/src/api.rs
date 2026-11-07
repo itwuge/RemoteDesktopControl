@@ -318,6 +318,8 @@ pub struct SettingsDto {
     pub same_account_policy: String,
     /// 免密策略。
     pub passwordless_policy: bool,
+    /// 首启引导是否完成（仅本地持久化）。
+    pub first_run_completed: bool,
     /// 实际落盘路径。
     pub path: String,
 }
@@ -346,6 +348,7 @@ fn to_settings_dto(settings: AppSettings, path: PathBuf) -> SettingsDto {
         local_pair_policy: settings.local_pair_policy,
         same_account_policy: settings.same_account_policy,
         passwordless_policy: settings.passwordless_policy,
+        first_run_completed: settings.first_run_completed,
         path: path.display().to_string(),
     }
 }
@@ -374,6 +377,7 @@ fn from_settings_dto(dto: SettingsDto) -> AppSettings {
         local_pair_policy: dto.local_pair_policy,
         same_account_policy: dto.same_account_policy,
         passwordless_policy: dto.passwordless_policy,
+        first_run_completed: dto.first_run_completed,
     }
 }
 

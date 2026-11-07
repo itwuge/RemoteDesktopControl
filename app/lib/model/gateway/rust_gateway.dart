@@ -239,6 +239,7 @@ class RustGateway {
         localPairPolicy: settings.localPairPolicy,
         sameAccountPolicy: settings.sameAccountPolicy,
         passwordlessPolicy: settings.passwordlessPolicy,
+        firstRunCompleted: settings.firstRunCompleted,
         path: settings.filePath,
       ),
     );
@@ -269,6 +270,7 @@ class RustGateway {
       localPairPolicy: dto.localPairPolicy,
       sameAccountPolicy: dto.sameAccountPolicy,
       passwordlessPolicy: dto.passwordlessPolicy,
+      firstRunCompleted: dto.firstRunCompleted,
       filePath: dto.path,
     );
   }
