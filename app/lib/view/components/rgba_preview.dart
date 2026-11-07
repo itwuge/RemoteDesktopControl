@@ -4,7 +4,7 @@
 // 数据来源：WallController.latest（Rust 解码后的 RGBA）
 //
 // 说明：屏幕墙是低频预览（约 10fps），允许逐帧转 Flutter Image；
-//       远程控制页的实时画面要求外部纹理，见 session_page.dart 的待接线说明。
+//       远程控制页的实时画面要求外部纹理，见 session_page.dart 的画面占位说明。
 // ============================================================
 
 import 'dart:typed_data';

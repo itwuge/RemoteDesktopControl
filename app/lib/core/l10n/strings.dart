@@ -15,8 +15,8 @@ class AppStrings {
   /// 应用名（窗口标题同名）。
   static const appName = 'RDC';
 
-  /// 首页副标题。
-  static const appTagline = '远程桌面控制 · Rust 核心 + Flutter 界面';
+  /// 首页副标题（面向用户，不写技术栈；清单 P0-1）。
+  static const appTagline = '远程桌面控制';
 
   /// 版本号前缀。
   static const versionLabel = '核心版本';
@@ -118,7 +118,7 @@ class AppStrings {
   // =====** 通用错误 =====**
 
   /// 桥接初始化失败。
-  static const bridgeInitFailed = 'Rust 核心加载失败';
+  static const bridgeInitFailed = '核心服务加载失败';
 
   /// 未知错误。
   static const unknownError = '未知错误';
@@ -148,8 +148,11 @@ class AppStrings {
 
   // =====** 设备列表页 =====**
 
-  /// 搜索占位。
-  static const deviceSearchHint = '搜索设备名或 ID';
+  /// 搜索标签（标签在上、控件在下）。
+  static const deviceSearchLabel = '搜索';
+
+  /// 搜索占位（只写可搜索的字段，不重复标签）。
+  static const deviceSearchHint = '设备名 / 设备 ID';
 
   /// 新增设备。
   static const deviceAdd = '新增设备';
@@ -163,8 +166,8 @@ class AppStrings {
   /// 空状态标题。
   static const deviceEmptyTitle = '还没有设备';
 
-  /// 空状态说明。
-  static const deviceEmptyBody = '新增一台设备，或等待对方在本机发起连接后自动出现。';
+  /// 空状态说明（下一步动作 + 结果，不用技术黑话）。
+  static const deviceEmptyBody = '还没有设备。点「新增设备」，输入对方的设备 ID。';
 
   /// 连接按钮。
   static const connect = '连接';
@@ -201,8 +204,11 @@ class AppStrings {
 
   // =====** 屏幕墙页 =====**
 
-  /// 屏幕墙页说明。
-  static const wallNote = '第 1 宫格是本机真实桌面采集（DXGI → 缩放 → 848x480/10fps 缩略流）；跨机会话待接线。';
+  /// 屏幕墙页说明（只说用户能做什么，不写采集链路）。
+  static const wallNote = '本机画面实时预览；设备上线后可在这里点开。';
+
+  /// 未连接的宫格状态。
+  static const wallNotConnected = '未连接';
 
   /// 宫格标签。
   static const wallGridLabel = '宫格';
@@ -221,17 +227,17 @@ class AppStrings {
 
   // =====** 远程控制页 =====**
 
-  /// 纹理待接线说明。
-  static const sessionTexturePending = '外部纹理待接线：内核尚未注册 Windows 纹理，当前不显示假画面。';
+  /// 画面建立中的占位文案（不解释纹理/内核实现）。
+  static const sessionTexturePending = '正在建立画面…';
 
   /// 真实画面启动中。
-  static const sessionTextureStarting = '正在启动被控端真实桌面采集…';
+  static const sessionTextureStarting = '正在连接被控端桌面…';
 
   /// 真实画面启动失败前缀。
-  static const sessionTextureFailed = '真实画面启动失败：';
+  static const sessionTextureFailed = '画面启动失败';
 
   /// 锁屏采集说明。
-  static const sessionLockedHint = '画面来自被控端真实桌面采集；如被控端处于锁屏，采集内容即锁屏画面。';
+  static const sessionLockedHint = '被控端锁屏时，这里看到的就是锁屏画面。';
 
   /// 断开。
   static const disconnect = '断开';
@@ -254,8 +260,8 @@ class AppStrings {
   /// 文件。
   static const files = '文件';
 
-  /// 待接线提示。
-  static const pendingWiring = '该功能待接线';
+  /// 暂不可用提示（接口缺失时的明确空状态，不用假开关）。
+  static const unavailable = '暂不可用';
 
   /// 控制者角色。
   static const roleController = '控制者';
@@ -271,12 +277,11 @@ class AppStrings {
 
   // =====** 账号（S5-3） =====**
 
-  /// 账号分组标题。
-  static const accountSection = '账号';
+  /// 账号分组标题（可选功能，不抢主流程；清单 P0-11）。
+  static const accountSection = '账号（可选）';
 
-  /// 未登录可用说明（页面必须明写）。
-  static const accountNote =
-      '账号只用于同账号设备发现；未登录也能使用全部功能，账号服务未部署时显示「未连接」，不影响其他页面。';
+  /// 未登录可用说明（页面必须明写价值，不自曝未实现）。
+  static const accountNote = '登录后可在多台设备间自动发现；未登录也能使用全部功能。';
 
   /// 未登录。
   static const accountSignedOut = '未登录';
@@ -308,9 +313,8 @@ class AppStrings {
   /// 未登录时设备发现不可用的说明。
   static const accountDiscoveryHint = '登录后可开启；未登录时保持关闭。';
 
-  /// 登录弹窗说明。
-  static const accountLoginBody =
-      '账号服务尚未接入：这里只在本地记录登录态，不会联网校验，也不影响现有功能。';
+  /// 登录弹窗说明（说结果，不自曝实现状态）。
+  static const accountLoginBody = '登录后可跨设备自动发现并同步设备列表。';
 
   /// 账号输入提示。
   static const accountEmailLabel = '账号（邮箱）';
@@ -463,8 +467,8 @@ class AppStrings {
   /// ⑦ 信任设备。
   static const permTrustSection = '信任设备';
 
-  /// 信任设备说明。
-  static const trustHint = '信任设备可跳过配对确认；同账号字段仅保存，S5-2 不做身份判定。';
+  /// 信任设备说明（去掉版本号与内部实现）。
+  static const trustHint = '信任设备可跳过配对确认；同账号信息仅保存在本机。';
 
   /// 本地配对策略。
   static const localPairPolicyLabel = '本地配对';
@@ -481,6 +485,126 @@ class AppStrings {
   /// 免密策略。
   static const passwordlessLabel = '允许完全免密（仅内网 + 二次确认）';
 
-  /// 待接线徽章。
-  static const pendingBadge = '待接线';
+  // =====** 首页：本机可被控状态（清单 A1 / A3） =====**
+
+  /// 状态卡标题。
+  static const homeAccessSection = '本机可被控';
+
+  /// 已允许连接。
+  static const homeAccessAllowed = '已允许连接';
+
+  /// 已停止连接。
+  static const homeAccessStopped = '已停止连接';
+
+  /// 未知状态（接口读取失败时的明确空状态）。
+  static const homeAccessUnknown = '无法读取远程访问状态';
+
+  /// 明确空状态下的说明。
+  static const homeAccessUnknownHint = '请到「设置 → 关于与诊断」查看核心连接状态，或重试。';
+
+  /// 恢复按钮（首页短文案）。
+  static const homeResume = '恢复远程访问';
+
+  /// 处理中（按钮禁用时的文案）。
+  static const processing = '处理中…';
+
+  /// 停止成功提示。
+  static const stopDone = '已停止远程访问';
+
+  /// 恢复成功提示。
+  static const resumeDone = '已恢复远程访问';
+
+  // =====** 会话页补充 =====**
+
+  /// 连接目标标签。
+  static const sessionTargetLabel = '连接目标';
+
+  /// 连接目标：本机预览。
+  static const sessionTargetLocal = '本机预览';
+
+  /// 连接目标：设备会话。
+  static const sessionTargetDevice = '设备会话';
+
+  /// 断开确认标题。
+  static const disconnectConfirmTitle = '断开连接？';
+
+  /// 断开确认正文。
+  static const disconnectConfirmBody = '断开后对方画面立即停止，需要重新连接才能继续。';
+
+  /// 断开完成提示。
+  static const disconnectDone = '会话已断开';
+
+  /// 剪贴板：从本机复制到对方。
+  static const copyToRemote = '从本机复制到对方';
+
+  /// 剪贴板：从对方复制到本机。
+  static const copyToLocal = '从对方复制到本机';
+
+  /// 诊断分组标题。
+  static const diagnostics = '诊断';
+
+  // =====** 权限页补充 =====**
+
+  /// 已允许连接（权限页状态卡）。
+  static const permAllowed = '已允许连接';
+
+  /// 已停止连接（权限页状态卡）。
+  static const permStopped = '已停止连接';
+
+  /// 无人在线。
+  static const permNoPeople = '0 人在线';
+
+  /// 无远程会话（首页状态卡）。
+  static const homeAccessNoSession = '无远程会话';
+
+  /// 停止远程访问确认标题。
+  static const stopConfirmTitle = '停止远程访问？';
+
+  /// 停止远程访问确认正文。
+  static const stopConfirmBody = '停止后新的连接会被拒绝，正在进行的会话会立即断开。';
+
+  /// 恢复远程访问确认标题。
+  static const resumeConfirmTitle = '恢复远程访问？';
+
+  /// 恢复远程访问确认正文。
+  static const resumeConfirmBody = '恢复后，已授权的设备可以再次连接本机。';
+
+  /// 修改权限说明（白话）。
+  static const grantNote = '修改权限只能更严格；需要放宽请重新签发授权。';
+
+  /// 设备标识标签。
+  static const grantFingerprintLabel = '设备标识';
+
+  // =====** 设备列表补充 =====**
+
+  /// 删除确认标题。
+  static const deleteConfirmTitle = '删除设备？';
+
+  // =====** 设置页补充 =====**
+
+  /// 恢复默认。
+  static const resetDefaults = '恢复默认';
+
+  // =====** 设置 → 关于与诊断（清单 P0-2 / P1-18） =====**
+
+  /// 分组标题。
+  static const aboutSection = '关于与诊断';
+
+  /// 版本。
+  static const aboutVersion = '版本';
+
+  /// 运行平台。
+  static const aboutPlatform = '运行平台';
+
+  /// 核心连接。
+  static const aboutBridge = '核心连接';
+
+  /// 核心连接正常。
+  static const aboutBridgeOk = '正常';
+
+  /// 核心连接异常。
+  static const aboutBridgeDown = '异常';
+
+  /// 诊断说明。
+  static const aboutHint = '诊断信息仅在此处显示，主界面不展示工程细节。';
 }

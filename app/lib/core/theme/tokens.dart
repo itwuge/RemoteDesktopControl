@@ -35,6 +35,10 @@ class RdcTokens {
   /// 警告/危险色（失败、关闭中继提示）。
   static const danger = Color(0xFFEF4444);
 
+  /// 警示色：表示「需要注意但不等于失败」，例如已开启中继会增加延迟与流量。
+  /// 与 danger 分开，避免把「开启中继」误读为故障（清单 G6 / P1-1）。
+  static const warning = Color(0xFFF59E0B);
+
   /// 主文字色。
   static const textPrimary = Color(0xFFE5EAF3);
 
@@ -69,6 +73,18 @@ class RdcTokens {
   /// 页面内容最大宽度（上下单栏，不做左右分栏）。
   static const pageMaxWidth = 1100.0;
 
+  /// 弹窗内边距统一 24（大弹窗可用 [dialogPaddingLarge]）。
+  static const dialogPadding = 24.0;
+
+  /// 大弹窗内边距 28（清单 G9：边距 24–28）。
+  static const dialogPaddingLarge = 28.0;
+
+  /// 标准弹窗宽度 480。
+  static const dialogWidth = 480.0;
+
+  /// 大弹窗宽度 560（字段较多的表单）。
+  static const dialogWidthLarge = 560.0;
+
   // =====** 圆角 =====**
 
   /// 卡片圆角 16。
@@ -84,6 +100,9 @@ class RdcTokens {
 
   /// 页面标题 24。
   static const fontTitle = 24.0;
+
+  /// 二级页面内联标题 18（与 AppBar 18px 统一，清单 G3）。
+  static const fontPageTitle = 18.0;
 
   /// 分组标题 16。
   static const fontSection = 16.0;

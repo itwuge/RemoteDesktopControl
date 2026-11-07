@@ -10,6 +10,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/l10n/strings.dart';
+
 import '../core/utils/logger.dart';
 import '../model/gateway/rust_gateway.dart';
 
@@ -83,7 +85,7 @@ class ShellController {
       errorMessage.value = null;
     } catch (error, stackTrace) {
       bridgeHealthy.value = false;
-      errorMessage.value = 'Rust 核心加载失败：$error';
+      errorMessage.value = '${AppStrings.bridgeInitFailed}：$error';
       RdcLogger.log(
         'ShellController',
         '读取核心信息失败',

@@ -73,16 +73,20 @@ class RdcStatusPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Text(
-        text,
-        style: TextStyle(fontSize: RdcTokens.fontCaption, color: color, fontWeight: FontWeight.w600),
+    // 胶囊只读，读屏按文字播报即可。
+    return Semantics(
+      label: text,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
+          border: Border.all(color: color.withValues(alpha: 0.4)),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(fontSize: RdcTokens.fontCaption, color: color, fontWeight: FontWeight.w600),
+        ),
       ),
     );
   }

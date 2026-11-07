@@ -68,9 +68,9 @@ class _WallPageState extends State<WallPage> {
             for (var index = 0;
                 index < WallController.gridOptions.length;
                 index++)
+              // 宫格按钮只保留文字：同一个图标重复 4 次会变成视觉噪音（清单 G7 / P1-7）。
               RdcStateButton(
                 label: '${WallController.gridOptions[index]} 宫格',
-                icon: Icons.grid_view,
                 active: selected == index,
                 onPressed: () => widget.controller.setGrid(index),
               ),
@@ -86,9 +86,10 @@ class _WallPageState extends State<WallPage> {
       valueListenable: widget.controller.status,
       builder: (context, status, _) {
         if (status == null || !status.running) {
+          // 「未启动」不是故障，用中性色，避免首屏一片红（清单 G6）。
           return const RdcStatusPill(
             text: '未启动',
-            color: RdcTokens.danger,
+            color: RdcTokens.textMuted,
           );
         }
         return Wrap(
@@ -146,11 +147,8 @@ class _WallPageState extends State<WallPage> {
   Widget _buildTile(int index, int columns, {required String label, Widget? preview, bool live = false, String? hint}) {
     return RdcHoverCard(
       padding: EdgeInsets.zero,
-      onTap: live
-          ? () => widget.shell.openControl(deviceName: label)
-          : () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text(AppStrings.pendingWiring)),
-              ),
+      // 未连接的宫格不绑定点击：不弹「待接线」，不用假入口（清单 C6）。
+      onTap: live ? () => widget.shell.openControl(deviceName: label) : null,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
         child: Stack(
@@ -202,7 +200,7 @@ class _WallPageState extends State<WallPage> {
                       ),
                     ),
                     RdcStatusPill(
-                      text: live ? '在线' : '待连接',
+                      text: live ? '在线' : AppStrings.wallNotConnected,
                       color: live ? RdcTokens.success : RdcTokens.textMuted,
                     ),
                   ],
@@ -256,7 +254,7 @@ class _WallPageState extends State<WallPage> {
                           index,
                           columns,
                           label: AppStrings.wallLocalPreview,
-                          hint: '等待首帧…',
+                          hint: '正在准备预览…',
                         );
                       }
                       return _buildTile(
@@ -278,7 +276,7 @@ class _WallPageState extends State<WallPage> {
                   index,
                   columns,
                   label: name ?? AppStrings.wallWaiting,
-                  hint: name == null ? AppStrings.wallWaiting : '该设备尚未建立预览流',
+                  hint: name == null ? AppStrings.wallWaiting : AppStrings.wallNotConnected,
                 );
               },
             );
@@ -322,22 +320,6 @@ class _WallPageState extends State<WallPage> {
                 },
               ),
               _buildGrid(wide),
-              const SizedBox(height: RdcTokens.spaceMd),
-              ValueListenableBuilder(
-                valueListenable: widget.controller.status,
-                builder: (context, status, _) {
-                  if (status == null) return const SizedBox.shrink();
-                  return Text(
-                    '采集 ${status.captureBackend} · 编码 ${status.backend} · '
-                    '${status.encodedFrames} 帧 · 解码 ${status.decodedFrames} 帧 · '
-                    '丢弃 ${status.droppedFrames}',
-                    style: const TextStyle(
-                      fontSize: RdcTokens.fontCaption,
-                      color: RdcTokens.textMuted,
-                    ),
-                  );
-                },
-              ),
             ],
           ),
         );

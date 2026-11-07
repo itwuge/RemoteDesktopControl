@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import '../../controller/account_controller.dart';
 import '../../controller/permission_controller.dart';
 import '../../controller/settings_controller.dart';
+import '../../controller/shell_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/utils/formatters.dart';
@@ -19,6 +20,7 @@ import '../../model/account/account_model.dart';
 import '../components/fields.dart';
 import '../components/info_row.dart';
 import '../components/rdc_button.dart';
+import '../components/rdc_dialog.dart';
 import '../components/section_card.dart';
 import 'permission_page.dart';
 
@@ -26,12 +28,14 @@ import 'permission_page.dart';
 class SettingsPage extends StatefulWidget {
   /// 创建设置页。
   ///
-  /// [controller] 设置状态；[permission] 权限页控制器。
+  /// [controller] 设置状态；[permission] 权限页控制器；
+  /// [account] 账号控制器；[shell] 提供版本/平台/桥接状态（关于与诊断）。
   const SettingsPage({
     super.key,
     required this.controller,
     required this.permission,
     required this.account,
+    required this.shell,
   });
 
   /// 设置控制器。
@@ -42,6 +46,9 @@ class SettingsPage extends StatefulWidget {
 
   /// 账号控制器（本地登录态 + 服务探测）。
   final AccountController account;
+
+  /// 壳控制器（只读核心信息，用于「关于与诊断」）。
+  final ShellController shell;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -83,12 +90,9 @@ class _SettingsPageState extends State<SettingsPage> {
   // =====** 组件：网络与中继 =====**
 
   Widget _buildNetworkSection(bool allowRelay) {
+    // 去掉右上角重复胶囊：状态已由按钮与说明表达（清单 P1-1 / G6）。
     return RdcSectionCard(
       title: AppStrings.networkSection,
-      trailing: RdcStatusPill(
-        text: allowRelay ? '已开启' : '默认关闭',
-        color: allowRelay ? RdcTokens.danger : RdcTokens.success,
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -108,7 +112,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       : AppStrings.relayOffHint,
                   style: TextStyle(
                     fontSize: RdcTokens.fontCaption,
-                    color: allowRelay ? RdcTokens.danger : RdcTokens.success,
+                    // 开启中继是「需要注意」而非「故障」：用警示橙，不用危险红（清单 G6）。
+                    color: allowRelay ? RdcTokens.warning : RdcTokens.success,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -175,11 +180,15 @@ class _SettingsPageState extends State<SettingsPage> {
     ];
     return RdcSectionCard(
       title: AppStrings.encodingSection,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      // 窄窗自动换行，不把三个字段压成一行（清单 E4）。
+      child: Wrap(
+        spacing: RdcTokens.spaceMd,
+        runSpacing: RdcTokens.spaceMd,
+        crossAxisAlignment: WrapCrossAlignment.start,
         children: [
           RdcField(
             label: AppStrings.resolutionLabel,
+            expand: false,
             child: Row(
               children: [
                 for (final preset in presets) ...[
@@ -195,7 +204,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
             ),
           ),
-          const SizedBox(width: RdcTokens.spaceMd),
           RdcField(
             label: AppStrings.fpsLabel,
             expand: false,
@@ -212,7 +220,6 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
             ),
           ),
-          const SizedBox(width: RdcTokens.spaceMd),
           RdcField(
             label: AppStrings.bitrateLabel,
             expand: false,
@@ -239,27 +246,33 @@ class _SettingsPageState extends State<SettingsPage> {
   Widget _buildDegradationSection(bool autoReconnect) {
     return RdcSectionCard(
       title: AppStrings.degradationSection,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      // 方向改为三个并列按钮（一眼看出当前与可选项，不用循环点击，清单 P1-12）。
+      child: Wrap(
+        spacing: RdcTokens.spaceMd,
+        runSpacing: RdcTokens.spaceMd,
+        crossAxisAlignment: WrapCrossAlignment.start,
         children: [
           RdcField(
             label: AppStrings.orientationShort,
             expand: false,
-            child: RdcStateButton(
-              label: const [
-                AppStrings.orientationFollow,
-                AppStrings.orientationLandscape,
-                AppStrings.orientationPortrait,
-              ][widget.controller.orientationIndex],
-              icon: Icons.screen_rotation,
-              active: true,
-              onPressed: () {
-                final next = (widget.controller.orientationIndex + 1) % 3;
-                widget.controller.setOrientationByIndex(next);
-              },
+            child: Row(
+              children: [
+                for (var index = 0; index < 3; index++) ...[
+                  if (index != 0) const SizedBox(width: RdcTokens.spaceSm),
+                  RdcStateButton(
+                    label: const [
+                      AppStrings.orientationFollow,
+                      AppStrings.orientationLandscape,
+                      AppStrings.orientationPortrait,
+                    ][index],
+                    active: widget.controller.orientationIndex == index,
+                    onPressed: () =>
+                        widget.controller.setOrientationByIndex(index),
+                  ),
+                ],
+              ],
             ),
           ),
-          const SizedBox(width: RdcTokens.spaceMd),
           RdcField(
             label: AppStrings.autoReconnectLabel,
             expand: false,
@@ -271,9 +284,9 @@ class _SettingsPageState extends State<SettingsPage> {
                   widget.controller.setAutoReconnect(!autoReconnect),
             ),
           ),
-          const SizedBox(width: RdcTokens.spaceMd),
           RdcField(
             label: AppStrings.bandwidthLabel,
+            width: 320,
             child: Row(
               children: [
                 Expanded(
@@ -346,29 +359,22 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
           const SizedBox(height: RdcTokens.spaceLg),
-          Row(
-            children: [
-              Expanded(
-                child: ValueListenableBuilder(
-                  valueListenable: widget.controller.isSaving,
-                  builder: (context, saving, _) => RdcButton(
-                    label: saving ? '保存中…' : AppStrings.saveButton,
-                    icon: Icons.save,
-                    primary: true,
-                    onPressed: saving ? null : _save,
-                  ),
+          // 保存按钮靠右、固定宽 120，右侧留白形成明确的“主操作”位置（清单 P1-13）。
+          Align(
+            alignment: Alignment.centerRight,
+            child: SizedBox(
+              width: 120,
+              child: ValueListenableBuilder(
+                valueListenable: widget.controller.isSaving,
+                builder: (context, saving, _) => RdcButton(
+                  label: saving ? '保存中…' : AppStrings.saveButton,
+                  primary: true,
+                  onPressed: saving ? null : _save,
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: RdcTokens.spaceSm),
-          Text(
-            '设置文件：${widget.controller.repository.filePath}',
-            style: const TextStyle(
-              fontSize: RdcTokens.fontCaption,
-              color: RdcTokens.textMuted,
             ),
           ),
+          // 「设置文件：/AppData/...」属于工程细节，已移出主界面（清单 E5 / P0-6）。
         ],
       ),
     );
@@ -382,28 +388,14 @@ class _SettingsPageState extends State<SettingsPage> {
       return;
     }
     // 开启中继属于高风险设置：必须显式确认，避免误触后流量走服务器。
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-        actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-        content: const SizedBox(
-          width: 380,
-          child: Text(AppStrings.relayConfirmBody),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text(AppStrings.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text(AppStrings.confirm),
-          ),
-        ],
-      ),
+    final confirmed = await showRdcConfirmDialog(
+      context,
+      title: AppStrings.relayConfirmTitle,
+      body: AppStrings.relayConfirmBody,
+      confirmLabel: AppStrings.confirm,
+      danger: true,
     );
-    if (confirmed == true) {
+    if (confirmed) {
       widget.controller.setAllowRelay(true);
     }
   }
@@ -466,19 +458,18 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         ),
                       ),
-                      RdcStateButton(
+                      // 登录/重试是动作，不是开关：改用普通按钮（清单 G5）。
+                      RdcButton(
                         label: AppStrings.accountRetry,
-                        icon: Icons.refresh,
-                        active: false,
                         onPressed: widget.account.refreshService,
                       ),
                       const SizedBox(width: RdcTokens.spaceSm),
-                      RdcStateButton(
+                      RdcButton(
                         label: account.signedIn
                             ? AppStrings.accountLogout
                             : AppStrings.accountLogin,
-                        icon: account.signedIn ? Icons.logout : Icons.login,
-                        active: account.signedIn,
+                        primary: !account.signedIn,
+                        danger: account.signedIn,
                         onPressed: account.signedIn
                             ? widget.account.signOut
                             : _openLogin,
@@ -529,51 +520,98 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  /// 打开本地登录弹窗（账号服务未接入，只记录本地状态）。
+  /// 打开本地登录弹窗（标签在上，不使用浮标签）。
   Future<void> _openLogin() async {
     final controller = TextEditingController();
     final email = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        content: SizedBox(
-          width: 380,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                AppStrings.accountLoginBody,
-                style: TextStyle(
-                  fontSize: RdcTokens.fontCaption,
-                  color: RdcTokens.textMuted,
-                ),
-              ),
-              const SizedBox(height: RdcTokens.spaceLg),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: AppStrings.accountEmailLabel,
-                ),
-              ),
-            ],
-          ),
-        ),
+      builder: (dialogContext) => RdcDialog(
+        title: AppStrings.accountLogin,
         actions: [
-          TextButton(
+          RdcButton(
+            label: AppStrings.cancel,
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text(AppStrings.cancel),
           ),
-          FilledButton(
+          RdcButton(
+            label: AppStrings.confirm,
+            primary: true,
             onPressed: () => Navigator.of(dialogContext).pop(controller.text),
-            child: const Text(AppStrings.confirm),
           ),
         ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              AppStrings.accountLoginBody,
+              style: TextStyle(
+                fontSize: RdcTokens.fontCaption,
+                color: RdcTokens.textMuted,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: RdcTokens.spaceLg),
+            RdcField(
+              label: AppStrings.accountEmailLabel,
+              expand: false,
+              child: RdcTextField(
+                controller: controller,
+                hint: 'name@example.com',
+              ),
+            ),
+          ],
+        ),
       ),
     );
     controller.dispose();
     if (email == null) return;
     await widget.account.signIn(email);
+  }
+
+  // =====** 组件：关于与诊断（清单 P0-2 / P1-18） =====**
+
+  /// 承载版本、平台与核心连接状态；主界面不再显示这些工程信息。
+  Widget _buildAboutSection() {
+    return RdcSectionCard(
+      title: AppStrings.aboutSection,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ValueListenableBuilder<String>(
+            valueListenable: widget.shell.coreVersion,
+            builder: (context, version, _) => RdcInfoRow(
+              label: AppStrings.aboutVersion,
+              value: version,
+            ),
+          ),
+          ValueListenableBuilder<String>(
+            valueListenable: widget.shell.platform,
+            builder: (context, platform, _) => RdcInfoRow(
+              label: AppStrings.aboutPlatform,
+              value: platform,
+            ),
+          ),
+          ValueListenableBuilder<bool>(
+            valueListenable: widget.shell.bridgeHealthy,
+            builder: (context, healthy, _) => RdcInfoRow(
+              label: AppStrings.aboutBridge,
+              value: healthy
+                  ? AppStrings.aboutBridgeOk
+                  : AppStrings.aboutBridgeDown,
+              valueColor: healthy ? RdcTokens.success : RdcTokens.danger,
+            ),
+          ),
+          const SizedBox(height: RdcTokens.spaceSm),
+          const Text(
+            AppStrings.aboutHint,
+            style: TextStyle(
+              fontSize: RdcTokens.fontCaption,
+              color: RdcTokens.textMuted,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // =====** 组件：页面骨架 =====**
@@ -585,11 +623,10 @@ class _SettingsPageState extends State<SettingsPage> {
       child: ValueListenableBuilder(
         valueListenable: widget.controller.settings,
         builder: (context, settings, _) {
+          // 顺序：先本地能力，再可选账号，最后诊断信息（清单 P0-11）。
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildAccountSection(),
-              const SizedBox(height: RdcTokens.spaceLg),
               _buildNetworkSection(settings.allowRelay),
               const SizedBox(height: RdcTokens.spaceLg),
               _buildEncodingSection(
@@ -602,6 +639,10 @@ class _SettingsPageState extends State<SettingsPage> {
               _buildDegradationSection(settings.autoReconnect),
               const SizedBox(height: RdcTokens.spaceLg),
               _buildQuickSection(),
+              const SizedBox(height: RdcTokens.spaceLg),
+              _buildAccountSection(),
+              const SizedBox(height: RdcTokens.spaceLg),
+              _buildAboutSection(),
             ],
           );
         },

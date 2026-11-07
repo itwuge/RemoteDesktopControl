@@ -19,7 +19,9 @@ import '../../controller/shell_controller.dart';
 import '../../controller/wall_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
+import '../components/home_access_card.dart';
 import '../components/rdc_button.dart';
+import '../components/rdc_dialog.dart';
 import 'device_page.dart';
 import 'session_page.dart';
 import 'settings_page.dart';
@@ -74,6 +76,8 @@ class _ShellPageState extends State<ShellPage> {
     widget.shell.loadStatus();
     widget.devices.load();
     widget.session.loadRole();
+    // 首页要显示「能否被连 / 谁在连」，这里读取一次共享快照（幂等）。
+    widget.permission.load();
   }
 
   // =====** 组件：顶部状态区 =====**
@@ -116,45 +120,16 @@ class _ShellPageState extends State<ShellPage> {
             ],
           ),
           const SizedBox(height: RdcTokens.spaceMd),
+          // 顶部只保留 1 个身份胶囊；版本/平台/桥接状态统一移到「设置 → 关于与诊断」
+          // （清单 A2 / E5 / P0-2）。
           Wrap(
             spacing: RdcTokens.spaceSm,
             runSpacing: RdcTokens.spaceSm,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _chip(
-                label: '${AppStrings.hostLabel} · ${widget.shell.hostName.value}',
+                label: AppStrings.hostLabel,
                 valueListenable: widget.shell.hostName,
-              ),
-              _chip(
-                label: AppStrings.versionLabel,
-                valueListenable: widget.shell.coreVersion,
-              ),
-              _chip(
-                label: AppStrings.platformLabel,
-                valueListenable: widget.shell.platform,
-              ),
-              ValueListenableBuilder(
-                valueListenable: widget.shell.bridgeHealthy,
-                builder: (context, healthy, _) => Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: (healthy ? RdcTokens.success : RdcTokens.danger)
-                        .withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
-                    border: Border.all(
-                      color: (healthy ? RdcTokens.success : RdcTokens.danger)
-                          .withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: Text(
-                    healthy ? AppStrings.bridgeOk : AppStrings.bridgeDown,
-                    style: TextStyle(
-                      fontSize: RdcTokens.fontCaption,
-                      color: healthy ? RdcTokens.success : RdcTokens.danger,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
               ),
             ],
           ),
@@ -239,10 +214,10 @@ class _ShellPageState extends State<ShellPage> {
                     for (var index = 0; index < labels.length; index++)
                       SizedBox(
                         width: itemWidth,
-                        child: RdcStateButton(
+                        child: RdcNavTab(
                           label: labels[index],
                           icon: icons[index],
-                          active: active == index,
+                          selected: active == index,
                           onPressed: () => widget.shell.selectTab(index),
                         ),
                       ),
@@ -254,10 +229,10 @@ class _ShellPageState extends State<ShellPage> {
                   for (var index = 0; index < labels.length; index++) ...[
                     if (index != 0) const SizedBox(width: RdcTokens.spaceSm),
                     Expanded(
-                      child: RdcStateButton(
+                      child: RdcNavTab(
                         label: labels[index],
                         icon: icons[index],
-                        active: active == index,
+                        selected: active == index,
                         onPressed: () => widget.shell.selectTab(index),
                       ),
                     ),
@@ -268,6 +243,83 @@ class _ShellPageState extends State<ShellPage> {
           );
         },
       ),
+    );
+  }
+
+  // =====** 组件：本机可被控状态（清单 A1） =====**
+
+  /// 首页安全状态卡：只调用已有接口，不新增协议。
+  Widget _buildAccessCard() {
+    // 设置、内核快照、保存态任一变化都要刷新（用 merge 合并监听）。
+    return ListenableBuilder(
+      listenable: Listenable.merge([
+        widget.permission.settings,
+        widget.permission.kernel,
+        widget.permission.saving,
+      ]),
+      builder: (context, _) {
+        final snapshot = widget.permission.kernel.value;
+        final settings = widget.permission.settings.value;
+        // 两份数据都拿不到时才显示「不可读」，避免把加载中误判为已停止。
+        if (snapshot == null && settings == null) {
+          return RdcAccessCard(
+            enabled: false,
+            onlineLabel: '',
+            unavailable: true,
+            onRetry: widget.permission.load,
+          );
+        }
+        final enabled =
+            snapshot?.remoteAccessEnabled ?? settings!.remoteAccessEnabled;
+        final online =
+            snapshot?.connectedLabel ?? AppStrings.homeAccessNoSession;
+        return RdcAccessCard(
+          enabled: enabled,
+          onlineLabel: online,
+          busy: widget.permission.saving.value,
+          onStop: _stopRemoteAccess,
+          onResume: _resumeRemoteAccess,
+        );
+      },
+    );
+  }
+
+  /// 停止远程访问：先二次确认，再调用既有内核接口。
+  Future<void> _stopRemoteAccess() async {
+    final confirmed = await showRdcConfirmDialog(
+      context,
+      title: AppStrings.stopConfirmTitle,
+      body: AppStrings.stopConfirmBody,
+      confirmLabel: AppStrings.stopRemote,
+      danger: true,
+    );
+    if (!confirmed || !mounted) return;
+    final report = await widget.permission.stopRemoteAccess();
+    if (!mounted) return;
+    final error = widget.permission.errorMessage.value;
+    _showMessage(
+      report != null ? AppStrings.stopDone : (error ?? AppStrings.unknownError),
+    );
+  }
+
+  /// 恢复远程访问：调用前必须本机确认（内核要求 confirm=true）。
+  Future<void> _resumeRemoteAccess() async {
+    final confirmed = await showRdcConfirmDialog(
+      context,
+      title: AppStrings.resumeConfirmTitle,
+      body: AppStrings.resumeConfirmBody,
+      confirmLabel: AppStrings.confirm,
+    );
+    if (!confirmed || !mounted) return;
+    final error = await widget.permission.resumeRemoteAccess();
+    if (!mounted) return;
+    _showMessage(error ?? AppStrings.resumeDone);
+  }
+
+  /// 统一提示条。
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 
@@ -290,6 +342,7 @@ class _ShellPageState extends State<ShellPage> {
               controller: widget.settings,
               permission: widget.permission,
               account: widget.account,
+              shell: widget.shell,
             ),
           _ => SessionPage(
               controller: widget.session,
@@ -315,6 +368,30 @@ class _ShellPageState extends State<ShellPage> {
           children: [
             _buildStatusBar(),
             _buildEntries(),
+            // 安全状态只在「远程控制」首页出现，其他页面不占垂直空间。
+            ValueListenableBuilder<int>(
+              valueListenable: widget.shell.activeTab,
+              builder: (context, active, _) {
+                if (active != ShellTab.control) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    RdcTokens.spacePage,
+                    RdcTokens.spaceMd,
+                    RdcTokens.spacePage,
+                    0,
+                  ),
+                  child: Align(
+                    alignment: Alignment.topCenter,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(
+                        maxWidth: RdcTokens.pageMaxWidth,
+                      ),
+                      child: _buildAccessCard(),
+                    ),
+                  ),
+                );
+              },
+            ),
             Expanded(
               child: Align(
                 alignment: Alignment.topCenter,

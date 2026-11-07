@@ -9,6 +9,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import 'controller/account_controller.dart';
 import 'controller/device_controller.dart';
@@ -17,6 +18,7 @@ import 'controller/session_controller.dart';
 import 'controller/settings_controller.dart';
 import 'controller/shell_controller.dart';
 import 'controller/wall_controller.dart';
+import 'core/l10n/strings.dart';
 import 'core/utils/logger.dart';
 import 'model/account/account_repository.dart';
 import 'model/gateway/rust_gateway.dart';
@@ -24,6 +26,13 @@ import 'model/settings/settings_repository.dart';
 import 'view/pages/permission_page.dart';
 import 'view/pages/shell_page.dart';
 import 'view/theme/app_theme.dart';
+
+/// 全局语义句柄。
+///
+/// 主动保持引用不释放：一旦句柄被回收，Flutter 会关闭语义树，
+/// Windows UIA / 读屏将再次只能看到 `FLUTTERVIEW` 一个节点。
+/// 这是无障碍需求，也是后续自动化测试读取控件树的前提（清单「必须做的技术活」）。
+SemanticsHandle? semanticsHandle;
 
 /// 应用启动：先装载 Rust 动态库，再组装 MVC 并运行。
 Future<void> main() async {
@@ -69,7 +78,8 @@ Future<void> main() async {
   await shellController.loadStatus();
   if (bridgeInitError != null) {
     shellController.bridgeHealthy.value = false;
-    shellController.errorMessage.value = 'Rust 核心加载失败：$bridgeInitError';
+    shellController.errorMessage.value =
+        '${AppStrings.bridgeInitFailed}：$bridgeInitError';
   }
 
   // 截图/演示钩子：RDC_START_TAB 指定初始功能区，RDC_START_PAGE=permission 直接进权限页。
@@ -87,6 +97,12 @@ Future<void> main() async {
     accountController: accountController,
     showPermissionPage: Platform.environment['RDC_START_PAGE'] == 'permission',
   ));
+
+  // 首帧之后再通知平台“语义树开启”：此时平台视图已创建，
+  // Windows embedder 才有对象可挂语义节点；在 runApp 之前调用会被丢掉。
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    semanticsHandle ??= SemanticsBinding.instance.ensureSemantics();
+  });
 }
 
 /// 从环境变量读取初始功能区。

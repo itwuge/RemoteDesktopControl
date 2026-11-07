@@ -25,6 +25,7 @@ import '../../core/theme/tokens.dart';
 import '../../model/gateway/rust_types.dart';
 import '../components/info_row.dart';
 import '../components/rdc_button.dart';
+import '../components/rdc_dialog.dart';
 import '../components/rgba_preview.dart';
 import '../components/session_transfer_dialogs.dart';
 
@@ -143,7 +144,8 @@ class _SessionPageState extends State<SessionPage> {
       setState(() => _toolbarVisible = true);
     }
     if (autoHide) {
-      _hideTimer = Timer(const Duration(seconds: 3), () {
+      // 5 秒足够读清按钮，又不长期遮挡画面（清单 D2）。
+      _hideTimer = Timer(const Duration(seconds: 5), () {
         if (mounted) setState(() => _toolbarVisible = false);
       });
     }
@@ -442,7 +444,7 @@ class _SessionPageState extends State<SessionPage> {
                 Text(
                   error == null
                       ? AppStrings.sessionTextureStarting
-                      : '${AppStrings.sessionTextureFailed}$error',
+                      : AppStrings.sessionTextureFailed,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: RdcTokens.fontBody,
@@ -602,18 +604,21 @@ class _SessionPageState extends State<SessionPage> {
     await controller.startPreview();
   }
 
-  /// 断开：先走 bye 收尾（报告写进提示），再返回设备列表。
+  /// 断开：先二次确认，再走 bye 收尾并返回设备列表。
   Future<void> _disconnect() async {
-    final report = await controller.endSession();
+    final confirmed = await showRdcConfirmDialog(
+      context,
+      title: AppStrings.disconnectConfirmTitle,
+      body: AppStrings.disconnectConfirmBody,
+      confirmLabel: AppStrings.disconnect,
+      danger: true,
+    );
+    if (!confirmed || !mounted) return;
+    await controller.endSession();
     if (!mounted) return;
-    final detail = report == null
-        ? '收尾报告缺失（详见日志）'
-        : 'bye ${report.byeAcked ? "已确认" : "未确认"}'
-            ' · 服务残留 ${report.servicesRunningAfter}'
-            ' · 句柄 ${report.handlesDelta >= 0 ? "+" : ""}${report.handlesDelta}'
-            ' · 端口${report.portsReleased ? "已释放" : "未释放"}';
+    // 主界面只提示结果；bye/句柄/端口等收尾细节属于诊断，不再外露。
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('会话已断开：$detail')),
+      const SnackBar(content: Text(AppStrings.disconnectDone)),
     );
     shell.disconnectToDevices();
   }
@@ -623,9 +628,11 @@ class _SessionPageState extends State<SessionPage> {
   /// 工具条；[floating] 为真时是宽布局的顶部悬浮样式。
   Widget _buildToolbar({required bool floating, required bool wide}) {
     final actions = <Widget>[
+      // 断开是破坏性动作：红色 + 二次确认（清单 D1 / P0-9）。
       RdcButton(
         label: AppStrings.disconnect,
         icon: Icons.logout,
+        danger: true,
         onPressed: _disconnect,
       ),
       if (wide)
@@ -716,8 +723,11 @@ class _SessionPageState extends State<SessionPage> {
               ValueListenableBuilder(
                 valueListenable: shell.isLocalPreview,
                 builder: (context, local, _) => RdcInfoRow(
-                  label: '连接目标',
-                  value: local ? '本机回环（未接入真实会话）' : '设备会话（传输待接线）',
+                  label: AppStrings.sessionTargetLabel,
+                  // 去掉「未接入/待接线」自曝实现，只描述用户看到的东西（清单 P0-7）。
+                  value: local
+                      ? AppStrings.sessionTargetLocal
+                      : AppStrings.sessionTargetDevice,
                 ),
               ),
               if (error != null)

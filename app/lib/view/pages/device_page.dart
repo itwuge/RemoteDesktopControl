@@ -20,6 +20,7 @@ import '../components/hover_card.dart';
 import '../components/info_row.dart';
 import '../components/pager.dart';
 import '../components/rdc_button.dart';
+import '../components/rdc_dialog.dart';
 
 /// 设备列表页。
 class DevicePage extends StatefulWidget {
@@ -100,7 +101,7 @@ class _DevicePageState extends State<DevicePage> {
   /// 搜索字段。
   Widget _buildSearchField({required bool expand}) {
     return RdcField(
-      label: AppStrings.deviceSearchHint,
+      label: AppStrings.deviceSearchLabel,
       expand: expand,
       child: RdcTextField(
         controller: _search,
@@ -112,7 +113,9 @@ class _DevicePageState extends State<DevicePage> {
 
   Widget _buildSearchRow(bool wide) {
     if (wide) {
+      // 底部对齐：标签在上时，输入框与按钮同一条基线（清单 B2 / E2）。
       return Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           _buildSearchField(expand: true),
           const SizedBox(width: RdcTokens.spaceMd),
@@ -201,9 +204,11 @@ class _DevicePageState extends State<DevicePage> {
         sameAccount: device.sameAccount,
       ),
     );
+    // 破坏性动作使用 danger 变体，避免与「连接」同样的视觉权重（清单 B5）。
     final deleteButton = RdcButton(
       label: AppStrings.delete,
       icon: Icons.delete_outline,
+      danger: true,
       onPressed: () => _confirmDelete(device.id, device.name),
     );
     return Padding(
@@ -257,38 +262,18 @@ class _DevicePageState extends State<DevicePage> {
   // =====** 组件：空状态 =====**
 
   Widget _buildEmptyState() {
+    // 复用统一空状态组件：图标 + 标题 + 下一步动作（清单 B3 / G-high）。
     return RdcHoverCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.devices_other, size: 32, color: RdcTokens.textMuted),
-          const SizedBox(height: RdcTokens.spaceMd),
-          const Text(
-            AppStrings.deviceEmptyTitle,
-            style: TextStyle(
-              fontSize: RdcTokens.fontSection,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: RdcTokens.spaceSm),
-          const Text(
-            AppStrings.deviceEmptyBody,
-            style: TextStyle(
-              fontSize: RdcTokens.fontCaption,
-              color: RdcTokens.textMuted,
-            ),
-          ),
-          const SizedBox(height: RdcTokens.spaceLg),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: RdcButton(
-              label: AppStrings.deviceAdd,
-              icon: Icons.add,
-              primary: true,
-              onPressed: () => _showDeviceDialog(),
-            ),
-          ),
-        ],
+      child: RdcEmptyState(
+        icon: Icons.devices_other,
+        title: AppStrings.deviceEmptyTitle,
+        body: AppStrings.deviceEmptyBody,
+        action: RdcButton(
+          label: AppStrings.deviceAdd,
+          icon: Icons.add,
+          primary: true,
+          onPressed: () => _showDeviceDialog(),
+        ),
       ),
     );
   }
@@ -306,79 +291,74 @@ class _DevicePageState extends State<DevicePage> {
     final nameController = TextEditingController(text: name ?? '');
     var trust = trusted;
     var same = sameAccount;
+    // 弹窗统一走 RdcDialog：24 边距、16 圆角、标签在上、按钮 36（清单 G9 / P0-14）。
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          titlePadding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-          contentPadding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-          actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-          title: Text(editing ? AppStrings.edit : AppStrings.deviceAdd),
-          content: SizedBox(
-            width: 480,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    RdcField(
-                      label: AppStrings.deviceIdLabel,
-                      child: RdcTextField(
-                        controller: idController,
-                        hint: 'rdc-xxxx',
-                        onChanged: editing ? null : (_) {},
-                      ),
-                    ),
-                    const SizedBox(width: RdcTokens.spaceMd),
-                    RdcField(
-                      label: AppStrings.deviceNameLabel,
-                      child: RdcTextField(
-                        controller: nameController,
-                        hint: '书房的台式机',
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: RdcTokens.spaceLg),
-                Row(
-                  children: [
-                    RdcStateButton(
-                      label: AppStrings.trustDeviceLabel,
-                      active: trust,
-                      icon: Icons.verified_user,
-                      onPressed: () {
-                        if (!editing) {
-                          setDialogState(() => trust = !trust);
-                        }
-                      },
-                    ),
-                    const SizedBox(width: RdcTokens.spaceMd),
-                    RdcStateButton(
-                      label: AppStrings.sameAccountLabel,
-                      active: same,
-                      icon: Icons.person,
-                      onPressed: () {
-                        if (!editing) {
-                          setDialogState(() => same = !same);
-                        }
-                      },
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
+        builder: (context, setDialogState) => RdcDialog(
+          title: editing ? AppStrings.edit : AppStrings.deviceAdd,
           actions: [
-            TextButton(
+            RdcButton(
+              label: AppStrings.cancel,
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text(AppStrings.cancel),
             ),
-            FilledButton(
+            RdcButton(
+              label: AppStrings.save,
+              primary: true,
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text(AppStrings.save),
             ),
           ],
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              RdcField(
+                label: AppStrings.deviceIdLabel,
+                expand: false,
+                child: RdcTextField(
+                  controller: idController,
+                  hint: 'rdc-xxxx',
+                  onChanged: editing ? null : (_) {},
+                ),
+              ),
+              const SizedBox(height: RdcTokens.spaceLg),
+              RdcField(
+                label: AppStrings.deviceNameLabel,
+                expand: false,
+                child: RdcTextField(
+                  controller: nameController,
+                  hint: '书房的台式机',
+                ),
+              ),
+              const SizedBox(height: RdcTokens.spaceLg),
+              Wrap(
+                spacing: RdcTokens.spaceMd,
+                runSpacing: RdcTokens.spaceSm,
+                children: [
+                  RdcStateButton(
+                    label: AppStrings.trustDeviceLabel,
+                    active: trust,
+                    icon: Icons.verified_user,
+                    onPressed: () {
+                      if (!editing) {
+                        setDialogState(() => trust = !trust);
+                      }
+                    },
+                  ),
+                  RdcStateButton(
+                    label: AppStrings.sameAccountLabel,
+                    active: same,
+                    icon: Icons.person,
+                    onPressed: () {
+                      if (!editing) {
+                        setDialogState(() => same = !same);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -408,25 +388,14 @@ class _DevicePageState extends State<DevicePage> {
   // =====** 行为：删除确认 =====**
 
   Future<void> _confirmDelete(String deviceId, String name) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-        actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-        content: Text('删除「$name」？本机记录会移除，不影响对方设备。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text(AppStrings.cancel),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text(AppStrings.delete),
-          ),
-        ],
-      ),
+    final confirmed = await showRdcConfirmDialog(
+      context,
+      title: AppStrings.deleteConfirmTitle,
+      body: '将移除「$name」的本机记录，不影响对方设备。',
+      confirmLabel: AppStrings.delete,
+      danger: true,
     );
-    if (confirmed != true || !mounted) return;
+    if (!confirmed || !mounted) return;
     final message = await widget.controller.removeDevice(deviceId);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -494,14 +463,6 @@ class _DevicePageState extends State<DevicePage> {
                             total: widget.controller.allDevices.value.length,
                             onChanged: widget.controller.goToPage,
                           ),
-                        ),
-                      ),
-                      const SizedBox(height: RdcTokens.spaceSm),
-                      Text(
-                        '设备文件：${widget.controller.filePath.value}',
-                        style: const TextStyle(
-                          fontSize: RdcTokens.fontCaption,
-                          color: RdcTokens.textMuted,
                         ),
                       ),
                     ],

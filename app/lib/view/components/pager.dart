@@ -36,6 +36,24 @@ class RdcPager extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 只有一页时隐藏翻页控件与「1 / 1」徽章，避免无意义的高亮数字（清单 B6/B7）。
+    if (pageCount <= 1) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: RdcTokens.surface,
+          borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
+          border: Border.all(color: RdcTokens.border),
+        ),
+        child: Text(
+          '共 $total 台设备',
+          style: const TextStyle(
+            fontSize: RdcTokens.fontCaption,
+            color: RdcTokens.textMuted,
+          ),
+        ),
+      );
+    }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
