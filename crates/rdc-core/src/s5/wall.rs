@@ -47,10 +47,16 @@ pub const WALL_FRAGMENT_BYTES: usize = 1352;
 const TAG_FRAME_HEADER: u8 = 0x51;
 /// 分片消息 tag。
 const TAG_FRAME_FRAGMENT: u8 = 0x52;
+/// 流结束消息 tag。
+const TAG_STREAM_DONE: u8 = 0x53;
+/// 开始计时标记 tag（观看者收到后才把后续帧计入判据）。
+const TAG_STREAM_START: u8 = 0x54;
 /// 帧头固定长度：tag(1)+stream(4)+frame(4)+pts(8)+w(2)+h(2)+total(4)。
 const HEADER_LEN: usize = 1 + 4 + 4 + 8 + 2 + 2 + 4;
 /// 分片固定头：tag(1)+stream(4)+frame(4)+index(2)+count(2)。
 const FRAGMENT_HEADER_LEN: usize = 1 + 4 + 4 + 2 + 2;
+/// 流结束/开始消息长度：tag(1)+stream(4)。
+const MARK_LEN: usize = 1 + 4;
 
 // =====** WallError =====**
 
@@ -120,6 +126,16 @@ pub enum WallMessage {
         /// 分片内容。
         data: Vec<u8>,
     },
+    /// 流结束：本路不再有新的缩略帧。
+    Done {
+        /// 子码流编号。
+        stream_id: u32,
+    },
+    /// 开始计时：此消息之后的帧才计入观看者判据（之前的帧用于 CPU 预热测量）。
+    Start {
+        /// 子码流编号。
+        stream_id: u32,
+    },
 }
 
 /// 编码一条子码流消息。
@@ -172,6 +188,16 @@ pub fn encode_message(message: &WallMessage) -> Result<Vec<u8>, WallError> {
             out.extend_from_slice(&frag_count.to_le_bytes());
             out.extend_from_slice(data);
             debug_assert_eq!(out.len(), FRAGMENT_HEADER_LEN + data.len());
+        }
+        WallMessage::Done { stream_id } => {
+            out.push(TAG_STREAM_DONE);
+            out.extend_from_slice(&stream_id.to_le_bytes());
+            debug_assert_eq!(out.len(), MARK_LEN);
+        }
+        WallMessage::Start { stream_id } => {
+            out.push(TAG_STREAM_START);
+            out.extend_from_slice(&stream_id.to_le_bytes());
+            debug_assert_eq!(out.len(), MARK_LEN);
         }
     }
     Ok(out)
@@ -241,6 +267,30 @@ pub fn decode_message(bytes: &[u8]) -> Result<WallMessage, WallError> {
                 frag_index,
                 frag_count,
                 data,
+            })
+        }
+        TAG_STREAM_DONE => {
+            if rest.len() != 4 {
+                return Err(WallError::Protocol(format!(
+                    "结束消息长度 {} != {}",
+                    rest.len() + 1,
+                    MARK_LEN
+                )));
+            }
+            Ok(WallMessage::Done {
+                stream_id: read_u32(rest, 0)?,
+            })
+        }
+        TAG_STREAM_START => {
+            if rest.len() != 4 {
+                return Err(WallError::Protocol(format!(
+                    "开始消息长度 {} != {}",
+                    rest.len() + 1,
+                    MARK_LEN
+                )));
+            }
+            Ok(WallMessage::Start {
+                stream_id: read_u32(rest, 0)?,
             })
         }
         other => Err(WallError::Protocol(format!("未知 tag {other}"))),
@@ -318,6 +368,46 @@ pub async fn send_frame(
     Ok(frag_count)
 }
 
+/// 向一路会话发送「本路结束」。
+///
+/// # Arguments
+/// * `session` - 已加密会话
+/// * `stream_id` - 子码流编号
+///
+/// # Returns
+/// 发送成功返回 `Ok(())`。
+///
+/// # Errors
+/// 通道写失败或消息编码失败时返回 [`WallError`]。
+pub async fn send_done(
+    session: &mut EstablishedSession,
+    stream_id: u32,
+) -> Result<(), WallError> {
+    let message = encode_message(&WallMessage::Done { stream_id })?;
+    session.send_control(&message).await?;
+    Ok(())
+}
+
+/// 向一路会话发送「开始计时」。
+///
+/// # Arguments
+/// * `session` - 已加密会话
+/// * `stream_id` - 子码流编号
+///
+/// # Returns
+/// 发送成功返回 `Ok(())`。
+///
+/// # Errors
+/// 通道写失败或消息编码失败时返回 [`WallError`]。
+pub async fn send_start(
+    session: &mut EstablishedSession,
+    stream_id: u32,
+) -> Result<(), WallError> {
+    let message = encode_message(&WallMessage::Start { stream_id })?;
+    session.send_control(&message).await?;
+    Ok(())
+}
+
 // =====** 接收重组 =====**
 
 /// 正在重组的帧。
@@ -346,6 +436,8 @@ struct PendingFrame {
 pub struct WallReceiver {
     /// 本路子码流编号（只接受同编号消息，避免多流串扰）。
     stream_id: u32,
+    /// 是否已收到「开始计时」。
+    started: bool,
     /// 在途帧。
     pending: Option<PendingFrame>,
     /// 完整帧计数。
@@ -368,10 +460,22 @@ impl WallReceiver {
     pub fn new(stream_id: u32) -> Self {
         Self {
             stream_id,
+            started: false,
             pending: None,
             completed: 0,
             dropped: 0,
         }
+    }
+
+    /// 是否已进入计时区间（收到 Start 之后为 `true`）。
+    ///
+    /// # Returns
+    /// 已收到本路 [`WallMessage::Start`] 时返回 `true`。
+    ///
+    /// # Errors
+    /// 不会失败。
+    pub fn is_started(&self) -> bool {
+        self.started
     }
 
     /// 完整帧计数。
@@ -396,24 +500,33 @@ impl WallReceiver {
         self.dropped
     }
 
-    /// 接收直到重组成一帧。
+    /// 接收直到重组成一帧，或收到本路结束消息。
     ///
     /// # Arguments
     /// * `session` - 已加密会话（必须由本重组器独占使用）
     ///
     /// # Returns
-    /// 完整缩略帧。
+    /// 完整缩略帧；收到 [`WallMessage::Done`] 时返回 `None`。
     ///
     /// # Errors
     /// 通道读失败、消息畸形或分片乱序时返回 [`WallError`]。
-    pub async fn recv_frame(
+    pub async fn recv_next(
         &mut self,
         session: &mut EstablishedSession,
-    ) -> Result<WallFrame, WallError> {
+    ) -> Result<Option<WallFrame>, WallError> {
         loop {
-            let message = decode_message(&session.recv_control().await?)?;
-            if let Some(frame) = self.apply(message)? {
-                return Ok(frame);
+            match decode_message(&session.recv_control().await?)? {
+                WallMessage::Done { stream_id } if stream_id == self.stream_id => {
+                    return Ok(None);
+                }
+                WallMessage::Start { stream_id } if stream_id == self.stream_id => {
+                    self.started = true;
+                }
+                other => {
+                    if let Some(frame) = self.apply(other)? {
+                        return Ok(Some(frame));
+                    }
+                }
             }
         }
     }
@@ -505,6 +618,7 @@ impl WallReceiver {
                 }
                 Ok(None)
             }
+            WallMessage::Done { .. } | WallMessage::Start { .. } => Ok(None),
         }
     }
 
@@ -772,10 +886,12 @@ impl ThumbnailEncoder {
             bit_depth: 8,
             low_latency: true,
         };
-        // 低码率参数在个别驱动上会被拒绝；失败时回退到 1 Mbps 并保留原分辨率/帧率。
+        // 低码率/低帧率参数在个别驱动上会被拒绝；失败时把码率抬到 1 Mbps、
+        // 帧率抬到 15（编码器只当元数据，发送节奏仍由调用方控制）。
         if let Err(first) = encoder.configure(config) {
             let fallback = VideoConfig {
                 bitrate_bps: bitrate_bps.max(1_000_000),
+                fps: fps.max(15),
                 ..config
             };
             encoder.configure(fallback).map_err(|_| first)?;
@@ -907,6 +1023,16 @@ mod tests {
         let bytes = encode_message(&fragment).expect("编码");
         assert_eq!(bytes.len(), FRAGMENT_HEADER_LEN + 100);
         assert_eq!(decode_message(&bytes).expect("解码"), fragment);
+
+        let done = WallMessage::Done { stream_id: 7 };
+        let bytes = encode_message(&done).expect("编码");
+        assert_eq!(bytes.len(), MARK_LEN);
+        assert_eq!(decode_message(&bytes).expect("解码"), done);
+
+        let start = WallMessage::Start { stream_id: 7 };
+        let bytes = encode_message(&start).expect("编码");
+        assert_eq!(bytes.len(), MARK_LEN);
+        assert_eq!(decode_message(&bytes).expect("解码"), start);
     }
 
     /// 畸形消息一律 Protocol，不 panic。

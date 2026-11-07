@@ -17,6 +17,7 @@ mod s3b;
 mod s3b3;
 mod s3b4;
 mod s4demo;
+mod walldemo;
 
 // =====** 入口 =====**
 
@@ -44,11 +45,12 @@ async fn main() -> ExitCode {
         Some("demo-keys") => run_s4_demo("demo-keys", 60, s4demo::run_keys()).await,
         Some("demo-clipboard") => run_s4_demo("demo-clipboard", 60, s4demo::run_clipboard()).await,
         Some("demo-file") => run_s4_demo("demo-file", 120, s4demo::run_file()).await,
+        Some("demo-wall") => run_s4_demo("demo-wall", 90, walldemo::run()).await,
         Some(other) => {
             eprintln!("未知子命令: {other}");
             eprintln!(
                 "可用: doctor | selftest | demo | demo-input | demo-keys | demo-clipboard | \
-                 demo-file | s3a [--fixture] | s3b [--frames N] | \
+                 demo-file | demo-wall | s3a [--fixture] | s3b [--frames N] | \
                  s3b3 [--instances K] [--frames N] [--bitrate B] | \
                  s3b4 [host|ctrl] [--secs S]"
             );

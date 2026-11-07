@@ -47,7 +47,10 @@ use crate::CodecError;
 // =====** VT_BOOL VARIANT =====**
 
 /// 手工构造的 `VT_BOOL` VARIANT（windows-core 未提供 bool 构造器，布局与原生 VARIANT 一致）。
-#[repr(C)]
+///
+/// `align(8)`：`VARIANT` 要求 8 字节对齐；本结构字段全是 2 字节，若按默认 2 字节对齐，
+/// 栈上地址可能只有 2 字节对齐，`as_variant` 的引用转换会触发 UB（debug 下直接 panic）。
+#[repr(C, align(8))]
 struct BoolVariant {
     vt: u16,
     reserved: [u16; 3],
