@@ -17,16 +17,17 @@ use std::mem::size_of;
 
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYBD_EVENT_FLAGS,
-    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, MOUSEEVENTF_ABSOLUTE,
-    MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
-    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP,
-    MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT, MOUSE_EVENT_FLAGS, VIRTUAL_KEY,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE, KEYEVENTF_UNICODE,
+    MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
+    MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN,
+    MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEINPUT,
+    MOUSE_EVENT_FLAGS, VIRTUAL_KEY, VK_BACK,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
 };
 
-use crate::event::{ButtonState, PointerButton};
+use crate::event::{ButtonState, PointerButton, TextEvent};
 use crate::injector::{normalize_absolute, InputInjector, Viewport};
 use crate::{InputError, InputEvent};
 
@@ -35,6 +36,12 @@ const WHEEL_DELTA: i32 = 120;
 
 /// 扩展键扫描码前缀（PC/AT Set 1 的 E0 前缀，本协议用 `0xE0xx` 表达）。
 const EXTENDED_SCAN_PREFIX: u16 = 0xE000;
+
+/// 文本注入单批 `SendInput` 上限（条）。
+///
+/// 32 个 UTF-16 码元 = 64 条输入；批太大时部分安全软件会静默截断，
+/// 分批还能把单次调用耗时压到 1 ms 预算内。
+const MAX_TEXT_BATCH: usize = 64;
 
 // =====** InputBatch =====**
 
@@ -124,6 +131,10 @@ impl InputInjector for PlatformInjector {
     /// [`InputError::InvalidViewport`]；`SendInput` 返回 0（UIPI/安全桌面拦截）返回
     /// [`InputError::InjectionRejected`]。失败不重试，由上层丢弃本批事件。
     fn inject(&mut self, event: InputEvent) -> Result<(), InputError> {
+        // 文本事件不依赖视口与按键状态，先分流，避免每次输入都查虚拟桌面。
+        if let InputEvent::Text(text) = &event {
+            return self.inject_text(text);
+        }
         let rect = self.target_rect()?;
         // 指针事件可能改变下压状态：状态迁移只在 SendInput 成功后生效。
         let (batch, transition) = match event {
@@ -142,6 +153,8 @@ impl InputInjector for PlatformInjector {
             InputEvent::Wheel(w) => (wheel_batch(w.delta_x, w.delta_y), None),
             // 桌面注入器不处理触摸：触摸屏/手势注入需另行实现（留接口）。
             InputEvent::Touch(_) => return Err(InputError::Unsupported),
+            // 文本已在函数入口分流；这里不可达，保留分支表达“互斥”。
+            InputEvent::Text(_) => return Err(InputError::Unsupported),
         };
         if batch.is_empty() {
             return Ok(());
@@ -176,6 +189,37 @@ impl InputInjector for PlatformInjector {
         if viewport.is_valid() {
             self.viewport = Some(viewport);
         }
+    }
+}
+
+// =====** 文本注入（trait 之外，避免污染 InputInjector 契约） =====**
+
+impl PlatformInjector {
+    /// 注入一条文本编辑事件。
+    ///
+    /// 为什么用 `KEYEVENTF_UNICODE` 而不是扫描码：扫描码依赖被控端键盘布局，
+    /// 中文、emoji、输入法候选词都无法用布局映射表达；UNICODE 路径直接把码元
+    /// 交给前台窗口，布局无关。
+    ///
+    /// # Arguments
+    /// * `event` - 文本事件（先退格，再逐码元输入）
+    ///
+    /// # Returns
+    /// 所有批次都被系统接受时返回 `Ok(())`。
+    ///
+    /// # Errors
+    /// `SendInput` 返回 0（UIPI/安全桌面/输入被拦截）时返回
+    /// [`InputError::InjectionRejected`]；空操作直接成功。
+    fn inject_text(&mut self, event: &TextEvent) -> Result<(), InputError> {
+        // 空操作不调用系统 API：避免产生一次无意义的 SendInput 计数。
+        if event.is_noop() {
+            return Ok(());
+        }
+        let inputs = text_inputs(event.delete_units, &event.text);
+        for chunk in inputs.chunks(MAX_TEXT_BATCH) {
+            send_inputs(chunk)?;
+        }
+        Ok(())
     }
 }
 
@@ -276,6 +320,87 @@ fn key_input(scan_code: u16, pressed: bool) -> INPUT {
                 dwExtraInfo: 0,
             },
         },
+    }
+}
+
+/// 构造一条文本编辑事件的完整输入序列。
+///
+/// 顺序：先发 `delete_units` 次退格（按下+抬起），再对文本的每个 UTF-16 码元
+/// 发一次 UNICODE 按下+抬起。emoji 等 BMP 外字符由 `encode_utf16` 自动拆成
+/// 代理对，Windows 会把连续代理对合成一个字符。
+///
+/// # Arguments
+/// * `delete_units` - 退格次数（UTF-16 码元数）
+/// * `text` - 要插入的文本
+///
+/// # Returns
+/// 条数为 `delete_units * 2 + text.encode_utf16().count() * 2` 的输入数组。
+fn text_inputs(delete_units: u16, text: &str) -> Vec<INPUT> {
+    let units = text.encode_utf16().count();
+    let mut inputs = Vec::with_capacity((delete_units as usize + units) * 2);
+    for _ in 0..delete_units {
+        inputs.push(backspace_input(true));
+        inputs.push(backspace_input(false));
+    }
+    for unit in text.encode_utf16() {
+        inputs.push(unicode_input(unit, true));
+        inputs.push(unicode_input(unit, false));
+    }
+    inputs
+}
+
+/// 退格输入（虚拟键 `VK_BACK`，按下/抬起）。
+fn backspace_input(pressed: bool) -> INPUT {
+    let mut flags = KEYBD_EVENT_FLAGS(0);
+    if !pressed {
+        flags |= KEYEVENTF_KEYUP;
+    }
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VK_BACK,
+                wScan: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
+}
+
+/// Unicode 输入：`KEYEVENTF_UNICODE` + 码元，`wVk` 必须为 0。
+///
+/// `wScan` 承载 UTF-16 码元而不是扫描码；`KEYEVENTF_KEYUP` 表示抬起。
+fn unicode_input(unit: u16, pressed: bool) -> INPUT {
+    let mut flags = KEYEVENTF_UNICODE;
+    if !pressed {
+        flags |= KEYEVENTF_KEYUP;
+    }
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(0),
+                wScan: unit,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    }
+}
+
+/// 发送一批输入，空批视为成功。
+fn send_inputs(inputs: &[INPUT]) -> Result<(), InputError> {
+    if inputs.is_empty() {
+        return Ok(());
+    }
+    let sent = unsafe { SendInput(inputs, size_of::<INPUT>() as i32) };
+    if sent == 0 {
+        Err(InputError::InjectionRejected)
+    } else {
+        Ok(())
     }
 }
 
@@ -482,6 +607,53 @@ mod tests {
         injector.set_viewport(bad);
         assert_eq!(injector.viewport, Some(primary()));
         assert!(injector.target_rect().is_ok());
+    }
+
+    /// 文本注入序列：先退格（按下/抬起），再逐 UTF-16 码元发 UNICODE 按下/抬起。
+    #[test]
+    fn text_inputs_order_and_flags() {
+        let inputs = text_inputs(1, "中A");
+        // 1 次退格 + 2 个码元，每个都是按下+抬起。
+        assert_eq!(inputs.len(), (1 + 2) * 2);
+
+        let down = unsafe { inputs[0].Anonymous.ki };
+        assert_eq!(down.wVk.0, VK_BACK.0, "第一条必须是退格");
+        assert_eq!(down.wScan, 0, "退格不带扫描码");
+        assert_eq!(down.dwFlags.0 & KEYEVENTF_KEYUP.0, 0, "退格按下");
+        let up = unsafe { inputs[1].Anonymous.ki };
+        assert_ne!(up.dwFlags.0 & KEYEVENTF_KEYUP.0, 0, "退格抬起");
+
+        let expected = "中".encode_utf16().next().expect("码元");
+        let ch_down = unsafe { inputs[2].Anonymous.ki };
+        assert_eq!(ch_down.wScan, expected, "wScan 必须是 UTF-16 码元");
+        assert_eq!(ch_down.wVk.0, 0, "UNICODE 注入 wVk 必须为 0");
+        assert_ne!(ch_down.dwFlags.0 & KEYEVENTF_UNICODE.0, 0, "必须带 UNICODE 标志");
+        assert_eq!(ch_down.dwFlags.0 & KEYEVENTF_KEYUP.0, 0);
+        let ch_up = unsafe { inputs[3].Anonymous.ki };
+        assert_ne!(ch_up.dwFlags.0 & KEYEVENTF_KEYUP.0, 0, "第二条是抬起");
+    }
+
+    /// emoji 必须拆成代理对的两个码元，顺序不能颠倒。
+    #[test]
+    fn emoji_becomes_surrogate_pair() {
+        let inputs = text_inputs(0, "😀");
+        assert_eq!(inputs.len(), 4, "两个码元 × 按下/抬起");
+        let scans: Vec<u16> = inputs
+            .iter()
+            .map(|input| unsafe { input.Anonymous.ki.wScan })
+            .collect();
+        assert_eq!(scans, vec![0xD83D, 0xD83D, 0xDE00, 0xDE00]);
+    }
+
+    /// 空操作不应产生任何系统输入条目（避免无意义的 SendInput）。
+    #[test]
+    fn noop_text_has_no_inputs() {
+        assert!(text_inputs(0, "").is_empty());
+        assert!(TextEvent {
+            delete_units: 0,
+            text: String::new(),
+        }
+        .is_noop());
     }
 
     /// 解码后的线上载荷可直接注入：编码 → 解码 → 构造输入，坐标保持一致。

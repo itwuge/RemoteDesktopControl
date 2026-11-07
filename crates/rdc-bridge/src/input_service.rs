@@ -16,7 +16,8 @@ use std::time::{Duration, Instant};
 
 use rdc_input::{
     create_injector, decode_event, encode_event, InputCoalescer, InputEvent, InputInjector,
-    KeyEvent, PointerButton, PointerEvent, Viewport, WheelEvent, DEFAULT_MAX_MOVES_PER_SEC,
+    KeyEvent, PointerButton, PointerEvent, TextEvent, Viewport, WheelEvent,
+    DEFAULT_MAX_MOVES_PER_SEC, MAX_TEXT_EVENT_BYTES,
 };
 
 /// 合并器 tick 间隔：挂起移动最迟 1 ms 内被冲刷（与 docs/04 §2 的 1 ms tick 一致）。
@@ -28,9 +29,12 @@ const TICK_INTERVAL: Duration = Duration::from_millis(1);
 ///
 /// 坐标 `x/y` 已是**被控端桌面物理像素**，由 Dart 侧 `ViewportController` 的矩阵
 /// （letterbox + DPI + 缩放/平移）换算完成；Rust 侧只做线格式与钳制。
+///
+/// `kind = "text"` 时只读取 `delete_units` 与 `text`，其余字段忽略
+/// （输入法事件没有桌面坐标，也不属于任何按键）。
 #[derive(Debug, Clone)]
 pub struct InputEventDto {
-    /// 事件类型：`move` / `button` / `wheel` / `key`。
+    /// 事件类型：`move` / `button` / `wheel` / `key` / `text`。
     pub kind: String,
     /// 桌面横坐标（物理像素）。
     pub x: i32,
@@ -48,6 +52,10 @@ pub struct InputEventDto {
     pub scan_code: u16,
     /// 修饰键位掩码：`1=Shift`、`2=Ctrl`、`4=Alt`、`8=Meta`。
     pub modifiers: u8,
+    /// 文本事件：插入前先删除的 UTF-16 码元数（退格次数）。
+    pub delete_units: u16,
+    /// 文本事件：要插入的 UTF-8 文本；空串表示纯删除。
+    pub text: String,
 }
 
 /// 输入注入统计快照。
@@ -73,6 +81,8 @@ pub struct InputStatsDto {
     pub key_events: u64,
     /// 滚轮事件数。
     pub wheel_events: u64,
+    /// 文本/输入法事件数。
+    pub text_events: u64,
     /// 当前按下的键数（会话结束时必须为 0）。
     pub keys_down: u64,
     /// 最近一次指针事件的桌面横坐标。
@@ -99,6 +109,7 @@ struct Counters {
     pointer: AtomicU64,
     key: AtomicU64,
     wheel: AtomicU64,
+    text: AtomicU64,
     keys_down: AtomicU64,
     last_x: AtomicI64,
     last_y: AtomicI64,
@@ -135,6 +146,7 @@ impl Counters {
             pointer_events: self.pointer.load(Ordering::Relaxed),
             key_events: self.key.load(Ordering::Relaxed),
             wheel_events: self.wheel.load(Ordering::Relaxed),
+            text_events: self.text.load(Ordering::Relaxed),
             keys_down: self.keys_down.load(Ordering::Relaxed),
             last_x: self.last_x.load(Ordering::Relaxed) as i32,
             last_y: self.last_y.load(Ordering::Relaxed) as i32,
@@ -327,6 +339,9 @@ pub fn push(events: Vec<InputEventDto>) -> Result<InputStatsDto, String> {
             InputEvent::Wheel(_) => {
                 pipeline.counters.wheel.fetch_add(1, Ordering::Relaxed);
             }
+            InputEvent::Text(_) => {
+                pipeline.counters.text.fetch_add(1, Ordering::Relaxed);
+            }
             InputEvent::Touch(_) => {}
         }
         let now = pipeline.now_us();
@@ -471,6 +486,26 @@ fn to_event(dto: &InputEventDto) -> Result<InputEvent, String> {
             pressed: dto.pressed,
             modifiers: dto.modifiers,
         }),
+        "text" => {
+            // 上限在 DTO 边界检查：encode_event 不返回错误，超长只能在解码时暴露，
+            // 这里提前拒绝可以给出可读错误，而不是“线格式解码失败”。
+            if dto.text.len() > MAX_TEXT_EVENT_BYTES {
+                return Err(format!(
+                    "文本事件超长: {} 字节 > {}",
+                    dto.text.len(),
+                    MAX_TEXT_EVENT_BYTES
+                ));
+            }
+            let event = TextEvent {
+                delete_units: dto.delete_units,
+                text: dto.text.clone(),
+            };
+            // 空编辑既不会改变远端文本，也会白白消耗一次 SendInput 调用。
+            if event.is_noop() {
+                return Err("文本事件为空（既不删除也不插入）".to_owned());
+            }
+            InputEvent::Text(event)
+        }
         other => return Err(format!("未知输入事件类型: {other}")),
     };
     let payload = encode_event(&event);
@@ -496,6 +531,8 @@ mod tests {
             delta_y: 0,
             scan_code: 0,
             modifiers: 0,
+            delete_units: 0,
+            text: String::new(),
         };
         match to_event(&dto).expect("往返") {
             InputEvent::Pointer(pointer) => {
@@ -525,6 +562,8 @@ mod tests {
                 delta_y: 0,
                 scan_code: 0,
                 modifiers: 0,
+                delete_units: 0,
+                text: String::new(),
             };
             match to_event(&dto).expect("往返") {
                 InputEvent::Pointer(pointer) => {
@@ -544,6 +583,8 @@ mod tests {
             delta_y: 0,
             scan_code: 0,
             modifiers: 0,
+            delete_units: 0,
+            text: String::new(),
         };
         assert!(to_event(&bad).is_err());
     }
@@ -561,6 +602,8 @@ mod tests {
             delta_y: 0,
             scan_code: 0xE048,
             modifiers: 0b0011,
+            delete_units: 0,
+            text: String::new(),
         };
         match to_event(&dto).expect("往返") {
             InputEvent::Key(key) => {
@@ -585,6 +628,8 @@ mod tests {
             delta_y: 3,
             scan_code: 0,
             modifiers: 0,
+            delete_units: 0,
+            text: String::new(),
         };
         match to_event(&dto).expect("往返") {
             InputEvent::Wheel(wheel) => {
@@ -593,6 +638,40 @@ mod tests {
             }
             other => panic!("应为滚轮事件: {other:?}"),
         }
+    }
+
+    /// 文本事件：删除码元数与 UTF-8 正文原样穿过线格式；空编辑与超长正文拒绝。
+    #[test]
+    fn text_roundtrip_and_limits() {
+        let dto = InputEventDto {
+            kind: "text".to_owned(),
+            x: 0,
+            y: 0,
+            button: 0,
+            pressed: false,
+            delta_x: 0,
+            delta_y: 0,
+            scan_code: 0,
+            modifiers: 0,
+            delete_units: 3,
+            text: "输入法".to_owned(),
+        };
+        match to_event(&dto).expect("往返") {
+            InputEvent::Text(text) => {
+                assert_eq!(text.delete_units, 3);
+                assert_eq!(text.text, "输入法");
+            }
+            other => panic!("应为文本事件: {other:?}"),
+        }
+
+        let mut oversize = dto.clone();
+        oversize.text = "x".repeat(MAX_TEXT_EVENT_BYTES + 1);
+        assert!(to_event(&oversize).is_err(), "超长正文必须拒绝");
+
+        let mut noop = dto;
+        noop.delete_units = 0;
+        noop.text = String::new();
+        assert!(to_event(&noop).is_err(), "空编辑必须拒绝");
     }
 
     /// 未知类型必须报错，不能被静默丢弃。
@@ -608,6 +687,8 @@ mod tests {
             delta_y: 0,
             scan_code: 0,
             modifiers: 0,
+            delete_units: 0,
+            text: String::new(),
         };
         assert!(to_event(&dto).is_err());
     }

@@ -1935,8 +1935,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   InputEventDto dco_decode_input_event_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 9)
-      throw Exception('unexpected arr length: expect 9 but see ${arr.length}');
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
     return InputEventDto(
       kind: dco_decode_String(arr[0]),
       x: dco_decode_i_32(arr[1]),
@@ -1947,6 +1947,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       deltaY: dco_decode_i_32(arr[6]),
       scanCode: dco_decode_u_16(arr[7]),
       modifiers: dco_decode_u_8(arr[8]),
+      deleteUnits: dco_decode_u_16(arr[9]),
+      text: dco_decode_String(arr[10]),
     );
   }
 
@@ -1954,8 +1956,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   InputStatsDto dco_decode_input_stats_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 15)
-      throw Exception('unexpected arr length: expect 15 but see ${arr.length}');
+    if (arr.length != 16)
+      throw Exception('unexpected arr length: expect 16 but see ${arr.length}');
     return InputStatsDto(
       running: dco_decode_bool(arr[0]),
       received: dco_decode_u_64(arr[1]),
@@ -1967,11 +1969,12 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       pointerEvents: dco_decode_u_64(arr[7]),
       keyEvents: dco_decode_u_64(arr[8]),
       wheelEvents: dco_decode_u_64(arr[9]),
-      keysDown: dco_decode_u_64(arr[10]),
-      lastX: dco_decode_i_32(arr[11]),
-      lastY: dco_decode_i_32(arr[12]),
-      successRate: dco_decode_f_64(arr[13]),
-      lastError: dco_decode_opt_String(arr[14]),
+      textEvents: dco_decode_u_64(arr[10]),
+      keysDown: dco_decode_u_64(arr[11]),
+      lastX: dco_decode_i_32(arr[12]),
+      lastY: dco_decode_i_32(arr[13]),
+      successRate: dco_decode_f_64(arr[14]),
+      lastError: dco_decode_opt_String(arr[15]),
     );
   }
 
@@ -2552,6 +2555,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_deltaY = sse_decode_i_32(deserializer);
     var var_scanCode = sse_decode_u_16(deserializer);
     var var_modifiers = sse_decode_u_8(deserializer);
+    var var_deleteUnits = sse_decode_u_16(deserializer);
+    var var_text = sse_decode_String(deserializer);
     return InputEventDto(
       kind: var_kind,
       x: var_x,
@@ -2562,6 +2567,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       deltaY: var_deltaY,
       scanCode: var_scanCode,
       modifiers: var_modifiers,
+      deleteUnits: var_deleteUnits,
+      text: var_text,
     );
   }
 
@@ -2578,6 +2585,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_pointerEvents = sse_decode_u_64(deserializer);
     var var_keyEvents = sse_decode_u_64(deserializer);
     var var_wheelEvents = sse_decode_u_64(deserializer);
+    var var_textEvents = sse_decode_u_64(deserializer);
     var var_keysDown = sse_decode_u_64(deserializer);
     var var_lastX = sse_decode_i_32(deserializer);
     var var_lastY = sse_decode_i_32(deserializer);
@@ -2594,6 +2602,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       pointerEvents: var_pointerEvents,
       keyEvents: var_keyEvents,
       wheelEvents: var_wheelEvents,
+      textEvents: var_textEvents,
       keysDown: var_keysDown,
       lastX: var_lastX,
       lastY: var_lastY,
@@ -3254,6 +3263,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_i_32(self.deltaY, serializer);
     sse_encode_u_16(self.scanCode, serializer);
     sse_encode_u_8(self.modifiers, serializer);
+    sse_encode_u_16(self.deleteUnits, serializer);
+    sse_encode_String(self.text, serializer);
   }
 
   @protected
@@ -3272,6 +3283,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_64(self.pointerEvents, serializer);
     sse_encode_u_64(self.keyEvents, serializer);
     sse_encode_u_64(self.wheelEvents, serializer);
+    sse_encode_u_64(self.textEvents, serializer);
     sse_encode_u_64(self.keysDown, serializer);
     sse_encode_i_32(self.lastX, serializer);
     sse_encode_i_32(self.lastY, serializer);

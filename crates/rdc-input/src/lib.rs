@@ -7,8 +7,8 @@
 //!         rdc-bridge（Dart 侧构造事件）
 //!
 //! 通道约定：输入走 `StreamKind::Input`（stream=2、priority=0，插队发送、不占令牌桶、
-//! 不可丢弃），明文载荷由既有 AEAD 路径加密（包头作 AAD）。本 crate 只产出 ≤14 字节明文，
-//! 不持有密钥、不直接收发网络包。
+//! 不可丢弃），明文载荷由既有 AEAD 路径加密（包头作 AAD）。本 crate 只产出 ≤1351 字节明文
+//! （旧事件变体仍 ≤14 字节，文本事件是 S9 追加的变长载荷），不持有密钥、不直接收发网络包。
 
 // =====** 模块声明 =====**
 
@@ -24,8 +24,10 @@ pub mod wire;
 
 pub use coalesce::{Emitted, InputCoalescer, DEFAULT_MAX_MOVES_PER_SEC};
 pub use error::InputError;
-pub use event::{InputEvent, KeyEvent, PointerButton, PointerEvent, TouchEvent, WheelEvent};
+pub use event::{
+    InputEvent, KeyEvent, PointerButton, PointerEvent, TextEvent, TouchEvent, WheelEvent,
+};
 pub use injector::{normalize_absolute, InputInjector, Viewport};
 pub use mapper::{DefaultInputMapper, InputMapper, TransformMatrix, ViewTransform};
 pub use platform::create_injector;
-pub use wire::{decode_event, encode_event, MAX_INPUT_EVENT_PAYLOAD};
+pub use wire::{decode_event, encode_event, MAX_INPUT_EVENT_PAYLOAD, MAX_TEXT_EVENT_BYTES};

@@ -40,10 +40,15 @@ pub mod bits {
     pub const SCREEN_WALL: u64 = 1 << 11;
     /// bit12：账号同源互信。
     pub const ACCOUNT_TRUST: u64 = 1 << 12;
+    /// bit13：文本/输入法事件（S9 追加；旧客户端视为未知位并忽略）。
+    ///
+    /// 置位表示本端能**注入**或**发送** `InputEvent::Text`。协商仍按位与：
+    /// 只有双方都置位才启用文本事件，否则调用方退回逐扫描码的键盘输入。
+    pub const TEXT_INPUT: u64 = 1 << 13;
 }
 
 /// 本协议版本已定义的全部能力位。
-pub const KNOWN_BITS: u64 = (1 << 13) - 1;
+pub const KNOWN_BITS: u64 = (1 << 14) - 1;
 
 // =====** Capabilities =====**
 
@@ -170,6 +175,20 @@ impl Capabilities {
 mod tests {
     use super::*;
 
+    /// 文本能力位必须被本版本识别，且与只有旧能力的对端协商时退化为 0。
+    #[test]
+    fn text_input_bit_negotiates_away_with_old_peer() {
+        assert!(!Capabilities::from_raw(KNOWN_BITS).has_unknown_bits());
+        let modern = Capabilities(bits::CLIPBOARD | bits::TEXT_INPUT);
+        let old_peer = Capabilities(bits::CLIPBOARD);
+        assert_eq!(modern.negotiate(old_peer).0, old_peer.0);
+        assert_eq!(
+            modern.negotiate(Capabilities(bits::TEXT_INPUT)).0,
+            bits::TEXT_INPUT
+        );
+        assert!(!Capabilities(bits::TEXT_INPUT).has_unknown_bits());
+    }
+
     /// 协商必须是按位与，且裁掉未知位。
     #[test]
     fn negotiate_is_bitwise_and() {
@@ -218,6 +237,7 @@ mod tests {
             bits::MULTI_SESSION,
             bits::SCREEN_WALL,
             bits::ACCOUNT_TRUST,
+            bits::TEXT_INPUT,
         ];
         let mut acc = 0u64;
         for bit in list {

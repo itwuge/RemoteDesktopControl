@@ -88,6 +88,41 @@ pub struct TouchEvent {
     pub phase: TouchPhase,
 }
 
+// =====** TextEvent =====**
+
+/// 文本输入事件（S9-Android 新增，兼容旧客户端的逐扫描码路径）。
+///
+/// 为什么需要独立事件：扫描码只能表达“按下哪个物理键”，无法表达输入法（中文/日文）
+/// 的组合串与候选词。本事件用“先删除 N 个 UTF-16 码元 + 再插入一段文本”描述一次编辑：
+///
+/// - 逐字上屏：`delete_units = 0`，`text = "你"`；
+/// - 组合串更新：`delete_units = 上一段组合串长度`，`text = 新组合串`；
+/// - 取消组合：`delete_units = 组合串长度`，`text = ""`；
+/// - 退格：`delete_units = 1`，`text = ""`。
+///
+/// 为什么不按“字符”计：Windows `SendInput` 的 `KEYEVENTF_UNICODE` 以 UTF-16 码元
+/// 为单位，BMP 外字符（emoji）占两个码元，按码元计数才能让删除与注入严格对齐。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextEvent {
+    /// 插入文本前先发送的退格次数（UTF-16 码元数）；`0` 表示纯插入。
+    pub delete_units: u16,
+    /// 随后插入的文本（UTF-8 原文）；空串表示只删除（退格/取消组合）。
+    pub text: String,
+}
+
+impl TextEvent {
+    /// 是否为空操作（既不删除也不插入）。
+    ///
+    /// # Returns
+    /// `delete_units == 0` 且 `text` 为空时返回 `true`。
+    ///
+    /// # Errors
+    /// 不会失败。
+    pub fn is_noop(&self) -> bool {
+        self.delete_units == 0 && self.text.is_empty()
+    }
+}
+
 // =====** ButtonState =====**
 
 /// 指针按键下压状态。
@@ -152,4 +187,6 @@ pub enum InputEvent {
     Wheel(WheelEvent),
     /// 触摸事件。
     Touch(TouchEvent),
+    /// 文本事件（输入法提交/组合/删除）；新增变体只追加，旧客户端按未知 tag 拒绝。
+    Text(TextEvent),
 }

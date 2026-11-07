@@ -428,6 +428,8 @@ class InputEventSpec {
     this.deltaY = 0,
     this.scanCode = 0,
     this.modifiers = 0,
+    this.deleteUnits = 0,
+    this.text = '',
   });
 
   /// 指针移动（无按键）。
@@ -458,7 +460,18 @@ class InputEventSpec {
          modifiers: modifiers,
        );
 
-  /// 事件类型：`move` / `button` / `wheel` / `key`。
+  /// 文本/输入法编辑：先删除 [deleteUnits] 个 UTF-16 码元，再插入 [text]。
+  ///
+  /// 用“删除 + 插入”而不是逐字符扫描码，才能表达输入法组合串、候选词替换
+  /// 与 emoji（BMP 外字符占两个码元）。`text` 为空且 [deleteUnits] > 0 时
+  /// 等价于退格；两者都为 0 是空操作，Rust 侧会拒绝。
+  const InputEventSpec.text({required String text, int deleteUnits = 0}) : this(
+    kind: 'text',
+    text: text,
+    deleteUnits: deleteUnits,
+  );
+
+  /// 事件类型：`move` / `button` / `wheel` / `key` / `text`。
   final String kind;
 
   /// 桌面横坐标（物理像素）。
@@ -481,6 +494,12 @@ class InputEventSpec {
 
   /// PC/AT Set 1 扫描码。
   final int scanCode;
+
+  /// 文本事件：插入前先删除的 UTF-16 码元数（退格次数）。
+  final int deleteUnits;
+
+  /// 文本事件：要插入的 UTF-8 文本；空串表示纯删除。
+  final String text;
 
   /// 修饰键位掩码：`1=Shift`、`2=Ctrl`、`4=Alt`、`8=Meta`。
   final int modifiers;

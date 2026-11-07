@@ -130,6 +130,8 @@ fn main() {
                     delta_y: 0,
                     scan_code: 0,
                     modifiers: 0,
+                    delete_units: 0,
+                    text: String::new(),
                 },
                 api::InputEventDto {
                     kind: "button".into(),
@@ -141,6 +143,8 @@ fn main() {
                     delta_y: 0,
                     scan_code: 0,
                     modifiers: 0,
+                    delete_units: 0,
+                    text: String::new(),
                 },
                 api::InputEventDto {
                     kind: "button".into(),
@@ -152,6 +156,8 @@ fn main() {
                     delta_y: 0,
                     scan_code: 0,
                     modifiers: 0,
+                    delete_units: 0,
+                    text: String::new(),
                 },
             ];
             match api::input_push(events) {

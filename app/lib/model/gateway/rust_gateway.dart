@@ -471,6 +471,8 @@ class RustGateway {
             deltaY: event.deltaY,
             scanCode: event.scanCode,
             modifiers: event.modifiers,
+            deleteUnits: event.deleteUnits,
+            text: event.text,
           ),
         )
         .toList(growable: false);

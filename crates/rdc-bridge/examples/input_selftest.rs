@@ -47,6 +47,8 @@ fn move_event(x: i32, y: i32) -> InputEventDto {
         delta_y: 0,
         scan_code: 0,
         modifiers: 0,
+        delete_units: 0,
+        text: String::new(),
     }
 }
 
@@ -63,6 +65,8 @@ fn key_event(scan_code: u16, pressed: bool) -> InputEventDto {
         delta_y: 0,
         scan_code,
         modifiers: 0,
+        delete_units: 0,
+        text: String::new(),
     }
 }
 

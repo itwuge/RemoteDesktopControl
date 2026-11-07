@@ -614,6 +614,9 @@ fn inject_xtest(
         }
         // 桌面注入器不处理触摸。
         InputEvent::Touch(_) => return Err(InputError::Unsupported),
+        // XTest 只能发 keysym，无法表达任意 Unicode（中文/emoji）；S9 只在 Windows
+        // 注入端实现文本，Linux 侧明确拒绝而不是静默丢弃。
+        InputEvent::Text(_) => return Err(InputError::Unsupported),
     }
     conn.flush().map_err(|_| InputError::InjectionRejected)
 }
@@ -772,6 +775,8 @@ fn inject_uinput(
             Ok(())
         }
         InputEvent::Touch(_) => Err(InputError::Unsupported),
+        // 见 XTest 分支：uinput 通道没有 Unicode 注入能力。
+        InputEvent::Text(_) => Err(InputError::Unsupported),
     }
 }
 

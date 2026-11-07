@@ -11,8 +11,11 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 ///
 /// 坐标 `x/y` 已是**被控端桌面物理像素**，由 Dart 侧 `ViewportController` 的矩阵
 /// （letterbox + DPI + 缩放/平移）换算完成；Rust 侧只做线格式与钳制。
+///
+/// `kind = "text"` 时只读取 `delete_units` 与 `text`，其余字段忽略
+/// （输入法事件没有桌面坐标，也不属于任何按键）。
 class InputEventDto {
-  /// 事件类型：`move` / `button` / `wheel` / `key`。
+  /// 事件类型：`move` / `button` / `wheel` / `key` / `text`。
   final String kind;
 
   /// 桌面横坐标（物理像素）。
@@ -39,6 +42,12 @@ class InputEventDto {
   /// 修饰键位掩码：`1=Shift`、`2=Ctrl`、`4=Alt`、`8=Meta`。
   final int modifiers;
 
+  /// 文本事件：插入前先删除的 UTF-16 码元数（退格次数）。
+  final int deleteUnits;
+
+  /// 文本事件：要插入的 UTF-8 文本；空串表示纯删除。
+  final String text;
+
   const InputEventDto({
     required this.kind,
     required this.x,
@@ -49,6 +58,8 @@ class InputEventDto {
     required this.deltaY,
     required this.scanCode,
     required this.modifiers,
+    required this.deleteUnits,
+    required this.text,
   });
 
   @override
@@ -61,7 +72,9 @@ class InputEventDto {
       deltaX.hashCode ^
       deltaY.hashCode ^
       scanCode.hashCode ^
-      modifiers.hashCode;
+      modifiers.hashCode ^
+      deleteUnits.hashCode ^
+      text.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -76,7 +89,9 @@ class InputEventDto {
           deltaX == other.deltaX &&
           deltaY == other.deltaY &&
           scanCode == other.scanCode &&
-          modifiers == other.modifiers;
+          modifiers == other.modifiers &&
+          deleteUnits == other.deleteUnits &&
+          text == other.text;
 }
 
 /// 输入注入统计快照。
@@ -111,6 +126,9 @@ class InputStatsDto {
   /// 滚轮事件数。
   final BigInt wheelEvents;
 
+  /// 文本/输入法事件数。
+  final BigInt textEvents;
+
   /// 当前按下的键数（会话结束时必须为 0）。
   final BigInt keysDown;
 
@@ -137,6 +155,7 @@ class InputStatsDto {
     required this.pointerEvents,
     required this.keyEvents,
     required this.wheelEvents,
+    required this.textEvents,
     required this.keysDown,
     required this.lastX,
     required this.lastY,
@@ -156,6 +175,7 @@ class InputStatsDto {
       pointerEvents.hashCode ^
       keyEvents.hashCode ^
       wheelEvents.hashCode ^
+      textEvents.hashCode ^
       keysDown.hashCode ^
       lastX.hashCode ^
       lastY.hashCode ^
@@ -177,6 +197,7 @@ class InputStatsDto {
           pointerEvents == other.pointerEvents &&
           keyEvents == other.keyEvents &&
           wheelEvents == other.wheelEvents &&
+          textEvents == other.textEvents &&
           keysDown == other.keysDown &&
           lastX == other.lastX &&
           lastY == other.lastY &&

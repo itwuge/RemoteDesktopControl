@@ -7,16 +7,26 @@
 //!
 //! 通道约定（docs/04 §2）：输入走 `stream=2` / `priority=0`，插队发送、不占令牌桶、
 //! 不可丢弃；明文载荷进入既有 AEAD 加密路径（32 字节包头作 AAD），本模块不触碰密钥。
+//!
+//! 兼容性：tag 0~3 的定长载荷与旧版逐字节一致；S9 追加 tag4 文本事件（变长），
+//! 旧客户端解码未知 tag 直接返回 [`InputError::MalformedPayload`]，不会误解成其它事件。
 
 use crate::error::InputError;
 use crate::event::{
-    InputEvent, KeyEvent, PointerButton, PointerEvent, TouchEvent, TouchPhase, WheelEvent,
+    InputEvent, KeyEvent, PointerButton, PointerEvent, TextEvent, TouchEvent, TouchPhase,
+    WheelEvent,
 };
 
 // =====** 常量 =====**
 
-/// 单事件载荷最大字节数（触摸变体最长），必须小于单包明文上限 1352（docs/04 §1.2）。
-pub const MAX_INPUT_EVENT_PAYLOAD: usize = 14;
+/// 单事件载荷最大字节数。
+///
+/// 单包明文上限 1352，S4 消息还要占 1 字节消息 tag，因此输入事件载荷最多 1351；
+/// 旧版（tag 0~3）最长只有 14 字节，本常量放大不改变旧载荷的字节布局。
+pub const MAX_INPUT_EVENT_PAYLOAD: usize = 1351;
+
+/// 文本事件的 UTF-8 正文上限 = 1351 - tag(1) - 删除码元数(2)。
+pub const MAX_TEXT_EVENT_BYTES: usize = MAX_INPUT_EVENT_PAYLOAD - 3;
 
 /// 指针事件 tag。
 const TAG_POINTER: u8 = 0;
@@ -26,6 +36,8 @@ const TAG_KEY: u8 = 1;
 const TAG_WHEEL: u8 = 2;
 /// 触摸事件 tag。
 const TAG_TOUCH: u8 = 3;
+/// 文本事件 tag（S9 追加：删除 N 个 UTF-16 码元 + 插入 UTF-8 文本）。
+const TAG_TEXT: u8 = 4;
 
 /// 指针事件定长：tag + x(4) + y(4) + button(1) + pressed(1)。
 const POINTER_LEN: usize = 11;
@@ -35,6 +47,8 @@ const KEY_LEN: usize = 5;
 const WHEEL_LEN: usize = 9;
 /// 触摸事件定长：tag + id(4) + x(4) + y(4) + phase(1)。
 const TOUCH_LEN: usize = 14;
+/// 文本事件定长头部：tag + delete_units(2)，其后跟变长 UTF-8 正文。
+const TEXT_HEADER_LEN: usize = 3;
 
 // =====** 编码 =====**
 
@@ -83,6 +97,13 @@ pub fn encode_event(event: &InputEvent) -> Vec<u8> {
             out.push(touch_phase_code(&t.phase));
             out
         }
+        InputEvent::Text(t) => {
+            let mut out = Vec::with_capacity(TEXT_HEADER_LEN + t.text.len());
+            out.push(TAG_TEXT);
+            out.extend_from_slice(&t.delete_units.to_le_bytes());
+            out.extend_from_slice(t.text.as_bytes());
+            out
+        }
     }
 }
 
@@ -100,6 +121,10 @@ pub fn encode_event(event: &InputEvent) -> Vec<u8> {
 /// 载荷长度与 tag 不匹配、tag 未知、布尔/枚举字节非法时返回
 /// [`InputError::MalformedPayload`]；不 panic、不做部分解析。
 pub fn decode_event(bytes: &[u8]) -> Result<InputEvent, InputError> {
+    // 统一长度闸门：超长载荷不进入分支解析，避免变长文本被用来撑爆下游缓冲。
+    if bytes.len() > MAX_INPUT_EVENT_PAYLOAD {
+        return Err(InputError::MalformedPayload);
+    }
     let (tag, body) = bytes.split_first().ok_or(InputError::MalformedPayload)?;
     match *tag {
         TAG_POINTER => {
@@ -150,6 +175,24 @@ pub fn decode_event(bytes: &[u8]) -> Result<InputEvent, InputError> {
                 _ => return Err(InputError::MalformedPayload),
             };
             Ok(InputEvent::Touch(TouchEvent { id, x, y, phase }))
+        }
+        TAG_TEXT => {
+            // 正文至少 2 字节（delete_units），其后允许空串（纯删除）。
+            if body.len() < 2 {
+                return Err(InputError::MalformedPayload);
+            }
+            let delete_units = u16::from_le_bytes([body[0], body[1]]);
+            // 非法 UTF-8 一律拒绝：注入端按码元逐字发送，损坏的文本无法安全还原。
+            let text = std::str::from_utf8(&body[2..])
+                .map_err(|_| InputError::MalformedPayload)?
+                .to_owned();
+            if text.len() > MAX_TEXT_EVENT_BYTES {
+                return Err(InputError::MalformedPayload);
+            }
+            Ok(InputEvent::Text(TextEvent {
+                delete_units,
+                text,
+            }))
         }
         _ => Err(InputError::MalformedPayload),
     }
@@ -264,6 +307,19 @@ mod tests {
                 y: 0.0,
                 phase: TouchPhase::Cancel,
             }),
+            InputEvent::Text(TextEvent {
+                delete_units: 0,
+                text: "你好，远程桌面".to_owned(),
+            }),
+            // BMP 外字符：注入端会拆成代理对（两个 UTF-16 码元）。
+            InputEvent::Text(TextEvent {
+                delete_units: 2,
+                text: "😀".to_owned(),
+            }),
+            InputEvent::Text(TextEvent {
+                delete_units: 1,
+                text: String::new(),
+            }),
         ]
     }
 
@@ -336,5 +392,44 @@ mod tests {
         }));
         *bad_bool.last_mut().expect("非空") = 2;
         assert!(decode_event(&bad_bool).is_err());
+    }
+
+    /// 文本事件：tag 头固定、正文原样保留，空文本表示纯删除。
+    #[test]
+    fn text_event_roundtrip() {
+        for (delete_units, text) in [
+            (0u16, "你"),
+            (3, "输入法"),
+            (2, "😀"),
+            (1, ""),
+        ] {
+            let event = InputEvent::Text(TextEvent {
+                delete_units,
+                text: text.to_owned(),
+            });
+            let bytes = encode_event(&event);
+            assert_eq!(bytes[0], TAG_TEXT, "文本事件 tag 必须是 4");
+            assert_eq!(&bytes[1..3], &delete_units.to_le_bytes(), "码元数在前");
+            assert_eq!(&bytes[3..], text.as_bytes(), "正文必须是 UTF-8 原文");
+            assert_eq!(decode_event(&bytes).expect("解码"), event);
+        }
+    }
+
+    /// 文本事件的畸形载荷必须拒绝：头截断、非法 UTF-8、超长正文。
+    #[test]
+    fn malformed_text_is_rejected() {
+        assert!(decode_event(&[TAG_TEXT]).is_err());
+        assert!(decode_event(&[TAG_TEXT, 0]).is_err());
+        // 非法 UTF-8 序列（孤立的续字节）。
+        assert!(decode_event(&[TAG_TEXT, 0, 0, 0x80]).is_err());
+        // 超长正文：多出 1 字节即超过上限。
+        let mut payload = vec![TAG_TEXT, 0, 0];
+        payload.extend(std::iter::repeat(b'x').take(MAX_TEXT_EVENT_BYTES + 1));
+        assert!(decode_event(&payload).is_err());
+        // 恰好等于上限的正文仍可接受。
+        let mut at_limit = vec![TAG_TEXT, 0, 0];
+        at_limit.extend(std::iter::repeat(b'x').take(MAX_TEXT_EVENT_BYTES));
+        assert_eq!(at_limit.len(), MAX_INPUT_EVENT_PAYLOAD);
+        assert!(decode_event(&at_limit).is_ok());
     }
 }

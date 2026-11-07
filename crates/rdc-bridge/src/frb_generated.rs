@@ -1989,6 +1989,8 @@ impl SseDecode for crate::input_service::InputEventDto {
         let mut var_deltaY = <i32>::sse_decode(deserializer);
         let mut var_scanCode = <u16>::sse_decode(deserializer);
         let mut var_modifiers = <u8>::sse_decode(deserializer);
+        let mut var_deleteUnits = <u16>::sse_decode(deserializer);
+        let mut var_text = <String>::sse_decode(deserializer);
         return crate::input_service::InputEventDto {
             kind: var_kind,
             x: var_x,
@@ -1999,6 +2001,8 @@ impl SseDecode for crate::input_service::InputEventDto {
             delta_y: var_deltaY,
             scan_code: var_scanCode,
             modifiers: var_modifiers,
+            delete_units: var_deleteUnits,
+            text: var_text,
         };
     }
 }
@@ -2016,6 +2020,7 @@ impl SseDecode for crate::input_service::InputStatsDto {
         let mut var_pointerEvents = <u64>::sse_decode(deserializer);
         let mut var_keyEvents = <u64>::sse_decode(deserializer);
         let mut var_wheelEvents = <u64>::sse_decode(deserializer);
+        let mut var_textEvents = <u64>::sse_decode(deserializer);
         let mut var_keysDown = <u64>::sse_decode(deserializer);
         let mut var_lastX = <i32>::sse_decode(deserializer);
         let mut var_lastY = <i32>::sse_decode(deserializer);
@@ -2032,6 +2037,7 @@ impl SseDecode for crate::input_service::InputStatsDto {
             pointer_events: var_pointerEvents,
             key_events: var_keyEvents,
             wheel_events: var_wheelEvents,
+            text_events: var_textEvents,
             keys_down: var_keysDown,
             last_x: var_lastX,
             last_y: var_lastY,
@@ -2791,6 +2797,8 @@ impl flutter_rust_bridge::IntoDart for crate::input_service::InputEventDto {
             self.delta_y.into_into_dart().into_dart(),
             self.scan_code.into_into_dart().into_dart(),
             self.modifiers.into_into_dart().into_dart(),
+            self.delete_units.into_into_dart().into_dart(),
+            self.text.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -2820,6 +2828,7 @@ impl flutter_rust_bridge::IntoDart for crate::input_service::InputStatsDto {
             self.pointer_events.into_into_dart().into_dart(),
             self.key_events.into_into_dart().into_dart(),
             self.wheel_events.into_into_dart().into_dart(),
+            self.text_events.into_into_dart().into_dart(),
             self.keys_down.into_into_dart().into_dart(),
             self.last_x.into_into_dart().into_dart(),
             self.last_y.into_into_dart().into_dart(),
@@ -3278,6 +3287,8 @@ impl SseEncode for crate::input_service::InputEventDto {
         <i32>::sse_encode(self.delta_y, serializer);
         <u16>::sse_encode(self.scan_code, serializer);
         <u8>::sse_encode(self.modifiers, serializer);
+        <u16>::sse_encode(self.delete_units, serializer);
+        <String>::sse_encode(self.text, serializer);
     }
 }
 
@@ -3294,6 +3305,7 @@ impl SseEncode for crate::input_service::InputStatsDto {
         <u64>::sse_encode(self.pointer_events, serializer);
         <u64>::sse_encode(self.key_events, serializer);
         <u64>::sse_encode(self.wheel_events, serializer);
+        <u64>::sse_encode(self.text_events, serializer);
         <u64>::sse_encode(self.keys_down, serializer);
         <i32>::sse_encode(self.last_x, serializer);
         <i32>::sse_encode(self.last_y, serializer);
