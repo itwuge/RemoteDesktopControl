@@ -665,7 +665,9 @@ function Invoke-Rule-VersionConsistency {
         }
     }
 
-    if ($script:Config.version.distDir -ne "") {
+    # 安装包文件名一致性只在出包阶段有意义：dist/ 是本机未跟踪的构建产物，
+    # 普通扫描/CI 报告任务看不到它，把历史残留产物计入基线只会制造噪声。
+    if (($Build -or $script:SelfTestMode) -and $script:Config.version.distDir -ne "") {
         $distPath = Join-Path $script:RootFull $script:Config.version.distDir
         if (Test-Path -LiteralPath $distPath) {
             foreach ($file in (Get-ChildItem -LiteralPath $distPath -File -ErrorAction SilentlyContinue)) {
@@ -1169,7 +1171,7 @@ function Get-BaselinePath {
 
 function Read-BaselineSnapshot {
     $path = Get-BaselinePath
-    $snapshot = @{ Path = $path; Total = -1; ByRule = @{}; Exists = $false }
+    $snapshot = @{ Path = $path; Total = -1; ByRule = @{}; ByFile = @{}; Exists = $false }
     if (-not (Test-Path -LiteralPath $path)) { return $snapshot }
     try {
         $raw = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
@@ -1178,6 +1180,13 @@ function Read-BaselineSnapshot {
         if ($obj.ContainsKey("total")) { $snapshot.Total = [int]$obj["total"] }
         if ($obj.ContainsKey("byRule") -and $obj["byRule"] -is [hashtable]) {
             foreach ($key in $obj["byRule"].Keys) { $snapshot.ByRule[$key] = [int]$obj["byRule"][$key] }
+        }
+        if ($obj.ContainsKey("entries") -and $obj["entries"] -is [System.Collections.IEnumerable]) {
+            foreach ($e in $obj["entries"]) {
+                if (-not ($e -is [hashtable])) { continue }
+                $key = [string]$e["rule"] + "|" + [string]$e["file"]
+                $snapshot.ByFile[$key] = 1 + $snapshot.ByFile[$key]
+            }
         }
     } catch {
         Write-WarnLine ("baseline: cannot parse " + $path + ": " + $_.Exception.Message)
@@ -1194,15 +1203,50 @@ function Write-BaselineSnapshot {
     }
     $byRuleOrdered = [ordered]@{}
     foreach ($key in ($ByRule.Keys | Sort-Object)) { $byRuleOrdered[$key] = [int]$ByRule[$key] }
+    # 逐条入库：-Changed 模式据此区分“存量”与“本次改动新引入”。
+    $entries = @()
+    foreach ($v in ($script:Violations | Sort-Object Rule, File, Line)) {
+        $entries += [ordered]@{ rule = $v.Rule; file = $v.File; line = $v.Line; message = $v.Message }
+    }
     $obj = [ordered]@{
         generatedAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ssK")
         project = [string]$script:Config.project.name
         total = $Total
         byRule = $byRuleOrdered
+        entries = $entries
     }
-    $json = ($obj | ConvertTo-Json -Depth 4) + "`n"
+    $json = ($obj | ConvertTo-Json -Depth 5) + "`n"
     [System.IO.File]::WriteAllText($path, $json, (New-Object System.Text.UTF8Encoding($false)))
     return $path
+}
+
+function Invoke-ChangedBaselineFilter {
+    # 只对“改动范围”生效：文件里已有的存量不算本次引入，但新增一条就红。
+    if ($script:SelfTestMode) { return }
+    if ($script:ChangedSet -eq $null) { return }
+    if ($script:Config.baseline.allowedCount -lt 0) { return }
+    $snapshot = Read-BaselineSnapshot
+    if (-not $snapshot.Exists) {
+        Write-WarnLine "baseline: snapshot missing; -Changed mode cannot separate new violations from existing debt."
+        return
+    }
+    $allowance = @{}
+    foreach ($key in $snapshot.ByFile.Keys) { $allowance[$key] = [int]$snapshot.ByFile[$key] }
+    $kept = @()
+    $suppressed = 0
+    foreach ($v in $script:Violations) {
+        $key = [string]$v.Rule + "|" + [string]$v.File
+        $left = 0
+        if ($allowance.ContainsKey($key)) { $left = [int]$allowance[$key] }
+        if ($left -gt 0) {
+            $allowance[$key] = $left - 1
+            $suppressed++
+            continue
+        }
+        $kept += $v
+    }
+    $script:Violations = $kept
+    Write-Info ("baseline: -Changed mode suppressed " + $suppressed + " pre-existing violation(s); " + $kept.Count + " new.")
 }
 
 function Invoke-BaselineCheck {
@@ -1562,6 +1606,7 @@ if (-not $loaded) {
 
 Initialize-Scope
 Invoke-AllRules
+Invoke-ChangedBaselineFilter
 $baselineOk = Invoke-BaselineCheck
 Write-Violations
 

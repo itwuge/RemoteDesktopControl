@@ -1,9 +1,8 @@
 {
-    "generatedAt":  "2026-11-08T04:39:43+08:00",
+    "generatedAt":  "2026-11-08T04:54:21+08:00",
     "project":  "RemoteDesktopControl",
-    "total":  451,
+    "total":  449,
     "byRule":  {
-                   "R-C-14":  2,
                    "R-C-15":  1,
                    "R-C-2":  219,
                    "R-C-3":  166,
@@ -14,5 +13,2701 @@
                    "R-N-1":  18,
                    "R-N-2":  1,
                    "R-N-5":  2
-               }
+               },
+    "entries":  [
+                    {
+                        "rule":  "R-C-15",
+                        "file":  "C:/Users/Administrator/Desktop/RemoteDesktopControl/target",
+                        "line":  0,
+                        "message":  "build target is on system drive C:\\; set CARGO_TARGET_DIR to another drive."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1271,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1323,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1328,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1406,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/clipboard_service.rs",
+                        "line":  220,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/clipboard_service.rs",
+                        "line":  238,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/clipboard_service.rs",
+                        "line":  271,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  180,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  326,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  343,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  347,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  355,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  407,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  682,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1314,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1330,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1364,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1419,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1427,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1432,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1433,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1688,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1848,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1854,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1878,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1899,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  216,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  249,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  258,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  304,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  305,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  529,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  544,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  552,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/file_service.rs",
+                        "line":  132,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/input_service.rs",
+                        "line":  400,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/input_service.rs",
+                        "line":  407,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/input_service.rs",
+                        "line":  418,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  203,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  506,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  177,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  231,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  296,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  468,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  471,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/linux.rs",
+                        "line":  372,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/linux.rs",
+                        "line":  857,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/linux.rs",
+                        "line":  1066,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  364,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1157,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1451,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1560,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1564,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1622,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1623,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1646,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1798,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1808,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1817,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  145,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  158,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  175,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  299,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  392,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  473,
+                        "message":  "\u0027.ok();\u0027 drops the Err branch; use match/propagate."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  478,
+                        "message":  "\u0027.ok();\u0027 drops the Err branch; use match/propagate."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  593,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  1045,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  1046,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  1082,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  1129,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  1159,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  1170,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3a.rs",
+                        "line":  1171,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b.rs",
+                        "line":  60,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b.rs",
+                        "line":  374,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b3.rs",
+                        "line":  81,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b3.rs",
+                        "line":  365,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b3.rs",
+                        "line":  523,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b4.rs",
+                        "line":  83,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b4.rs",
+                        "line":  217,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b4.rs",
+                        "line":  218,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b4.rs",
+                        "line":  246,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b4.rs",
+                        "line":  471,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b4.rs",
+                        "line":  654,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s3b4.rs",
+                        "line":  999,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  140,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  503,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  507,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  514,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  517,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  531,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  533,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  908,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  1094,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  1104,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  467,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  542,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  935,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  984,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  985,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  994,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  1007,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  1016,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  1036,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  1049,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-clipboard/src/platform/windows.rs",
+                        "line":  81,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-clipboard/src/platform/windows.rs",
+                        "line":  84,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-clipboard/src/platform/windows.rs",
+                        "line":  98,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-clipboard/src/platform/windows.rs",
+                        "line":  102,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-clipboard/src/platform/windows.rs",
+                        "line":  105,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-clipboard/src/platform/windows.rs",
+                        "line":  115,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-clipboard/src/platform/windows.rs",
+                        "line":  117,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/mux.rs",
+                        "line":  140,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/linux.rs",
+                        "line":  163,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/linux.rs",
+                        "line":  167,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/linux.rs",
+                        "line":  176,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/linux.rs",
+                        "line":  177,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/linux.rs",
+                        "line":  185,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/linux.rs",
+                        "line":  199,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/linux.rs",
+                        "line":  561,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/linux.rs",
+                        "line":  627,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/linux.rs",
+                        "line":  628,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/mod.rs",
+                        "line":  43,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/mod.rs",
+                        "line":  81,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/mod.rs",
+                        "line":  88,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/mod.rs",
+                        "line":  95,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows.rs",
+                        "line":  174,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/amf.rs",
+                        "line":  158,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  279,
+                        "message":  "\u0027.ok();\u0027 drops the Err branch; use match/propagate."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  329,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  330,
+                        "message":  "\u0027.ok();\u0027 drops the Err branch; use match/propagate."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  355,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  523,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  540,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  543,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  544,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  617,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  719,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  739,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  885,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  889,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  895,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  900,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  935,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  1055,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-connect/src/quic.rs",
+                        "line":  76,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-connect/src/quic.rs",
+                        "line":  112,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-connect/src/session.rs",
+                        "line":  202,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-connect/src/signal_client.rs",
+                        "line":  104,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-connect/src/signal_client.rs",
+                        "line":  166,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-core/src/s5/devices.rs",
+                        "line":  442,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-core/src/s5/devices.rs",
+                        "line":  462,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-core/src/s5/devices.rs",
+                        "line":  496,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-core/src/s5/grant.rs",
+                        "line":  2293,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-core/src/s5/settings.rs",
+                        "line":  304,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-core/src/s5/settings.rs",
+                        "line":  324,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  140,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  439,
+                        "message":  "\u0027.ok();\u0027 drops the Err branch; use match/propagate."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  449,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  451,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  824,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  828,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  839,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  846,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  955,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  961,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  1056,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  1058,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  1061,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/present.rs",
+                        "line":  252,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/present.rs",
+                        "line":  278,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/present.rs",
+                        "line":  420,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/present.rs",
+                        "line":  590,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/present.rs",
+                        "line":  729,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-decode/src/video_decoder.rs",
+                        "line":  36,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-filetransfer/src/digest.rs",
+                        "line":  82,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-filetransfer/src/receiver.rs",
+                        "line":  243,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-filetransfer/src/receiver.rs",
+                        "line":  269,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-filetransfer/src/receiver.rs",
+                        "line":  270,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-input/src/platform/linux.rs",
+                        "line":  306,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-input/src/platform/linux.rs",
+                        "line":  800,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  222,
+                        "message":  "\u0027.ok();\u0027 drops the Err branch; use match/propagate."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  354,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  359,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  380,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  210,
+                        "message":  "\u0027.ok();\u0027 drops the Err branch; use match/propagate."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  289,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  301,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  307,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  312,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  171,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  172,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  184,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  185,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  197,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  198,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  199,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/decoder.rs",
+                        "line":  210,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/decoder.rs",
+                        "line":  211,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/decoder.rs",
+                        "line":  219,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/decoder.rs",
+                        "line":  278,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/decoder.rs",
+                        "line":  281,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/decoder.rs",
+                        "line":  283,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/display.rs",
+                        "line":  202,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/display.rs",
+                        "line":  250,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/display.rs",
+                        "line":  251,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-linux-e2e/src/display.rs",
+                        "line":  252,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-runtime/src/pool.rs",
+                        "line":  222,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  135,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  435,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  577,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  610,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  672,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  681,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  728,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  779,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  962,
+                        "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
+                    },
+                    {
+                        "rule":  "R-C-2",
+                        "file":  "crates/rdc-transport/src/fec.rs",
+                        "line":  244,
+                        "message":  "unwrap_or_default() in IO/codec/network path hides failure."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  160,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  179,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  185,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  210,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  213,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  240,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  246,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  265,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  267,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  389,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  406,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  407,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1248,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1253,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1256,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1258,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1259,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1276,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1281,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1291,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1297,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1299,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1300,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1402,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1405,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1484,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1516,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1585,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1630,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1679,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1701,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1750,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1754,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1756,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1799,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1803,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1838,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1843,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/api.rs",
+                        "line":  1848,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/clipboard_service.rs",
+                        "line":  76,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/clipboard_service.rs",
+                        "line":  101,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/clipboard_service.rs",
+                        "line":  138,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/clipboard_service.rs",
+                        "line":  186,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/clipboard_service.rs",
+                        "line":  201,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/clipboard_service.rs",
+                        "line":  214,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  319,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  400,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  422,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1524,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1618,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  209,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  262,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  297,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  310,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  328,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  337,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  351,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  360,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  412,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/control_service_linux.rs",
+                        "line":  651,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/input_service.rs",
+                        "line":  203,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/input_service.rs",
+                        "line":  298,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/input_service.rs",
+                        "line":  313,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/input_service.rs",
+                        "line":  348,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  143,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  147,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  148,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  151,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  153,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  154,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  155,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  181,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  199,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  202,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  270,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  296,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/session_service.rs",
+                        "line":  326,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  160,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  165,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  173,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  213,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  225,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  252,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  258,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  271,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-bridge/src/wall_service.rs",
+                        "line":  278,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  1093,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-cli/src/s4demo.rs",
+                        "line":  266,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-cli/src/s5_5.rs",
+                        "line":  269,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  200,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  790,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  836,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  851,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-cli/src/walldemo.rs",
+                        "line":  1031,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-clipboard/src/wire.rs",
+                        "line":  129,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-clipboard/src/wire.rs",
+                        "line":  141,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-codec/src/platform/linux.rs",
+                        "line":  695,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-codec/src/platform/windows.rs",
+                        "line":  617,
+                        "message":  "error.to_string() loses platform code/source."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-connect/src/session.rs",
+                        "line":  341,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-core/src/s4/message.rs",
+                        "line":  336,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-core/src/s4/message.rs",
+                        "line":  344,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-core/src/s5/grant.rs",
+                        "line":  570,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-core/src/s5/grant.rs",
+                        "line":  1244,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-core/src/s5/passwordless.rs",
+                        "line":  245,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-core/src/s5/wall.rs",
+                        "line":  345,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-core/src/s5/wall.rs",
+                        "line":  357,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-core/src/s5/wall.rs",
+                        "line":  897,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-input/src/platform/linux.rs",
+                        "line":  269,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-input/src/platform/linux.rs",
+                        "line":  618,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-input/src/platform/linux.rs",
+                        "line":  645,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-input/src/wire.rs",
+                        "line":  191,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  55,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  56,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  61,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  67,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  69,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  70,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  71,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  49,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  50,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  52,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  55,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  58,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  291,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  316,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_loop.rs",
+                        "line":  49,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_loop.rs",
+                        "line":  50,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_loop.rs",
+                        "line":  52,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_loop.rs",
+                        "line":  55,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_loop.rs",
+                        "line":  58,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_loop.rs",
+                        "line":  61,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_loop.rs",
+                        "line":  63,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_loop.rs",
+                        "line":  64,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_loop.rs",
+                        "line":  322,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_loop.rs",
+                        "line":  358,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  46,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  47,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  48,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  49,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  50,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  51,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-linux-e2e/src/decoder.rs",
+                        "line":  138,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-protocol/src/challenge.rs",
+                        "line":  106,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/aead.rs",
+                        "line":  157,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/aead.rs",
+                        "line":  160,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/aead.rs",
+                        "line":  164,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/aead.rs",
+                        "line":  167,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/aead.rs",
+                        "line":  198,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/aead.rs",
+                        "line":  201,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/aead.rs",
+                        "line":  205,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/aead.rs",
+                        "line":  208,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/handshake.rs",
+                        "line":  421,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/handshake.rs",
+                        "line":  456,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/handshake.rs",
+                        "line":  633,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/handshake.rs",
+                        "line":  638,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/keys.rs",
+                        "line":  62,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/keys.rs",
+                        "line":  67,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/keys.rs",
+                        "line":  100,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/keys.rs",
+                        "line":  252,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/keys.rs",
+                        "line":  295,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/keys.rs",
+                        "line":  296,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/keys.rs",
+                        "line":  300,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-security/src/pake.rs",
+                        "line":  213,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  796,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  804,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-3",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  808,
+                        "message":  "map_err(|_| ...) discards the original error."
+                    },
+                    {
+                        "rule":  "R-C-5",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1218,
+                        "message":  "streaming VecDeque field has no declared capacity."
+                    },
+                    {
+                        "rule":  "R-C-5",
+                        "file":  "crates/rdc-cli/src/s3b4.rs",
+                        "line":  525,
+                        "message":  "streaming VecDeque field has no declared capacity."
+                    },
+                    {
+                        "rule":  "R-C-5",
+                        "file":  "crates/rdc-codec/src/platform/windows.rs",
+                        "line":  72,
+                        "message":  "streaming VecDeque field has no declared capacity."
+                    },
+                    {
+                        "rule":  "R-C-5",
+                        "file":  "crates/rdc-codec/src/platform/windows.rs",
+                        "line":  94,
+                        "message":  "streaming VecDeque field without capacity limit."
+                    },
+                    {
+                        "rule":  "R-C-5",
+                        "file":  "crates/rdc-codec/src/platform/windows/amf.rs",
+                        "line":  60,
+                        "message":  "streaming VecDeque field has no declared capacity."
+                    },
+                    {
+                        "rule":  "R-C-5",
+                        "file":  "crates/rdc-codec/src/platform/windows/amf.rs",
+                        "line":  97,
+                        "message":  "streaming VecDeque field without capacity limit."
+                    },
+                    {
+                        "rule":  "R-C-5",
+                        "file":  "crates/rdc-signal/src/server.rs",
+                        "line":  408,
+                        "message":  "unbounded channel/queue has no capacity limit."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  711,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  726,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  729,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  761,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-bridge/src/control_service.rs",
+                        "line":  1827,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-capture/src/platform/windows.rs",
+                        "line":  610,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-codec/src/platform/windows.rs",
+                        "line":  305,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-codec/src/platform/windows.rs",
+                        "line":  677,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  294,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  496,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  633,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-codec/src/platform/windows/mf.rs",
+                        "line":  666,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/shim/ffdec.c",
+                        "line":  149,
+                        "message":  "fprintf bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/shim/ffdec.c",
+                        "line":  184,
+                        "message":  "fprintf bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/shim/ffdec.c",
+                        "line":  200,
+                        "message":  "fprintf bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/shim/ffdec.c",
+                        "line":  202,
+                        "message":  "fprintf bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/shim/ffdec.c",
+                        "line":  250,
+                        "message":  "fprintf bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/shim/ffdec.c",
+                        "line":  252,
+                        "message":  "fprintf bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/shim/ffdec.c",
+                        "line":  254,
+                        "message":  "fprintf bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/shim/ffdec.c",
+                        "line":  335,
+                        "message":  "fprintf bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  413,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  462,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  466,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  516,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/src/platform/windows/mf_decoder.rs",
+                        "line":  676,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/src/video_decoder.rs",
+                        "line":  224,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-decode/src/video_decoder.rs",
+                        "line":  230,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-linux-e2e/src/lib.rs",
+                        "line":  37,
+                        "message":  "eprintln! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-relay/src/main.rs",
+                        "line":  28,
+                        "message":  "println! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-1",
+                        "file":  "crates/rdc-signal/src/main.rs",
+                        "line":  33,
+                        "message":  "println! bypasses the unified logging layer."
+                    },
+                    {
+                        "rule":  "R-L-4",
+                        "file":  "crates/rdc-bridge/Cargo.toml",
+                        "line":  0,
+                        "message":  "crate rdc-bridge has no unified logging dependency."
+                    },
+                    {
+                        "rule":  "R-L-4",
+                        "file":  "crates/rdc-decode/Cargo.toml",
+                        "line":  0,
+                        "message":  "crate rdc-decode has no unified logging dependency."
+                    },
+                    {
+                        "rule":  "R-L-4",
+                        "file":  "crates/rdc-filetransfer/Cargo.toml",
+                        "line":  0,
+                        "message":  "crate rdc-filetransfer has no unified logging dependency."
+                    },
+                    {
+                        "rule":  "R-L-4",
+                        "file":  "crates/rdc-linux-e2e/Cargo.toml",
+                        "line":  0,
+                        "message":  "crate rdc-linux-e2e has no unified logging dependency."
+                    },
+                    {
+                        "rule":  "R-L-9",
+                        "file":  "crates/rdc-capture/src/platform/linux.rs",
+                        "line":  620,
+                        "message":  "error branch only logs; it must return or propagate the error."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "app/linux/runner/main.cc",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "app/linux/runner/my_application.cc",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "app/linux/runner/my_application.h",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "app/windows/runner/flutter_window.cpp",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "app/windows/runner/flutter_window.h",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "app/windows/runner/main.cpp",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "app/windows/runner/resource.h",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "app/windows/runner/utils.h",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "app/windows/runner/win32_window.cpp",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "app/windows/runner/win32_window.h",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "crates/rdc-bridge/examples/linux_api_check.rs",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "crates/rdc-bridge/examples/loop_probe.rs",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "crates/rdc-codec/shim/amf_enc.cpp",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "crates/rdc-codec/shim/amf_spike.cpp",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "crates/rdc-decode/shim/ffdec.c",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_client.rs",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_host.rs",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-1",
+                        "file":  "crates/rdc-linux-e2e/src/bin/s8_2_target.rs",
+                        "line":  1,
+                        "message":  "missing file header comment block (first 25 lines)."
+                    },
+                    {
+                        "rule":  "R-N-2",
+                        "file":  "crates/rdc-connect/src/session.rs",
+                        "line":  221,
+                        "message":  "public fn establish has no doc comment."
+                    },
+                    {
+                        "rule":  "R-N-5",
+                        "file":  "app/lib/controller/session_controller.dart",
+                        "line":  1,
+                        "message":  "file has 458 lines but no controller/model section marker."
+                    },
+                    {
+                        "rule":  "R-N-5",
+                        "file":  "app/lib/model/gateway/rust_types.dart",
+                        "line":  1,
+                        "message":  "file has 1049 lines but no controller/model section marker."
+                    }
+                ]
 }
