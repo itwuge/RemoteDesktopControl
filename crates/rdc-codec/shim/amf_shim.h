@@ -68,6 +68,17 @@ public:
 
     const std::string& last_error() const { return error_; }
 
+    /// 诊断用：按名称设置属性（0=成功，-1=未知名称，-2=该后端无此属性）。
+    /// 只给 spike/验收用，生产路径不调用。
+    int set_prop(const char* name, int64_t value);
+
+    /// 诊断用：按名称读回属性（0=成功）。
+    int get_prop(const char* name, int64_t* out) const;
+
+    /// 最近一次出包时编码器自报的 PSNR（未开启 PSNRFeedback 时为 0）。
+    double last_psnr_all() const { return last_psnr_all_; }
+    double last_psnr_y() const { return last_psnr_y_; }
+
 private:
     bool ensure_device(std::string* err);
     bool ensure_video_processor(std::string* err);
@@ -90,6 +101,8 @@ private:
     int input_mode_ = 0;
     int usage_selected_ = 0;            ///< 实际生效的 AMF usage（按能力探测决定）
     bool usage_fallback_ = false;       ///< ULTRA_LOW_LATENCY 不可用时的回退标记
+    double last_psnr_all_ = 0;          ///< 最近一包的 PSNR（需 PSNRFeedback=1）
+    double last_psnr_y_ = 0;
 
     // VideoProcessor（kDx11Nv12 专用）
     void* vp_device_ = nullptr;         ///< ID3D11VideoDevice*
@@ -120,4 +133,12 @@ const char* rdcamf_effective_json(void);
 void* rdcamf_device(void);
 int rdcamf_probe_caps(int* h264, int* hevc, int* driver_is_amd);
 int rdcamf_diag(void);
+// 诊断用（仅 amf_spike 调用；生产路径不碰）：open 前预置属性 / open 后设读属性 / 最近一包 PSNR。
+void rdcamf_preprop(const char* name, int64_t value);
+void rdcamf_clear_preprops(void);
+int rdcamf_set_prop(const char* name, int64_t value);
+int rdcamf_get_prop(const char* name, int64_t* out);
+int rdcamf_last_psnr(double* psnr_all, double* psnr_y);
+// 本机是否存在可初始化的 AMF AV1 编码组件（0=没有）。
+int rdcamf_probe_av1(void);
 }

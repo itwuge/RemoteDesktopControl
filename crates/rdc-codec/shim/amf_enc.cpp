@@ -28,6 +28,7 @@
 #include "core/Plane.h"
 #include "core/Surface.h"
 #include "core/Version.h"
+#include "components/VideoEncoderAV1.h"
 #include "components/VideoEncoderHEVC.h"
 #include "components/VideoEncoderVCE.h"
 
@@ -68,6 +69,78 @@ const AMFInit_Fn amf_init_fn() {
         return nullptr;
     }
     return reinterpret_cast<AMFInit_Fn>(GetProcAddress(lib, AMF_INIT_FUNCTION_NAME));
+}
+
+// ---- 诊断属性映射表（仅 amf_spike 使用；生产路径不读这张表）----
+// 目的：让「设置 → 读回」走同一张表，避免再出现 S7-5 的 VT_BOOL 式「设了没生效」。
+struct PropDesc {
+    const char* name;
+    const wchar_t* h264;
+    const wchar_t* hevc;
+    bool is_bool;
+};
+
+const PropDesc kPropDescs[] = {
+    {"usage", AMF_VIDEO_ENCODER_USAGE, AMF_VIDEO_ENCODER_HEVC_USAGE, false},
+    {"lowlatency", AMF_VIDEO_ENCODER_LOWLATENCY_MODE, AMF_VIDEO_ENCODER_HEVC_LOWLATENCY_MODE, true},
+    {"preanalysis", AMF_VIDEO_ENCODER_PRE_ANALYSIS_ENABLE,
+     AMF_VIDEO_ENCODER_HEVC_PRE_ANALYSIS_ENABLE, true},
+    {"bpicpattern", AMF_VIDEO_ENCODER_B_PIC_PATTERN, nullptr, false},
+    {"maxconsecb", AMF_VIDEO_ENCODER_MAX_CONSECUTIVE_BPICTURES, nullptr, false},
+    {"reframes", AMF_VIDEO_ENCODER_MAX_NUM_REFRAMES, AMF_VIDEO_ENCODER_HEVC_MAX_NUM_REFRAMES, false},
+    {"quality", AMF_VIDEO_ENCODER_QUALITY_PRESET, AMF_VIDEO_ENCODER_HEVC_QUALITY_PRESET, false},
+    {"querytimeout", AMF_VIDEO_ENCODER_QUERY_TIMEOUT, AMF_VIDEO_ENCODER_HEVC_QUERY_TIMEOUT, false},
+    {"idrperiod", AMF_VIDEO_ENCODER_IDR_PERIOD, AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, false},
+    {"rc", AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD, AMF_VIDEO_ENCODER_HEVC_RATE_CONTROL_METHOD, false},
+    {"target", AMF_VIDEO_ENCODER_TARGET_BITRATE, AMF_VIDEO_ENCODER_HEVC_TARGET_BITRATE, false},
+    {"peak", AMF_VIDEO_ENCODER_PEAK_BITRATE, AMF_VIDEO_ENCODER_HEVC_PEAK_BITRATE, false},
+    {"vbv", AMF_VIDEO_ENCODER_VBV_BUFFER_SIZE, AMF_VIDEO_ENCODER_HEVC_VBV_BUFFER_SIZE, false},
+    {"enforce_hrd", AMF_VIDEO_ENCODER_ENFORCE_HRD, AMF_VIDEO_ENCODER_HEVC_ENFORCE_HRD, true},
+    {"filler", AMF_VIDEO_ENCODER_FILLER_DATA_ENABLE, AMF_VIDEO_ENCODER_HEVC_FILLER_DATA_ENABLE, true},
+    {"header_spacing", AMF_VIDEO_ENCODER_HEADER_INSERTION_SPACING, nullptr, false},
+    {"slices", AMF_VIDEO_ENCODER_SLICES_PER_FRAME, AMF_VIDEO_ENCODER_HEVC_SLICES_PER_FRAME, false},
+    {"inputqueue", AMF_VIDEO_ENCODER_INPUT_QUEUE_SIZE, AMF_VIDEO_ENCODER_HEVC_INPUT_QUEUE_SIZE, false},
+    {"outputmode", AMF_VIDEO_ENCODER_OUTPUT_MODE, AMF_VIDEO_ENCODER_HEVC_OUTPUT_MODE, false},
+    {"psnr", AMF_VIDEO_ENCODER_PSNR_FEEDBACK, AMF_VIDEO_ENCODER_HEVC_PSNR_FEEDBACK, true},
+};
+
+const PropDesc* find_desc(const char* name) {
+    for (const PropDesc& d : kPropDescs) {
+        if (std::strcmp(d.name, name) == 0) {
+            return &d;
+        }
+    }
+    return nullptr;
+}
+
+const wchar_t* prop_key(const PropDesc& d, int codec) { return codec == 0 ? d.h264 : d.hevc; }
+
+struct PreProp {
+    std::string name;
+    int64_t value;
+};
+
+std::vector<PreProp>& preprop_list() {
+    static std::vector<PreProp> v;
+    return v;
+}
+
+void apply_preprops(amf::AMFComponent* comp, int codec) {
+    for (const PreProp& p : preprop_list()) {
+        const PropDesc* d = find_desc(p.name.c_str());
+        if (d == nullptr) {
+            continue;
+        }
+        const wchar_t* key = prop_key(*d, codec);
+        if (key == nullptr) {
+            continue;
+        }
+        if (d->is_bool) {
+            comp->SetProperty(key, p.value != 0);
+        } else {
+            comp->SetProperty(key, static_cast<amf_int64>(p.value));
+        }
+    }
 }
 
 } // namespace
@@ -116,9 +189,9 @@ bool AmfEncoder::open(int width, int height, int fps, int bitrate_bps, int codec
         return false;
     }
 
-    // HEVC 的属性集与 H.264 不同，本 shim 只落地 H.264；调用方必须显式走 MFT。
-    if (codec != 0) {
-        error_ = "rdc-amf shim 仅实现 H.264";
+    // H.264 / HEVC 两套属性集；HEVC 只用于实测对照，生产默认仍是 H.264（codec=0）。
+    if (codec != 0 && codec != 1) {
+        error_ = "rdc-amf shim 只支持 codec=0(H.264) / 1(HEVC)";
         if (err) *err = error_;
         return false;
     }
@@ -158,53 +231,87 @@ bool AmfEncoder::open(int width, int height, int fps, int bitrate_bps, int codec
         (input_mode_ == kHostBgra || input_mode_ == kDx11Bgra) ? AMF_SURFACE_BGRA
                                                               : AMF_SURFACE_NV12;
     auto apply_props = [&](amf::AMFComponent* comp, amf_int64 usage) {
-        comp->SetProperty(AMF_VIDEO_ENCODER_USAGE, usage);
-        comp->SetProperty(AMF_VIDEO_ENCODER_LOWLATENCY_MODE, true);
-        comp->SetProperty(AMF_VIDEO_ENCODER_B_PIC_PATTERN, static_cast<amf_int64>(0));
-        comp->SetProperty(AMF_VIDEO_ENCODER_MAX_CONSECUTIVE_BPICTURES, static_cast<amf_int64>(0));
-        comp->SetProperty(AMF_VIDEO_ENCODER_MAX_NUM_REFRAMES, static_cast<amf_int64>(1));
-        comp->SetProperty(AMF_VIDEO_ENCODER_QUALITY_PRESET,
-                          static_cast<amf_int64>(AMF_VIDEO_ENCODER_QUALITY_PRESET_SPEED));
-        comp->SetProperty(AMF_VIDEO_ENCODER_PRE_ANALYSIS_ENABLE, false);
-        comp->SetProperty(AMF_VIDEO_ENCODER_HEADER_INSERTION_SPACING, static_cast<amf_int64>(0));
-        comp->SetProperty(AMF_VIDEO_ENCODER_IDR_PERIOD, static_cast<amf_int64>(fps_));
-        comp->SetProperty(AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD,
-                          static_cast<amf_int64>(AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD_CBR));
-        comp->SetProperty(AMF_VIDEO_ENCODER_TARGET_BITRATE, static_cast<amf_int64>(bitrate_));
-        comp->SetProperty(AMF_VIDEO_ENCODER_PEAK_BITRATE, static_cast<amf_int64>(bitrate_));
-        // VBV 按「一帧预算」给：bitrate/fps 位。NVENC 备忘 §5 的同类约束。
-        comp->SetProperty(AMF_VIDEO_ENCODER_VBV_BUFFER_SIZE,
-                          static_cast<amf_int64>(bitrate_ / fps_));
-        comp->SetProperty(AMF_VIDEO_ENCODER_ENFORCE_HRD, true);
-        comp->SetProperty(AMF_VIDEO_ENCODER_FILLER_DATA_ENABLE, true);
         AMFRate rate;
         rate.num = static_cast<amf_uint32>(fps_);
         rate.den = 1;
-        comp->SetProperty(AMF_VIDEO_ENCODER_FRAMERATE, rate);
-        // QueryOutput 事件等待上限（ms）：不忙等，也不把「暂无输出」当错误。
-        comp->SetProperty(AMF_VIDEO_ENCODER_QUERY_TIMEOUT, static_cast<amf_int64>(5));
+        if (codec_ == 0) {
+            comp->SetProperty(AMF_VIDEO_ENCODER_USAGE, usage);
+            comp->SetProperty(AMF_VIDEO_ENCODER_LOWLATENCY_MODE, true);
+            comp->SetProperty(AMF_VIDEO_ENCODER_B_PIC_PATTERN, static_cast<amf_int64>(0));
+            comp->SetProperty(AMF_VIDEO_ENCODER_MAX_CONSECUTIVE_BPICTURES, static_cast<amf_int64>(0));
+            comp->SetProperty(AMF_VIDEO_ENCODER_MAX_NUM_REFRAMES, static_cast<amf_int64>(1));
+            comp->SetProperty(AMF_VIDEO_ENCODER_QUALITY_PRESET,
+                              static_cast<amf_int64>(AMF_VIDEO_ENCODER_QUALITY_PRESET_SPEED));
+            comp->SetProperty(AMF_VIDEO_ENCODER_PRE_ANALYSIS_ENABLE, false);
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEADER_INSERTION_SPACING, static_cast<amf_int64>(0));
+            comp->SetProperty(AMF_VIDEO_ENCODER_IDR_PERIOD, static_cast<amf_int64>(fps_));
+            comp->SetProperty(AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD,
+                              static_cast<amf_int64>(AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD_CBR));
+            comp->SetProperty(AMF_VIDEO_ENCODER_TARGET_BITRATE, static_cast<amf_int64>(bitrate_));
+            comp->SetProperty(AMF_VIDEO_ENCODER_PEAK_BITRATE, static_cast<amf_int64>(bitrate_));
+            // VBV 按「一帧预算」给：bitrate/fps 位。NVENC 备忘 §5 的同类约束。
+            comp->SetProperty(AMF_VIDEO_ENCODER_VBV_BUFFER_SIZE,
+                              static_cast<amf_int64>(bitrate_ / fps_));
+            comp->SetProperty(AMF_VIDEO_ENCODER_ENFORCE_HRD, true);
+            comp->SetProperty(AMF_VIDEO_ENCODER_FILLER_DATA_ENABLE, true);
+            comp->SetProperty(AMF_VIDEO_ENCODER_FRAMERATE, rate);
+            // 本机 H.264 驱动上 InputQueueSize / OutputMode 均不支持（S7-6 读回 rc=4），
+            // 不再设空属性；「排队深度=1」由提交节奏保证。
+            // QueryOutput 事件等待上限（ms）：不忙等，也不把「暂无输出」当错误。
+            comp->SetProperty(AMF_VIDEO_ENCODER_QUERY_TIMEOUT, static_cast<amf_int64>(5));
+        } else {
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_USAGE, usage);
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_LOWLATENCY_MODE, true);
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_MAX_NUM_REFRAMES, static_cast<amf_int64>(1));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_QUALITY_PRESET,
+                              static_cast<amf_int64>(AMF_VIDEO_ENCODER_HEVC_QUALITY_PRESET_SPEED));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_PRE_ANALYSIS_ENABLE, false);
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_GOP_SIZE, static_cast<amf_int64>(fps_));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_NUM_GOPS_PER_IDR, static_cast<amf_int64>(1));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_RATE_CONTROL_METHOD,
+                              static_cast<amf_int64>(AMF_VIDEO_ENCODER_HEVC_RATE_CONTROL_METHOD_CBR));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_TARGET_BITRATE, static_cast<amf_int64>(bitrate_));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_PEAK_BITRATE, static_cast<amf_int64>(bitrate_));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_VBV_BUFFER_SIZE,
+                              static_cast<amf_int64>(bitrate_ / fps_));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_ENFORCE_HRD, true);
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_FILLER_DATA_ENABLE, true);
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_FRAMERATE, rate);
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_INPUT_QUEUE_SIZE, static_cast<amf_int64>(1));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_OUTPUT_MODE,
+                              static_cast<amf_int64>(AMF_VIDEO_ENCODER_HEVC_OUTPUT_MODE_FRAME));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_QUERY_TIMEOUT, static_cast<amf_int64>(5));
+        }
     };
     auto build = [&](amf_int64 usage) -> AMF_RESULT {
         component = nullptr;
+        const wchar_t* component_id = codec_ == 0 ? AMFVideoEncoderVCE_AVC : AMFVideoEncoder_HEVC;
         AMF_RESULT cr = factory->CreateComponent(static_cast<amf::AMFContext*>(amf_context_),
-                                                 AMFVideoEncoderVCE_AVC, &component);
+                                                 component_id, &component);
         if (cr != AMF_OK) {
             return cr;
         }
         apply_props(component, usage);
+        apply_preprops(component, codec_);  // 诊断预置（仅 spike 调用，生产为空表）
         return component->Init(input_format, width_, height_);
     };
 
     // 能力探测式落地：ULTRA_LOW_LATENCY 在部分驱动上返回 INVALID_ARG(3)
     // （本机 RX 580 / 31.0.21912.14 实测），此时退回 LOW_LATENCY，并在启动日志里标明。
-    r = build(AMF_VIDEO_ENCODER_USAGE_ULTRA_LOW_LATENCY);
-    usage_selected_ = AMF_VIDEO_ENCODER_USAGE_ULTRA_LOW_LATENCY;
+    amf_int64 usage_ultra = codec_ == 0
+                                ? static_cast<amf_int64>(AMF_VIDEO_ENCODER_USAGE_ULTRA_LOW_LATENCY)
+                                : static_cast<amf_int64>(AMF_VIDEO_ENCODER_HEVC_USAGE_ULTRA_LOW_LATENCY);
+    amf_int64 usage_low = codec_ == 0
+                              ? static_cast<amf_int64>(AMF_VIDEO_ENCODER_USAGE_LOW_LATENCY)
+                              : static_cast<amf_int64>(AMF_VIDEO_ENCODER_HEVC_USAGE_LOW_LATENCY);
+    r = build(usage_ultra);
+    usage_selected_ = static_cast<int>(usage_ultra);
     if (r != AMF_OK) {
-        std::printf("[amf] Usage=ULTRA_LOW_LATENCY 不可用（code=%d），回退 LOW_LATENCY\n",
-                    static_cast<int>(r));
+        std::printf("[amf] codec=%d Usage=ULTRA_LOW_LATENCY 不可用（code=%d），回退 LOW_LATENCY\n",
+                    codec_, static_cast<int>(r));
         usage_fallback_ = true;
-        r = build(AMF_VIDEO_ENCODER_USAGE_LOW_LATENCY);
-        usage_selected_ = AMF_VIDEO_ENCODER_USAGE_LOW_LATENCY;
+        r = build(usage_low);
+        usage_selected_ = static_cast<int>(usage_low);
     }
     if (r != AMF_OK) {
         error_ = std::string("Init(") + (input_format == AMF_SURFACE_BGRA ? "BGRA" : "NV12") +
@@ -443,6 +550,16 @@ int AmfEncoder::poll_raw(Packet* out) {
         error_ = "输出不是 AMFBuffer";
         return -1;
     }
+    // PSNR 反馈（需开启 PSNRFeedback=1）；未开启时两值为 0。
+    amf::AMFVariant pv;
+    last_psnr_all_ = 0.0;
+    last_psnr_y_ = 0.0;
+    if (data->GetProperty(AMF_VIDEO_ENCODER_STATISTIC_PSNR_ALL, &pv) == AMF_OK) {
+        last_psnr_all_ = pv.ToDouble();
+    }
+    if (data->GetProperty(AMF_VIDEO_ENCODER_STATISTIC_PSNR_Y, &pv) == AMF_OK) {
+        last_psnr_y_ = pv.ToDouble();
+    }
     amf_size size = buffer->GetSize();
     void* native = buffer->GetNative();
     if (out != nullptr) {
@@ -530,29 +647,65 @@ std::string AmfEncoder::effective_json() const {
     if (amf_component_ == nullptr) {
         return "{}";
     }
-    amf::AMFComponent* comp = static_cast<amf::AMFComponent*>(amf_component_);
-    auto get_i = [&](const wchar_t* name) -> long long {
-        amf::AMFVariant var;
-        if (comp->GetProperty(name, &var) == AMF_OK) {
-            return static_cast<long long>(var.ToInt64());
-        }
-        return -1;
+    // 读回一律走 set_prop 同一张映射表：HEVC 用 HEVC 属性名，取不到记 -1（不静默）。
+    auto getn = [&](const char* n) -> long long {
+        int64_t v = 0;
+        return get_prop(n, &v) == 0 ? static_cast<long long>(v) : -1;
     };
-    char buf[512];
+    char buf[768];
     std::snprintf(buf, sizeof(buf),
-                  "{\"usage\":%lld,\"low_latency\":%lld,\"b_frames\":%lld,\"max_refs\":%lld,"
+                  "{\"codec\":%d,\"usage\":%lld,\"low_latency\":%lld,\"b_frames\":%lld,\"max_refs\":%lld,"
                   "\"rc_method\":%lld,\"target_bitrate\":%lld,\"peak_bitrate\":%lld,"
                   "\"vbv_bits\":%lld,\"gop\":%lld,\"quality_preset\":%lld,\"query_timeout_ms\":%lld,"
-                  "\"queue_depth\":1,\"usage_selected\":%d,\"usage_fallback\":%d}",
-                  get_i(AMF_VIDEO_ENCODER_USAGE), get_i(AMF_VIDEO_ENCODER_LOWLATENCY_MODE),
-                  get_i(AMF_VIDEO_ENCODER_B_PIC_PATTERN), get_i(AMF_VIDEO_ENCODER_MAX_NUM_REFRAMES),
-                  get_i(AMF_VIDEO_ENCODER_RATE_CONTROL_METHOD),
-                  get_i(AMF_VIDEO_ENCODER_TARGET_BITRATE), get_i(AMF_VIDEO_ENCODER_PEAK_BITRATE),
-                  get_i(AMF_VIDEO_ENCODER_VBV_BUFFER_SIZE), get_i(AMF_VIDEO_ENCODER_IDR_PERIOD),
-                  get_i(AMF_VIDEO_ENCODER_QUALITY_PRESET),
-                  get_i(AMF_VIDEO_ENCODER_QUERY_TIMEOUT),
-                  usage_selected_, usage_fallback_ ? 1 : 0);
+                  "\"queue_depth\":1,\"input_queue\":%lld,\"output_mode\":%lld,\"slices\":%lld,"
+                  "\"preanalysis\":%lld,\"psnr_feedback\":%lld,"
+                  "\"usage_selected\":%d,\"usage_fallback\":%d}",
+                  codec_, getn("usage"), getn("lowlatency"), getn("bpicpattern"), getn("reframes"),
+                  getn("rc"), getn("target"), getn("peak"), getn("vbv"), getn("idrperiod"),
+                  getn("quality"), getn("querytimeout"), getn("inputqueue"), getn("outputmode"),
+                  getn("slices"), getn("preanalysis"), getn("psnr"), usage_selected_,
+                  usage_fallback_ ? 1 : 0);
     return buf ? std::string(buf) : std::string("{}");
+}
+
+int AmfEncoder::set_prop(const char* name, int64_t value) {
+    if (amf_component_ == nullptr) {
+        return -3;
+    }
+    const PropDesc* d = find_desc(name);
+    if (d == nullptr) {
+        return -1;
+    }
+    const wchar_t* key = prop_key(*d, codec_);
+    if (key == nullptr) {
+        return -2;  // 该后端没有这个属性（例如 H.264 专有的 B 帧项用在 HEVC 上）
+    }
+    amf::AMFComponent* comp = static_cast<amf::AMFComponent*>(amf_component_);
+    AMF_RESULT r = d->is_bool ? comp->SetProperty(key, value != 0)
+                              : comp->SetProperty(key, static_cast<amf_int64>(value));
+    return r == AMF_OK ? 0 : static_cast<int>(r);
+}
+
+int AmfEncoder::get_prop(const char* name, int64_t* out) const {
+    if (amf_component_ == nullptr || out == nullptr) {
+        return -3;
+    }
+    const PropDesc* d = find_desc(name);
+    if (d == nullptr) {
+        return -1;
+    }
+    const wchar_t* key = prop_key(*d, codec_);
+    if (key == nullptr) {
+        return -2;
+    }
+    amf::AMFComponent* comp = static_cast<amf::AMFComponent*>(amf_component_);
+    amf::AMFVariant var;
+    AMF_RESULT r = comp->GetProperty(key, &var);
+    if (r != AMF_OK) {
+        return static_cast<int>(r);
+    }
+    *out = d->is_bool ? (var.ToBool() ? 1 : 0) : var.ToInt64();
+    return 0;
 }
 
 } // namespace rdcamf
@@ -727,4 +880,54 @@ extern "C" int rdcamf_probe_caps(int* h264, int* hevc, int* driver_is_amd) {
     }
     ctx->Terminate();
     return 1;
+}
+
+// =====** 诊断属性 ABI（仅 amf_spike 使用）=====**
+extern "C" void rdcamf_preprop(const char* name, int64_t value) {
+    if (name == nullptr) {
+        return;
+    }
+    preprop_list().push_back(PreProp{std::string(name), value});
+}
+
+extern "C" void rdcamf_clear_preprops(void) { preprop_list().clear(); }
+
+extern "C" int rdcamf_set_prop(const char* name, int64_t value) {
+    return g_encoder.set_prop(name, value);
+}
+
+extern "C" int rdcamf_get_prop(const char* name, int64_t* out) { return g_encoder.get_prop(name, out); }
+
+extern "C" int rdcamf_last_psnr(double* psnr_all, double* psnr_y) {
+    if (psnr_all) *psnr_all = g_encoder.last_psnr_all();
+    if (psnr_y) *psnr_y = g_encoder.last_psnr_y();
+    return 0;
+}
+
+// AV1 组件是否存在（本机硬件能力，不按显卡型号猜）。
+extern "C" int rdcamf_probe_av1(void) {
+    AMFInit_Fn init_fn = amf_init_fn();
+    if (init_fn == nullptr) {
+        return 0;
+    }
+    amf::AMFFactory* factory = nullptr;
+    if (init_fn(AMF_FULL_VERSION, &factory) != AMF_OK || factory == nullptr) {
+        return 0;
+    }
+    amf::AMFContextPtr ctx;
+    if (factory->CreateContext(&ctx) != AMF_OK) {
+        return 0;
+    }
+    if (ctx->InitDX11(nullptr, AMF_DX11_0) != AMF_OK) {
+        return 0;
+    }
+    amf::AMFComponentPtr comp;
+    int ok = 0;
+    if (factory->CreateComponent(ctx, AMFVideoEncoder_AV1, &comp) == AMF_OK &&
+        comp->Init(AMF_SURFACE_NV12, 1920, 1080) == AMF_OK) {
+        ok = 1;
+        comp->Terminate();
+    }
+    ctx->Terminate();
+    return ok;
 }
