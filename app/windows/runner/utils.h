@@ -16,4 +16,15 @@ std::string Utf8FromUtf16(const wchar_t* utf16_string);
 // encoded in UTF-8. Returns an empty std::vector<std::string> on failure.
 std::vector<std::string> GetCommandLineArguments();
 
+// Appends one timestamped line to %APPDATA%\RDC\logs\startup.log, creating
+// the directory when missing. Thread-safe; failures are silently ignored so
+// logging can never take the app down.
+void AppendStartupLog(const std::string& line);
+
+// Returns the primary display adapter description (diagnostics only).
+std::string DescribePrimaryAdapter();
+
+// True when the process is running inside a remote desktop session.
+bool IsRemoteSession();
+
 #endif  // RUNNER_UTILS_H_

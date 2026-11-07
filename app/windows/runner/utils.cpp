@@ -5,7 +5,14 @@
 #include <stdio.h>
 #include <windows.h>
 
+#include <chrono>
+#include <cstdlib>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <mutex>
+#include <sstream>
 
 void CreateAndAttachConsole() {
   if (::AllocConsole()) {
@@ -66,4 +73,68 @@ std::string Utf8FromUtf16(const wchar_t* utf16_string) {
     return std::string();
   }
   return utf8_string;
+}
+
+namespace {
+
+std::mutex& StartupLogMutex() {
+  static std::mutex mutex;
+  return mutex;
+}
+
+std::wstring StartupLogPath() {
+  constexpr DWORD kAppDataCapacity = MAX_PATH * 2;
+  wchar_t appdata[kAppDataCapacity];
+  DWORD appdata_length = ::GetEnvironmentVariableW(L"APPDATA", appdata, kAppDataCapacity);
+  std::filesystem::path base;
+  if (appdata_length != 0 && appdata_length < kAppDataCapacity) {
+    base = appdata;
+  } else {
+    wchar_t buffer[MAX_PATH];
+    if (::GetTempPathW(MAX_PATH, buffer) == 0) {
+      return std::wstring();
+    }
+    base = buffer;
+  }
+  return (base / L"RDC" / L"logs" / L"startup.log").wstring();
+}
+
+}  // namespace
+
+void AppendStartupLog(const std::string& line) {
+  std::lock_guard<std::mutex> lock(StartupLogMutex());
+  const std::wstring path = StartupLogPath();
+  if (path.empty()) {
+    return;
+  }
+  try {
+    const std::filesystem::path log_path(path);
+    std::filesystem::create_directories(log_path.parent_path());
+    std::ofstream out(log_path, std::ios::app);
+    if (!out.is_open()) {
+      return;
+    }
+    std::time_t now = std::time(nullptr);
+    std::tm local{};
+    (void)localtime_s(&local, &now);
+    char stamp[32] = {0};
+    std::strftime(stamp, sizeof(stamp), "%Y-%m-%d %H:%M:%S", &local);
+    out << "[" << stamp << "] " << line << "\n";
+    out.flush();
+  } catch (...) {
+    // Logging must never take the app down.
+  }
+}
+
+std::string DescribePrimaryAdapter() {
+  DISPLAY_DEVICEW device{};
+  device.cb = static_cast<DWORD>(sizeof(device));
+  if (::EnumDisplayDevicesW(nullptr, 0, &device, 0)) {
+    return Utf8FromUtf16(device.DeviceString);
+  }
+  return std::string();
+}
+
+bool IsRemoteSession() {
+  return ::GetSystemMetrics(SM_REMOTESESSION) != 0;
 }

@@ -1,9 +1,15 @@
 #include "flutter_window.h"
 
+#include <atomic>
+#include <chrono>
+#include <memory>
 #include <optional>
+#include <string>
+#include <thread>
 
 #include "control_texture.h"
 #include "flutter/generated_plugin_registrant.h"
+#include "utils.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -16,6 +22,9 @@ bool FlutterWindow::OnCreate() {
   }
 
   RECT frame = GetClientArea();
+  AppendStartupLog("client_area=" +
+                   std::to_string(frame.right - frame.left) + "x" +
+                   std::to_string(frame.bottom - frame.top));
 
   // The size here must match the window dimensions to avoid unnecessary surface
   // creation / destruction in the startup path.
@@ -23,15 +32,30 @@ bool FlutterWindow::OnCreate() {
       frame.right - frame.left, frame.bottom - frame.top, project_);
   // Ensure that basic setup of the controller was successful.
   if (!flutter_controller_->engine() || !flutter_controller_->view()) {
+    AppendStartupLog("flutter_controller=FAILED");
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
   rdc_control_texture::Attach(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
-  flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
-  });
+  // A blank window is otherwise indistinguishable from a broken layout, so
+  // record whether the engine ever produced a frame.
+  auto first_frame = std::make_shared<std::atomic<bool>>(false);
+  flutter_controller_->engine()->SetNextFrameCallback(
+      [this, first_frame]() {
+        if (!first_frame->exchange(true)) {
+          AppendStartupLog("first_frame=rendered");
+        }
+        this->Show();
+      });
+  std::thread([first_frame]() {
+    std::this_thread::sleep_for(std::chrono::seconds(10));
+    if (!first_frame->load()) {
+      AppendStartupLog(
+          "first_frame=TIMEOUT no frame after 10s; window stays blank");
+    }
+  }).detach();
 
   // Flutter can complete the first frame before the "show window" callback is
   // registered. The following call ensures a frame is pending to ensure the
