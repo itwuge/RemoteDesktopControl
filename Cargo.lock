@@ -1107,6 +1107,7 @@ version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
  "rdc-core",
+ "rdc-decode",
  "rdc-protocol",
 ]
 

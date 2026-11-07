@@ -130,6 +130,216 @@ class RustGateway {
     return rust_api.doctorReport();
   }
 
+  // =========** 设备列表 =========
+
+  /// 读取设备列表。
+  ///
+  /// 返回：真实落盘文件中的条目；文件缺失时为空列表。
+  Future<DeviceListSnapshot> loadDevices() async {
+    _ensureInitialized();
+    final dto = await rust_api.devicesLoad();
+    return _toDeviceSnapshot(dto);
+  }
+
+  /// 新增设备。
+  ///
+  /// [deviceId] 设备标识；[name] 显示名；[trusted] 是否信任。
+  Future<DeviceListSnapshot> addDevice({
+    required String deviceId,
+    required String name,
+    required bool trusted,
+  }) async {
+    _ensureInitialized();
+    final dto = await rust_api.deviceAdd(
+      deviceId: deviceId,
+      name: name,
+      trusted: trusted,
+    );
+    return _toDeviceSnapshot(dto);
+  }
+
+  /// 修改设备名称、信任与同账号标记。
+  Future<DeviceListSnapshot> updateDevice({
+    required String deviceId,
+    required String name,
+    required bool trusted,
+    required bool sameAccount,
+  }) async {
+    _ensureInitialized();
+    final dto = await rust_api.deviceUpdate(
+      deviceId: deviceId,
+      name: name,
+      trusted: trusted,
+      sameAccount: sameAccount,
+    );
+    return _toDeviceSnapshot(dto);
+  }
+
+  /// 删除设备。
+  Future<DeviceListSnapshot> removeDevice(String deviceId) async {
+    _ensureInitialized();
+    final dto = await rust_api.deviceRemove(deviceId: deviceId);
+    return _toDeviceSnapshot(dto);
+  }
+
+  /// 把 Rust 设备 DTO 转成值对象。
+  DeviceListSnapshot _toDeviceSnapshot(rust_api.DeviceListDto dto) {
+    final entries = dto.devices.map((device) {
+      final millis = device.lastOnlineMs.toInt();
+      return DeviceEntry(
+        deviceId: device.deviceId,
+        name: device.name,
+        lastOnline: millis == 0
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(millis),
+        trusted: device.trusted,
+        sameAccount: device.sameAccount,
+      );
+    }).toList(growable: false);
+    return DeviceListSnapshot(entries: entries, filePath: dto.path);
+  }
+
+  // =========** 设置 =========
+
+  /// 读取设置（Rust 端原子持久化，与 Dart 旧文件兼容）。
+  Future<SettingsSnapshot> loadSettings() async {
+    _ensureInitialized();
+    final dto = await rust_api.settingsLoad();
+    return _toSettingsSnapshot(dto);
+  }
+
+  /// 原子保存设置。
+  Future<SettingsSnapshot> saveSettings(SettingsSnapshot settings) async {
+    _ensureInitialized();
+    final dto = await rust_api.settingsSave(
+      settings: rust_api.SettingsDto(
+        allowRelay: settings.allowRelay,
+        relayAddress: settings.relayAddress,
+        connectionPolicy: settings.connectionPolicy,
+        orientation: settings.orientation,
+        fileBandwidthRatio: settings.fileBandwidthRatio,
+        videoWidth: settings.videoWidth,
+        videoHeight: settings.videoHeight,
+        videoFps: settings.videoFps,
+        videoBitrateMbps: settings.videoBitrateMbps,
+        autoReconnect: settings.autoReconnect,
+        remoteAccessEnabled: settings.remoteAccessEnabled,
+        concurrentMode: settings.concurrentMode,
+        takeoverPolicy: settings.takeoverPolicy,
+        takeoverTimeoutS: settings.takeoverTimeoutS,
+        permissionTemplate: settings.permissionTemplate,
+        permissionBits: settings.permissionBits,
+        localNotice: settings.localNotice,
+        auditRetentionDays: settings.auditRetentionDays,
+        localPairPolicy: settings.localPairPolicy,
+        sameAccountPolicy: settings.sameAccountPolicy,
+        passwordlessPolicy: settings.passwordlessPolicy,
+        path: settings.filePath,
+      ),
+    );
+    return _toSettingsSnapshot(dto);
+  }
+
+  /// 把 Rust 设置 DTO 转成值对象。
+  SettingsSnapshot _toSettingsSnapshot(rust_api.SettingsDto dto) {
+    return SettingsSnapshot(
+      allowRelay: dto.allowRelay,
+      relayAddress: dto.relayAddress,
+      connectionPolicy: dto.connectionPolicy,
+      orientation: dto.orientation,
+      fileBandwidthRatio: dto.fileBandwidthRatio,
+      videoWidth: dto.videoWidth,
+      videoHeight: dto.videoHeight,
+      videoFps: dto.videoFps,
+      videoBitrateMbps: dto.videoBitrateMbps,
+      autoReconnect: dto.autoReconnect,
+      remoteAccessEnabled: dto.remoteAccessEnabled,
+      concurrentMode: dto.concurrentMode,
+      takeoverPolicy: dto.takeoverPolicy,
+      takeoverTimeoutS: dto.takeoverTimeoutS,
+      permissionTemplate: dto.permissionTemplate,
+      permissionBits: dto.permissionBits,
+      localNotice: dto.localNotice,
+      auditRetentionDays: dto.auditRetentionDays,
+      localPairPolicy: dto.localPairPolicy,
+      sameAccountPolicy: dto.sameAccountPolicy,
+      passwordlessPolicy: dto.passwordlessPolicy,
+      filePath: dto.path,
+    );
+  }
+
+  // =========** 会话角色与能力 =========
+
+  /// 查询角色权限（`viewer` / `controller`）。
+  Future<RoleInfo> roleInfo(String role) async {
+    _ensureInitialized();
+    final dto = await rust_api.roleInfo(role: role);
+    return RoleInfo(
+      role: dto.role,
+      canInjectInput: dto.canInjectInput,
+      canViewWall: dto.canViewWall,
+    );
+  }
+
+  /// 判定角色能否注入输入（观看者恒为 false）。
+  Future<bool> inputAllowed(String role) async {
+    _ensureInitialized();
+    return rust_api.inputAllowed(role: role);
+  }
+
+  // =========** 屏幕墙预览 =========
+
+  /// 启动本机回环屏幕墙预览。
+  Future<WallStatusInfo> startWall() async {
+    _ensureInitialized();
+    return _toWallStatus(await rust_api.wallStart());
+  }
+
+  /// 停止预览。
+  Future<WallStatusInfo> stopWall() async {
+    _ensureInitialized();
+    return _toWallStatus(await rust_api.wallStop());
+  }
+
+  /// 读取预览状态。
+  Future<WallStatusInfo> wallStatus() async {
+    _ensureInitialized();
+    return _toWallStatus(await rust_api.wallStatus());
+  }
+
+  /// 读取最新预览帧；尚无帧时为 `null`。
+  Future<WallPreviewFrame?> wallLatest() async {
+    _ensureInitialized();
+    final dto = await rust_api.wallLatest();
+    if (dto == null) return null;
+    return WallPreviewFrame(
+      streamId: dto.streamId,
+      frameId: dto.frameId,
+      ptsUs: dto.ptsUs.toInt(),
+      width: dto.width,
+      height: dto.height,
+      latencyUs: dto.latencyUs.toInt(),
+      bytes: dto.bytes,
+    );
+  }
+
+  /// 把 Rust 墙状态 DTO 转成值对象。
+  WallStatusInfo _toWallStatus(rust_api.WallStatusDto dto) {
+    return WallStatusInfo(
+      running: dto.running,
+      backend: dto.backend,
+      fps: dto.fps,
+      encodedFrames: dto.encodedFrames.toInt(),
+      decodedFrames: dto.decodedFrames.toInt(),
+      droppedFrames: dto.droppedFrames.toInt(),
+      width: dto.width,
+      height: dto.height,
+      latencyUs: dto.latencyUs.toInt(),
+      latestPtsUs: dto.latestPtsUs.toInt(),
+      lastError: dto.lastError,
+    );
+  }
+
   /// 断言桥接已初始化。
   ///
   /// 抛出：[StateError] 当调用方在 init 之前发起命令（属编程错误，应在 main 中避免）。

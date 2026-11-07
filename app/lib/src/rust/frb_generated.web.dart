@@ -27,10 +27,49 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String dco_decode_String(dynamic raw);
 
   @protected
+  bool dco_decode_bool(dynamic raw);
+
+  @protected
+  SettingsDto dco_decode_box_autoadd_settings_dto(dynamic raw);
+
+  @protected
+  WallPreviewDto dco_decode_box_autoadd_wall_preview_dto(dynamic raw);
+
+  @protected
+  DeviceDto dco_decode_device_dto(dynamic raw);
+
+  @protected
+  DeviceListDto dco_decode_device_list_dto(dynamic raw);
+
+  @protected
+  double dco_decode_f_64(dynamic raw);
+
+  @protected
   List<String> dco_decode_list_String(dynamic raw);
 
   @protected
+  List<DeviceDto> dco_decode_list_device_dto(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
+
+  @protected
+  String? dco_decode_opt_String(dynamic raw);
+
+  @protected
+  WallPreviewDto? dco_decode_opt_box_autoadd_wall_preview_dto(dynamic raw);
+
+  @protected
+  RoleInfoDto dco_decode_role_info_dto(dynamic raw);
+
+  @protected
+  SettingsDto dco_decode_settings_dto(dynamic raw);
+
+  @protected
+  int dco_decode_u_32(dynamic raw);
+
+  @protected
+  BigInt dco_decode_u_64(dynamic raw);
 
   @protected
   int dco_decode_u_8(dynamic raw);
@@ -39,13 +78,62 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void dco_decode_unit(dynamic raw);
 
   @protected
+  WallPreviewDto dco_decode_wall_preview_dto(dynamic raw);
+
+  @protected
+  WallStatusDto dco_decode_wall_status_dto(dynamic raw);
+
+  @protected
   String sse_decode_String(SseDeserializer deserializer);
+
+  @protected
+  bool sse_decode_bool(SseDeserializer deserializer);
+
+  @protected
+  SettingsDto sse_decode_box_autoadd_settings_dto(SseDeserializer deserializer);
+
+  @protected
+  WallPreviewDto sse_decode_box_autoadd_wall_preview_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  DeviceDto sse_decode_device_dto(SseDeserializer deserializer);
+
+  @protected
+  DeviceListDto sse_decode_device_list_dto(SseDeserializer deserializer);
+
+  @protected
+  double sse_decode_f_64(SseDeserializer deserializer);
 
   @protected
   List<String> sse_decode_list_String(SseDeserializer deserializer);
 
   @protected
+  List<DeviceDto> sse_decode_list_device_dto(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
+
+  @protected
+  String? sse_decode_opt_String(SseDeserializer deserializer);
+
+  @protected
+  WallPreviewDto? sse_decode_opt_box_autoadd_wall_preview_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  RoleInfoDto sse_decode_role_info_dto(SseDeserializer deserializer);
+
+  @protected
+  SettingsDto sse_decode_settings_dto(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_u_32(SseDeserializer deserializer);
+
+  @protected
+  BigInt sse_decode_u_64(SseDeserializer deserializer);
 
   @protected
   int sse_decode_u_8(SseDeserializer deserializer);
@@ -54,16 +142,49 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_decode_unit(SseDeserializer deserializer);
 
   @protected
-  int sse_decode_i_32(SseDeserializer deserializer);
+  WallPreviewDto sse_decode_wall_preview_dto(SseDeserializer deserializer);
 
   @protected
-  bool sse_decode_bool(SseDeserializer deserializer);
+  WallStatusDto sse_decode_wall_status_dto(SseDeserializer deserializer);
+
+  @protected
+  int sse_decode_i_32(SseDeserializer deserializer);
 
   @protected
   void sse_encode_String(String self, SseSerializer serializer);
 
   @protected
+  void sse_encode_bool(bool self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_box_autoadd_settings_dto(
+    SettingsDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_wall_preview_dto(
+    WallPreviewDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_device_dto(DeviceDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_device_list_dto(DeviceListDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_f_64(double self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_String(List<String> self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_list_device_dto(
+    List<DeviceDto> self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_list_prim_u_8_strict(
@@ -72,16 +193,43 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_wall_preview_dto(
+    WallPreviewDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_role_info_dto(RoleInfoDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_settings_dto(SettingsDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_32(int self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_u_64(BigInt self, SseSerializer serializer);
+
+  @protected
   void sse_encode_u_8(int self, SseSerializer serializer);
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
 
   @protected
-  void sse_encode_i_32(int self, SseSerializer serializer);
+  void sse_encode_wall_preview_dto(
+    WallPreviewDto self,
+    SseSerializer serializer,
+  );
 
   @protected
-  void sse_encode_bool(bool self, SseSerializer serializer);
+  void sse_encode_wall_status_dto(WallStatusDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_i_32(int self, SseSerializer serializer);
 }
 
 // Section: wire_class

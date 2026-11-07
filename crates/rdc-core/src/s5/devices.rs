@@ -263,6 +263,31 @@ impl DeviceList {
         }
     }
 
+    /// 修改显示名（本地别名），不刷新最后在线时间。
+    ///
+    /// # Arguments
+    /// * `device_id` - 设备标识
+    /// * `name` - 新显示名；空串视为非法，直接返回 `false`
+    ///
+    /// # Returns
+    /// 设备存在且名称非空时返回 `true`。
+    ///
+    /// # Errors
+    /// 不会失败。
+    pub fn set_name(&mut self, device_id: &str, name: &str) -> bool {
+        let name = name.trim();
+        if name.is_empty() {
+            return false;
+        }
+        match self.devices.get_mut(device_id) {
+            Some(record) => {
+                record.name = name.to_owned();
+                true
+            }
+            None => false,
+        }
+    }
+
     /// 设置信任位。
     ///
     /// # Arguments

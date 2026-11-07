@@ -7,6 +7,9 @@ import 'frb_generated.dart';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+// These functions are ignored because they are not marked as `pub`: `config_dir`, `device_path`, `from_settings_dto`, `parse_role`, `settings_path`, `to_device_dto`, `to_settings_dto`, `to_wall_status`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+
 /// 返回 Rust 核心版本号。
 ///
 /// # Returns
@@ -43,3 +46,565 @@ Future<String> bridgeStatus() => RustLib.instance.api.crateApiBridgeStatus();
 /// 不会失败；单项失败以文本标注，不抛错。
 Future<List<String>> doctorReport() =>
     RustLib.instance.api.crateApiDoctorReport();
+
+/// 读取设备列表。
+///
+/// # Returns
+/// 设备条目与文件路径；文件不存在时返回空列表。
+///
+/// # Errors
+/// 文件损坏或版本超前时返回错误文本。
+Future<DeviceListDto> devicesLoad() =>
+    RustLib.instance.api.crateApiDevicesLoad();
+
+/// 保存整份设备列表（用于导入/恢复）。
+///
+/// # Arguments
+/// * `devices` - 完整设备条目
+///
+/// # Returns
+/// 保存后的列表快照。
+///
+/// # Errors
+/// 原子写失败时返回错误文本。
+Future<DeviceListDto> devicesSave({required List<DeviceDto> devices}) =>
+    RustLib.instance.api.crateApiDevicesSave(devices: devices);
+
+/// 新增设备（以「刚上线」写入，最后在线时间取当前时刻）。
+///
+/// # Arguments
+/// * `device_id` - 设备标识
+/// * `name` - 显示名
+/// * `trusted` - 是否信任
+///
+/// # Returns
+/// 更新后的列表快照。
+///
+/// # Errors
+/// 读写失败时返回错误文本。
+Future<DeviceListDto> deviceAdd({
+  required String deviceId,
+  required String name,
+  required bool trusted,
+}) => RustLib.instance.api.crateApiDeviceAdd(
+  deviceId: deviceId,
+  name: name,
+  trusted: trusted,
+);
+
+/// 更新设备名称与信任/同账号标记（不刷新最后在线时间）。
+///
+/// # Arguments
+/// * `device_id` - 设备标识
+/// * `name` - 新显示名
+/// * `trusted` - 是否信任
+/// * `same_account` - 同账号字段
+///
+/// # Returns
+/// 更新后的列表快照。
+///
+/// # Errors
+/// 设备不存在或读写失败时返回错误文本。
+Future<DeviceListDto> deviceUpdate({
+  required String deviceId,
+  required String name,
+  required bool trusted,
+  required bool sameAccount,
+}) => RustLib.instance.api.crateApiDeviceUpdate(
+  deviceId: deviceId,
+  name: name,
+  trusted: trusted,
+  sameAccount: sameAccount,
+);
+
+/// 删除设备。
+///
+/// # Arguments
+/// * `device_id` - 设备标识
+///
+/// # Returns
+/// 删除后的列表快照。
+///
+/// # Errors
+/// 读写失败时返回错误文本（设备不存在视为已删除，不报错）。
+Future<DeviceListDto> deviceRemove({required String deviceId}) =>
+    RustLib.instance.api.crateApiDeviceRemove(deviceId: deviceId);
+
+/// 读取设置。
+///
+/// # Returns
+/// 设置快照；文件缺失时返回安全默认值。
+///
+/// # Errors
+/// 文件损坏或版本超前时返回错误文本。
+Future<SettingsDto> settingsLoad() =>
+    RustLib.instance.api.crateApiSettingsLoad();
+
+/// 原子保存设置。
+///
+/// # Arguments
+/// * `settings` - 完整设置快照
+///
+/// # Returns
+/// 保存后的设置（已净化）。
+///
+/// # Errors
+/// 写入失败时返回错误文本。
+Future<SettingsDto> settingsSave({required SettingsDto settings}) =>
+    RustLib.instance.api.crateApiSettingsSave(settings: settings);
+
+/// 查询角色权限。
+///
+/// # Arguments
+/// * `role` - `viewer` 或 `controller`
+///
+/// # Returns
+/// 角色、可注入输入、可看墙三项。
+///
+/// # Errors
+/// 不会失败。
+Future<RoleInfoDto> roleInfo({required String role}) =>
+    RustLib.instance.api.crateApiRoleInfo(role: role);
+
+/// 判定某角色能否注入输入（授权模块的唯一入口）。
+///
+/// # Arguments
+/// * `role` - `viewer` 或 `controller`
+///
+/// # Returns
+/// 允许返回 `true`；观看者恒为 `false`。
+///
+/// # Errors
+/// 不会失败。
+Future<bool> inputAllowed({required String role}) =>
+    RustLib.instance.api.crateApiInputAllowed(role: role);
+
+/// 屏幕墙所需的能力位掩码。
+///
+/// # Returns
+/// bit7 子码流 + bit10 多会话 + bit11 屏幕墙 的组合值。
+///
+/// # Errors
+/// 不会失败。
+Future<BigInt> wallCapabilityBits() =>
+    RustLib.instance.api.crateApiWallCapabilityBits();
+
+/// 启动本机回环屏幕墙预览（1 路真实缩略流）。
+///
+/// # Returns
+/// 启动后的状态。
+///
+/// # Errors
+/// 编码器/解码器创建失败时返回错误文本。
+Future<WallStatusDto> wallStart() => RustLib.instance.api.crateApiWallStart();
+
+/// 停止预览并等待线程退出。
+///
+/// # Returns
+/// 停止后的状态。
+///
+/// # Errors
+/// 内部锁异常时返回错误文本。
+Future<WallStatusDto> wallStop() => RustLib.instance.api.crateApiWallStop();
+
+/// 读取预览状态。
+///
+/// # Returns
+/// 状态快照。
+///
+/// # Errors
+/// 内部锁异常时返回错误文本。
+Future<WallStatusDto> wallStatus() => RustLib.instance.api.crateApiWallStatus();
+
+/// 读取最新预览帧。
+///
+/// # Returns
+/// 尚无帧时返回 `None`。
+///
+/// # Errors
+/// 内部锁异常时返回错误文本。
+Future<WallPreviewDto?> wallLatest() =>
+    RustLib.instance.api.crateApiWallLatest();
+
+/// 设备条目（跨 FFI 的可复制快照）。
+class DeviceDto {
+  /// 设备标识。
+  final String deviceId;
+
+  /// 显示名。
+  final String name;
+
+  /// 最后在线时间（Unix 毫秒，0 表示从未在线）。
+  final BigInt lastOnlineMs;
+
+  /// 是否信任设备。
+  final bool trusted;
+
+  /// 是否同账号（S5-2 只存字段，不做身份判定）。
+  final bool sameAccount;
+
+  const DeviceDto({
+    required this.deviceId,
+    required this.name,
+    required this.lastOnlineMs,
+    required this.trusted,
+    required this.sameAccount,
+  });
+
+  @override
+  int get hashCode =>
+      deviceId.hashCode ^
+      name.hashCode ^
+      lastOnlineMs.hashCode ^
+      trusted.hashCode ^
+      sameAccount.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DeviceDto &&
+          runtimeType == other.runtimeType &&
+          deviceId == other.deviceId &&
+          name == other.name &&
+          lastOnlineMs == other.lastOnlineMs &&
+          trusted == other.trusted &&
+          sameAccount == other.sameAccount;
+}
+
+/// 设备列表快照。
+class DeviceListDto {
+  /// 设备条目，按设备 ID 升序。
+  final List<DeviceDto> devices;
+
+  /// 实际落盘路径（页面用于展示与排障）。
+  final String path;
+
+  const DeviceListDto({required this.devices, required this.path});
+
+  @override
+  int get hashCode => devices.hashCode ^ path.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is DeviceListDto &&
+          runtimeType == other.runtimeType &&
+          devices == other.devices &&
+          path == other.path;
+}
+
+/// 会话角色信息。
+class RoleInfoDto {
+  /// 角色字符串：`viewer` / `controller`。
+  final String role;
+
+  /// 是否可注入输入。
+  final bool canInjectInput;
+
+  /// 是否可拉屏幕墙子码流。
+  final bool canViewWall;
+
+  const RoleInfoDto({
+    required this.role,
+    required this.canInjectInput,
+    required this.canViewWall,
+  });
+
+  @override
+  int get hashCode =>
+      role.hashCode ^ canInjectInput.hashCode ^ canViewWall.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RoleInfoDto &&
+          runtimeType == other.runtimeType &&
+          role == other.role &&
+          canInjectInput == other.canInjectInput &&
+          canViewWall == other.canViewWall;
+}
+
+/// 设置快照（字段名与 Dart `AppSettings` 一致）。
+class SettingsDto {
+  /// 是否允许中继。
+  final bool allowRelay;
+
+  /// 中继地址。
+  final String relayAddress;
+
+  /// 打洞失败策略。
+  final String connectionPolicy;
+
+  /// 屏幕方向策略。
+  final String orientation;
+
+  /// 文件带宽占比。
+  final double fileBandwidthRatio;
+
+  /// 主码流宽。
+  final int videoWidth;
+
+  /// 主码流高。
+  final int videoHeight;
+
+  /// 主码流帧率。
+  final int videoFps;
+
+  /// 主码流码率（Mbps）。
+  final double videoBitrateMbps;
+
+  /// 断线自动重连。
+  final bool autoReconnect;
+
+  /// 允许远程访问本机。
+  final bool remoteAccessEnabled;
+
+  /// 并发模式。
+  final String concurrentMode;
+
+  /// 接管策略。
+  final String takeoverPolicy;
+
+  /// 本机确认超时（秒）。
+  final int takeoverTimeoutS;
+
+  /// 权限模板。
+  final String permissionTemplate;
+
+  /// 权限位图。
+  final int permissionBits;
+
+  /// 本机常驻提示。
+  final bool localNotice;
+
+  /// 审计保留天数。
+  final int auditRetentionDays;
+
+  /// 本地配对策略。
+  final String localPairPolicy;
+
+  /// 同账号配对策略。
+  final String sameAccountPolicy;
+
+  /// 免密策略。
+  final bool passwordlessPolicy;
+
+  /// 实际落盘路径。
+  final String path;
+
+  const SettingsDto({
+    required this.allowRelay,
+    required this.relayAddress,
+    required this.connectionPolicy,
+    required this.orientation,
+    required this.fileBandwidthRatio,
+    required this.videoWidth,
+    required this.videoHeight,
+    required this.videoFps,
+    required this.videoBitrateMbps,
+    required this.autoReconnect,
+    required this.remoteAccessEnabled,
+    required this.concurrentMode,
+    required this.takeoverPolicy,
+    required this.takeoverTimeoutS,
+    required this.permissionTemplate,
+    required this.permissionBits,
+    required this.localNotice,
+    required this.auditRetentionDays,
+    required this.localPairPolicy,
+    required this.sameAccountPolicy,
+    required this.passwordlessPolicy,
+    required this.path,
+  });
+
+  @override
+  int get hashCode =>
+      allowRelay.hashCode ^
+      relayAddress.hashCode ^
+      connectionPolicy.hashCode ^
+      orientation.hashCode ^
+      fileBandwidthRatio.hashCode ^
+      videoWidth.hashCode ^
+      videoHeight.hashCode ^
+      videoFps.hashCode ^
+      videoBitrateMbps.hashCode ^
+      autoReconnect.hashCode ^
+      remoteAccessEnabled.hashCode ^
+      concurrentMode.hashCode ^
+      takeoverPolicy.hashCode ^
+      takeoverTimeoutS.hashCode ^
+      permissionTemplate.hashCode ^
+      permissionBits.hashCode ^
+      localNotice.hashCode ^
+      auditRetentionDays.hashCode ^
+      localPairPolicy.hashCode ^
+      sameAccountPolicy.hashCode ^
+      passwordlessPolicy.hashCode ^
+      path.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is SettingsDto &&
+          runtimeType == other.runtimeType &&
+          allowRelay == other.allowRelay &&
+          relayAddress == other.relayAddress &&
+          connectionPolicy == other.connectionPolicy &&
+          orientation == other.orientation &&
+          fileBandwidthRatio == other.fileBandwidthRatio &&
+          videoWidth == other.videoWidth &&
+          videoHeight == other.videoHeight &&
+          videoFps == other.videoFps &&
+          videoBitrateMbps == other.videoBitrateMbps &&
+          autoReconnect == other.autoReconnect &&
+          remoteAccessEnabled == other.remoteAccessEnabled &&
+          concurrentMode == other.concurrentMode &&
+          takeoverPolicy == other.takeoverPolicy &&
+          takeoverTimeoutS == other.takeoverTimeoutS &&
+          permissionTemplate == other.permissionTemplate &&
+          permissionBits == other.permissionBits &&
+          localNotice == other.localNotice &&
+          auditRetentionDays == other.auditRetentionDays &&
+          localPairPolicy == other.localPairPolicy &&
+          sameAccountPolicy == other.sameAccountPolicy &&
+          passwordlessPolicy == other.passwordlessPolicy &&
+          path == other.path;
+}
+
+/// 一帧预览。
+class WallPreviewDto {
+  /// 流编号。
+  final int streamId;
+
+  /// 帧号。
+  final int frameId;
+
+  /// 帧时间戳（微秒）。
+  final BigInt ptsUs;
+
+  /// 宽。
+  final int width;
+
+  /// 高。
+  final int height;
+
+  /// 端到端延迟（微秒）。
+  final BigInt latencyUs;
+
+  /// RGBA 像素。
+  final Uint8List bytes;
+
+  const WallPreviewDto({
+    required this.streamId,
+    required this.frameId,
+    required this.ptsUs,
+    required this.width,
+    required this.height,
+    required this.latencyUs,
+    required this.bytes,
+  });
+
+  @override
+  int get hashCode =>
+      streamId.hashCode ^
+      frameId.hashCode ^
+      ptsUs.hashCode ^
+      width.hashCode ^
+      height.hashCode ^
+      latencyUs.hashCode ^
+      bytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WallPreviewDto &&
+          runtimeType == other.runtimeType &&
+          streamId == other.streamId &&
+          frameId == other.frameId &&
+          ptsUs == other.ptsUs &&
+          width == other.width &&
+          height == other.height &&
+          latencyUs == other.latencyUs &&
+          bytes == other.bytes;
+}
+
+/// 屏幕墙服务状态。
+class WallStatusDto {
+  /// 是否运行。
+  final bool running;
+
+  /// 缩略编码器后端。
+  final String backend;
+
+  /// 实测帧率（1 秒窗口）。
+  final double fps;
+
+  /// 已编码帧数。
+  final BigInt encodedFrames;
+
+  /// 已解码帧数。
+  final BigInt decodedFrames;
+
+  /// 重组丢弃帧数。
+  final BigInt droppedFrames;
+
+  /// 预览宽。
+  final int width;
+
+  /// 预览高。
+  final int height;
+
+  /// 最近端到端延迟（微秒）。
+  final BigInt latencyUs;
+
+  /// 最近帧时间戳（微秒）。
+  final BigInt latestPtsUs;
+
+  /// 最近错误。
+  final String? lastError;
+
+  const WallStatusDto({
+    required this.running,
+    required this.backend,
+    required this.fps,
+    required this.encodedFrames,
+    required this.decodedFrames,
+    required this.droppedFrames,
+    required this.width,
+    required this.height,
+    required this.latencyUs,
+    required this.latestPtsUs,
+    this.lastError,
+  });
+
+  @override
+  int get hashCode =>
+      running.hashCode ^
+      backend.hashCode ^
+      fps.hashCode ^
+      encodedFrames.hashCode ^
+      decodedFrames.hashCode ^
+      droppedFrames.hashCode ^
+      width.hashCode ^
+      height.hashCode ^
+      latencyUs.hashCode ^
+      latestPtsUs.hashCode ^
+      lastError.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WallStatusDto &&
+          runtimeType == other.runtimeType &&
+          running == other.running &&
+          backend == other.backend &&
+          fps == other.fps &&
+          encodedFrames == other.encodedFrames &&
+          decodedFrames == other.decodedFrames &&
+          droppedFrames == other.droppedFrames &&
+          width == other.width &&
+          height == other.height &&
+          latencyUs == other.latencyUs &&
+          latestPtsUs == other.latestPtsUs &&
+          lastError == other.lastError;
+}
