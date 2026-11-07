@@ -713,6 +713,9 @@ class WallStatusDto {
   /// 缩略编码器后端。
   final String backend;
 
+  /// 采集后端（如 `dxgi-desktop-duplication`）。
+  final String captureBackend;
+
   /// 实测帧率（1 秒窗口）。
   final double fps;
 
@@ -743,6 +746,7 @@ class WallStatusDto {
   const WallStatusDto({
     required this.running,
     required this.backend,
+    required this.captureBackend,
     required this.fps,
     required this.encodedFrames,
     required this.decodedFrames,
@@ -758,6 +762,7 @@ class WallStatusDto {
   int get hashCode =>
       running.hashCode ^
       backend.hashCode ^
+      captureBackend.hashCode ^
       fps.hashCode ^
       encodedFrames.hashCode ^
       decodedFrames.hashCode ^
@@ -775,6 +780,7 @@ class WallStatusDto {
           runtimeType == other.runtimeType &&
           running == other.running &&
           backend == other.backend &&
+          captureBackend == other.captureBackend &&
           fps == other.fps &&
           encodedFrames == other.encodedFrames &&
           decodedFrames == other.decodedFrames &&

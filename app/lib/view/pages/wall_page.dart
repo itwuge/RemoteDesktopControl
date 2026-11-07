@@ -289,8 +289,9 @@ class _WallPageState extends State<WallPage> {
             builder: (context, status, _) {
               if (status == null) return const SizedBox.shrink();
               return Text(
-                '后端 ${status.backend} · 编码 ${status.encodedFrames} 帧 · '
-                '解码 ${status.decodedFrames} 帧 · 丢弃 ${status.droppedFrames}',
+                '采集 ${status.captureBackend} · 编码 ${status.backend} · '
+                '${status.encodedFrames} 帧 · 解码 ${status.decodedFrames} 帧 · '
+                '丢弃 ${status.droppedFrames}',
                 style: const TextStyle(
                   fontSize: RdcTokens.fontCaption,
                   color: RdcTokens.textMuted,

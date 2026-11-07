@@ -948,20 +948,21 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   WallStatusDto dco_decode_wall_status_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 11)
-      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    if (arr.length != 12)
+      throw Exception('unexpected arr length: expect 12 but see ${arr.length}');
     return WallStatusDto(
       running: dco_decode_bool(arr[0]),
       backend: dco_decode_String(arr[1]),
-      fps: dco_decode_f_64(arr[2]),
-      encodedFrames: dco_decode_u_64(arr[3]),
-      decodedFrames: dco_decode_u_64(arr[4]),
-      droppedFrames: dco_decode_u_64(arr[5]),
-      width: dco_decode_u_32(arr[6]),
-      height: dco_decode_u_32(arr[7]),
-      latencyUs: dco_decode_u_64(arr[8]),
-      latestPtsUs: dco_decode_u_64(arr[9]),
-      lastError: dco_decode_opt_String(arr[10]),
+      captureBackend: dco_decode_String(arr[2]),
+      fps: dco_decode_f_64(arr[3]),
+      encodedFrames: dco_decode_u_64(arr[4]),
+      decodedFrames: dco_decode_u_64(arr[5]),
+      droppedFrames: dco_decode_u_64(arr[6]),
+      width: dco_decode_u_32(arr[7]),
+      height: dco_decode_u_32(arr[8]),
+      latencyUs: dco_decode_u_64(arr[9]),
+      latestPtsUs: dco_decode_u_64(arr[10]),
+      lastError: dco_decode_opt_String(arr[11]),
     );
   }
 
@@ -1250,6 +1251,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_running = sse_decode_bool(deserializer);
     var var_backend = sse_decode_String(deserializer);
+    var var_captureBackend = sse_decode_String(deserializer);
     var var_fps = sse_decode_f_64(deserializer);
     var var_encodedFrames = sse_decode_u_64(deserializer);
     var var_decodedFrames = sse_decode_u_64(deserializer);
@@ -1262,6 +1264,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     return WallStatusDto(
       running: var_running,
       backend: var_backend,
+      captureBackend: var_captureBackend,
       fps: var_fps,
       encodedFrames: var_encodedFrames,
       decodedFrames: var_decodedFrames,
@@ -1507,6 +1510,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     // Codec=Sse (Serialization based), see doc to use other codecs
     sse_encode_bool(self.running, serializer);
     sse_encode_String(self.backend, serializer);
+    sse_encode_String(self.captureBackend, serializer);
     sse_encode_f_64(self.fps, serializer);
     sse_encode_u_64(self.encodedFrames, serializer);
     sse_encode_u_64(self.decodedFrames, serializer);

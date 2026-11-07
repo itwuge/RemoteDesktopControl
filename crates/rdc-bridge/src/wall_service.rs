@@ -1,23 +1,25 @@
 //! rdc-bridge / 屏幕墙预览服务
 //!
 //! 层级：L4 桥接层
-//! 用途：在应用进程内跑通 S5-1 的缩略子码流管线（合成采集源 → 共享缩略图编码器 →
-//!       帧头/分片 → 严格顺序重组 → H.264 解码 → NV12 转 RGBA），把「最新预览帧」
-//!       以可跨 FFI 复制的字节 + 时间戳暴露给 Flutter 屏幕墙。
+//! 用途：在应用进程内跑通 S5-1 的缩略子码流管线（真实桌面采集 → 缩放 → 共享缩略图
+//!       编码器 → 帧头/分片 → 严格顺序重组 → H.264 解码 → NV12 转 RGBA），把
+//!       「最新预览帧」以可跨 FFI 复制的字节 + 时间戳暴露给 Flutter 屏幕墙。
 //! 调用方：rdc-bridge 的 `wall_start` / `wall_latest` / `wall_status` / `wall_stop`。
 //!
 //! 范围说明（必须如实写出）：
-//! - 采集源是**进程内合成画面**（与 `demo-wall` 同源），真实屏幕采集与跨机 QUIC 会话
-//!   尚未接入；页面标注「本机回环预览」并记入 `docs/决策待办.md`。
-//! - 单路流（stream 1）已跑通；多路预览复用同一编码器，接口按「N 个会话」设计，
-//!   但当前只返回 1 路真实帧，其余宫格显示空状态而不是假数据。
+//! - 采集源是本机 **DXGI 桌面复制**（`rdc-capture`），按 10 fps 采集后最近邻缩放到
+//!   848x480 再进缩略编码器；不再使用合成测试图。
+//! - 跨机 QUIC 会话尚未接入：第 1 宫格是本机真实桌面，其余宫格显示空状态而不是假数据。
 //! - 不创建额外编码实例：全进程 1 个缩略图编码器 + 1 个解码器，与 S5-1 的选项 B 一致。
+//! - 采集会话有线程亲和性，采集源在管线线程内创建/启动/停止。
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{sync_channel, SyncSender, TryRecvError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use rdc_capture::{create_source, CaptureConfig, ChromaFormat, Frame, FrameSink};
 use rdc_core::s5::wall::{
     decode_message, encode_message, ThumbnailEncoder, WallFrame, WallMessage, WallReceiver,
     WALL_BITRATE_BPS, WALL_FPS, WALL_HEIGHT, WALL_WIDTH,
@@ -25,10 +27,10 @@ use rdc_core::s5::wall::{
 
 // =====** 常量 =====**
 
-/// 合成采集源宽（比 480p 大，模拟主码流分辨率，再缩放给缩略编码器）。
-const SOURCE_WIDTH: u32 = 1280;
-/// 合成采集源高。
-const SOURCE_HEIGHT: u32 = 720;
+/// 采集帧率：与缩略流编码帧率一致，避免为缩略预览占用 60Hz 的桌面采集。
+const CAPTURE_FPS: u32 = WALL_FPS;
+/// 采集 → 消费通道容量（帧）；满即丢，绝不在采集线程上阻塞。
+const CAPTURE_CHANNEL_CAP: usize = 2;
 /// 预览输出宽（解码后按 2:1 抽样，降低 FFI 拷贝量）。
 const PREVIEW_WIDTH: u32 = WALL_WIDTH / 2;
 /// 预览输出高。
@@ -66,6 +68,8 @@ pub struct WallSnapshot {
     pub running: bool,
     /// 缩略编码器后端名。
     pub backend: String,
+    /// 采集后端名（如 `dxgi-desktop-duplication`）。
+    pub capture_backend: String,
     /// 实际帧率（1 秒滑动窗口）。
     pub fps: f64,
     /// 已编码帧数。
@@ -91,6 +95,7 @@ impl Default for WallSnapshot {
         Self {
             running: false,
             backend: String::new(),
+            capture_backend: String::new(),
             fps: 0.0,
             encoded_frames: 0,
             decoded_frames: 0,
@@ -260,9 +265,49 @@ pub fn latest() -> Result<Option<PreviewFrame>, String> {
     Ok(frame)
 }
 
+// =====** 采集接收 =====**
+
+/// 采集回调：把帧连同到达时刻一起投进有界通道，绝不阻塞采集线程。
+struct WallSink {
+    /// 有界发送端。
+    tx: SyncSender<(Frame, u64)>,
+    /// 进程内单调时钟基准。
+    origin: Instant,
+}
+
+impl FrameSink for WallSink {
+    fn on_frame(&self, frame: Frame) {
+        let pts_us = self.origin.elapsed().as_micros() as u64;
+        let _ = self.tx.try_send((frame, pts_us));
+    }
+}
+
+/// 把任意尺寸 BGRA 帧按最近邻缩放到缩略尺寸的 RGBA 紧凑缓冲。
+fn scale_bgra_to_rgba(src: &[u8], sw: u32, sh: u32, dst: &mut [u8], dw: u32, dh: u32) {
+    if sw == 0 || sh == 0 {
+        return;
+    }
+    let source_row_bytes = sw as usize * 4;
+    let target_row_bytes = dw as usize * 4;
+    for dy in 0..dh as usize {
+        let sy = (dy * sh as usize / dh as usize).min(sh as usize - 1);
+        let src_row = sy * source_row_bytes;
+        let dst_row = dy * target_row_bytes;
+        for dx in 0..dw as usize {
+            let sx = (dx * sw as usize / dw as usize).min(sw as usize - 1);
+            let si = src_row + sx * 4;
+            let di = dst_row + dx * 4;
+            dst[di] = src[si + 2];
+            dst[di + 1] = src[si + 1];
+            dst[di + 2] = src[si];
+            dst[di + 3] = 255;
+        }
+    }
+}
+
 // =====** 管线 =====**
 
-/// 工作线程主体：编码 → 分片 → 重组 → 解码 → RGBA。
+/// 工作线程主体：真实采集 → 缩放 → 编码 → 分片 → 重组 → 解码 → RGBA。
 fn run_pipeline(
     stop: Arc<AtomicBool>,
     snapshot: Arc<Mutex<WallSnapshot>>,
@@ -275,14 +320,38 @@ fn run_pipeline(
     let backend = thumbnail.backend_name().to_owned();
     let mut decoder = open_decoder()?;
     let mut receiver = WallReceiver::new(STREAM_ID);
-    let mut source = vec![0u8; SOURCE_WIDTH as usize * SOURCE_HEIGHT as usize * 4];
-    let rows = pattern_rows(SOURCE_WIDTH);
+
+    // 采集会话有线程亲和性：源在本线程创建、启动，线程退出时随之释放。
+    let mut capture = create_source().map_err(|error| format!("采集源创建失败：{error}"))?;
+    let displays = capture.enumerate();
+    let display = displays
+        .iter()
+        .find(|item| item.is_primary)
+        .or_else(|| displays.first())
+        .ok_or_else(|| "未找到可采集显示器".to_owned())?;
+    let display_id = display.id;
+    let (sender, sampler) = sync_channel::<(Frame, u64)>(CAPTURE_CHANNEL_CAP);
+    capture.set_sink(Arc::new(WallSink { tx: sender, origin }));
+    capture
+        .start(CaptureConfig {
+            display_id,
+            target_fps: CAPTURE_FPS,
+            include_cursor: true,
+            chroma: ChromaFormat::Bgra,
+            bit_depth: 8,
+        })
+        .map_err(|error| format!("采集启动失败：{error}"))?;
+    // 后端名在 start 之后才落定（dxgi 优先，gdi 兜底）。
+    let capture_backend = capture.backend_name().to_owned();
+
+    let mut source = vec![0u8; WALL_WIDTH as usize * WALL_HEIGHT as usize * 4];
     if let Ok(mut guard) = snapshot.lock() {
         guard.backend = backend;
+        guard.capture_backend = capture_backend;
+        guard.running = true;
     }
 
     let mut frame_id = 0u32;
-    let mut tick = 0u32;
     let mut encoded = 0u64;
     let mut decoded_count = 0u64;
     let mut dropped = 0u64;
@@ -292,12 +361,31 @@ fn run_pipeline(
 
     while !stop.load(Ordering::Relaxed) {
         let tick_start = Instant::now();
-        paint_frame(&mut source, SOURCE_WIDTH, SOURCE_HEIGHT, tick, &rows);
-        tick = tick.wrapping_add(1);
-        let pts_us = origin.elapsed().as_micros() as u64;
-        let packets = thumbnail
-            .encode(&source, SOURCE_WIDTH, SOURCE_HEIGHT, pts_us * 1000)
-            .map_err(|error| format!("缩略编码失败：{error}"))?;
+        // 预览只要最新一帧：把通道里的积压读空，避免延迟随队列增长。
+        let mut sample: Option<(Frame, u64)> = None;
+        loop {
+            match sampler.try_recv() {
+                Ok(next) => sample = Some(next),
+                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
+            }
+        }
+        let Some((frame, pts_us)) = sample else {
+            std::thread::sleep(TICK);
+            continue;
+        };
+        let packets = {
+            scale_bgra_to_rgba(
+                frame.buffer.as_slice(),
+                frame.width,
+                frame.height,
+                &mut source,
+                WALL_WIDTH,
+                WALL_HEIGHT,
+            );
+            thumbnail
+                .encode(&source, WALL_WIDTH, WALL_HEIGHT, pts_us * 1000)
+                .map_err(|error| format!("缩略编码失败：{error}"))?
+        };
         for packet in packets {
             frame_id = frame_id.wrapping_add(1);
             encoded += 1;
@@ -363,7 +451,8 @@ fn run_pipeline(
         }
     }
 
-    // 退出前冲刷编码器，避免残留帧；解码器随线程释放。
+    // 退出前停采集并冲刷编码器，避免残留帧；解码器随线程释放。
+    capture.stop();
     let _ = thumbnail.flush();
     let _ = decoder.flush();
     Ok(())
@@ -486,33 +575,3 @@ fn nv12_to_rgba_half(_frame: &()) -> (u32, u32, Vec<u8>) {
     (PREVIEW_WIDTH, PREVIEW_HEIGHT, Vec::new())
 }
 
-// =====** 合成画面 =====**
-
-/// 生成两条预制行（深浅棋盘格）。
-fn pattern_rows(width: u32) -> [Vec<u8>; 2] {
-    let dark = [28u8, 36, 52, 255];
-    let light = [60u8, 120, 200, 255];
-    let mut rows = [vec![0u8; width as usize * 4], vec![0u8; width as usize * 4]];
-    for (index, color) in [dark, light].into_iter().enumerate() {
-        for px in rows[index].chunks_exact_mut(4) {
-            px.copy_from_slice(&color);
-        }
-    }
-    rows
-}
-
-/// 画一帧动态图案：整行拷贝 + 一条移动亮带。
-fn paint_frame(buf: &mut [u8], width: u32, height: u32, tick: u32, rows: &[Vec<u8>; 2]) {
-    let stride = width as usize * 4;
-    for y in 0..height as usize {
-        let band = (((y as u32 / 64) + tick) % 2) as usize;
-        buf[y * stride..(y + 1) * stride].copy_from_slice(&rows[band]);
-    }
-    let bar = 96usize;
-    let span = (width as usize - bar).max(1);
-    let x0 = (tick as usize * 24) % span;
-    for y in 0..height as usize {
-        let offset = y * stride + x0 * 4;
-        buf[offset..offset + bar * 4].fill(0xFF);
-    }
-}

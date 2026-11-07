@@ -329,6 +329,7 @@ class RustGateway {
     return WallStatusInfo(
       running: dto.running,
       backend: dto.backend,
+      captureBackend: dto.captureBackend,
       fps: dto.fps,
       encodedFrames: dto.encodedFrames.toInt(),
       decodedFrames: dto.decodedFrames.toInt(),

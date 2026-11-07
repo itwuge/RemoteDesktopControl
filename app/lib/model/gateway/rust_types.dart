@@ -99,6 +99,7 @@ class WallStatusInfo {
   const WallStatusInfo({
     required this.running,
     required this.backend,
+    required this.captureBackend,
     required this.fps,
     required this.encodedFrames,
     required this.decodedFrames,
@@ -115,6 +116,9 @@ class WallStatusInfo {
 
   /// 编码器后端名。
   final String backend;
+
+  /// 采集后端名（如 `dxgi-desktop-duplication`）。
+  final String captureBackend;
 
   /// 实测帧率。
   final double fps;

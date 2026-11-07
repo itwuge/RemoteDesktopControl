@@ -460,6 +460,8 @@ pub struct WallStatusDto {
     pub running: bool,
     /// 缩略编码器后端。
     pub backend: String,
+    /// 采集后端（如 `dxgi-desktop-duplication`）。
+    pub capture_backend: String,
     /// 实测帧率（1 秒窗口）。
     pub fps: f64,
     /// 已编码帧数。
@@ -558,6 +560,7 @@ fn to_wall_status(snapshot: wall_service::WallSnapshot) -> WallStatusDto {
     WallStatusDto {
         running: snapshot.running,
         backend: snapshot.backend,
+        capture_backend: snapshot.capture_backend,
         fps: snapshot.fps,
         encoded_frames: snapshot.encoded_frames,
         decoded_frames: snapshot.decoded_frames,

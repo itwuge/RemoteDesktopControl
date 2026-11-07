@@ -202,7 +202,7 @@ class AppStrings {
   // =====** 屏幕墙页 =====**
 
   /// 屏幕墙页说明。
-  static const wallNote = '本机回环预览（合成画面，真实 848x480/10fps 缩略流）；跨机会话待接线。';
+  static const wallNote = '第 1 宫格是本机真实桌面采集（DXGI → 缩放 → 848x480/10fps 缩略流）；跨机会话待接线。';
 
   /// 宫格标签。
   static const wallGridLabel = '宫格';
