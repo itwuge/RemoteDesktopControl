@@ -1,0 +1,24 @@
+# ============================================================
+# rdc-clipboard · crate 清单
+#
+# 用途：剪贴板文本双向同步（线格式、去重、环路防护、平台读写）。
+# 层级：L3 交互层，向 rdc-core 提供同步状态机与平台剪贴板访问。
+# 依赖纪律：不依赖 UI 框架与传输层；平台 API 只出现在 src/platform/*.rs。
+# ============================================================
+
+[package]
+name = "rdc-clipboard"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 剪贴板文本同步"
+
+[dependencies]
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+# 平台 API 只允许出现在 src/platform/*.rs；Windows 剪贴板与全局内存。
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = ["Win32_System_DataExchange", "Win32_System_Memory", "Win32_Foundation"] }

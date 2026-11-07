@@ -1,7 +1,7 @@
 # ============================================================
 # RemoteDesktopControl · Rust workspace 根清单
 #
-# 用途：统一管理 13 个 rdc-* crate 的成员列表、版本与第三方依赖版本。
+# 用途：统一管理 14 个 rdc-* crate 的成员列表、版本与第三方依赖版本。
 # 层级：仓库根（不属于任何 crate）。
 # 被谁调用：cargo（本地与 CI）读取本清单决定 workspace 成员与依赖解析。
 # 目录真源：docs/09-目录结构与命名规范.md §2。
@@ -19,6 +19,7 @@ members = [
     "crates/rdc-codec",
     "crates/rdc-decode",
     "crates/rdc-input",
+    "crates/rdc-clipboard",
     "crates/rdc-core",
     "crates/rdc-bridge",
     "crates/rdc-signal",
@@ -106,6 +107,7 @@ rdc-capture = { path = "crates/rdc-capture" }
 rdc-codec = { path = "crates/rdc-codec" }
 rdc-decode = { path = "crates/rdc-decode" }
 rdc-input = { path = "crates/rdc-input" }
+rdc-clipboard = { path = "crates/rdc-clipboard" }
 rdc-core = { path = "crates/rdc-core" }
 rdc-bridge = { path = "crates/rdc-bridge" }
 rdc-signal = { path = "crates/rdc-signal" }
