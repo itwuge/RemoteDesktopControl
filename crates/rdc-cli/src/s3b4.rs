@@ -97,6 +97,7 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
 
 #[cfg(target_os = "windows")]
 mod windows_impl {
+    use std::collections::VecDeque;
     use std::io::Write;
     use std::net::SocketAddr;
     use std::path::Path;
@@ -519,6 +520,10 @@ mod windows_impl {
         let mut pacer_bps = TARGET_BITRATE;
         let mut priority_skips = 0u64;
         let mut send_waits: Vec<u64> = Vec::new();
+        // 待配对队列：(送入编码器的 pts, 该帧真实的采集时刻)。
+        // 编码器有固有延迟，poll 取到的包可能属于更早的帧，必须按包的 pts 回查。
+        let mut pending_captures: VecDeque<(u64, u64)> = VecDeque::new();
+        let mut pair_misses = 0u64;
         let started = Instant::now();
 
         while started.elapsed().as_secs() < options.secs {
@@ -530,8 +535,17 @@ mod windows_impl {
             let mut buffer = pool.acquire().ok_or("帧池已空")?;
             buffer.as_mut_slice().copy_from_slice(&base);
             draw_frame(buffer.as_mut_slice(), captured_us, frames);
-            encoder.push(buffer, frames * 1_000_000_000 / 60, frames % 120 == 0)?;
+            let pts_ns = frames * 1_000_000_000 / 60;
+            encoder.push(buffer, pts_ns, frames % 120 == 0)?;
             frames += 1;
+            // 编码器内部按 100ns 保存采样时间（`pts_ns / 100` 截断），
+            // 配对键必须用同一精度，否则非整百纳秒的帧永远对不上。
+            pending_captures.push_back((pts_ns / 100, captured_us));
+            // 编码器最多残留 1~2 帧；这里留 32 帧余量，避免主机抖动时把待配对项挤掉。
+            // 数量本身不影响配对正确性：键是包自带的 pts，只有被挤掉才会退化成兜底。
+            while pending_captures.len() > 32 {
+                pending_captures.pop_front();
+            }
             // 帧率优先：本帧所有分片的发送等待不得越过一个帧周期的末尾。
             let frame_deadline = Instant::now() + Duration::from_micros(FRAME_PERIOD_US);
             let mut frame_bytes = 0u64;
@@ -550,6 +564,19 @@ mod windows_impl {
                 }
                 annexb.extend_from_slice(&packet.data);
                 frame_bytes += annexb.len() as u64;
+                // 关键：包头时间戳必须取「产出这个包的帧」的采集时刻，而不是本轮刚送进去那帧的。
+                let packet_capture_us =
+                    match take_capture(&mut pending_captures, packet.pts_ns / 100) {
+                        Some(capture) => capture,
+                        None => {
+                            pair_misses += 1;
+                            // 个别输出样本的采样时间为 0（MFT 未回填），此时它仍属于最早的待配对帧，
+                            // 取队首比取本轮采集时刻更接近真实归属。
+                            pending_captures
+                                .pop_front()
+                                .map_or(captured_us, |(_, capture)| capture)
+                        }
+                    };
                 bytes += send_frame(
                     &udp,
                     peer,
@@ -557,7 +584,7 @@ mod windows_impl {
                     &mut seq,
                     &mut frame_id,
                     &mut pacer,
-                    captured_us,
+                    packet_capture_us,
                     &mut packets,
                     frame_deadline,
                     &mut frame_wait,
@@ -582,6 +609,15 @@ mod windows_impl {
         let drain_deadline = Instant::now() + Duration::from_millis(10);
         for packet in encoder.flush()? {
             let mut wait = 0u64;
+            let packet_capture_us = match take_capture(&mut pending_captures, packet.pts_ns / 100) {
+                Some(capture) => capture,
+                None => {
+                    pair_misses += 1;
+                    pending_captures
+                        .pop_front()
+                        .map_or_else(qpc_us, |(_, capture)| capture)
+                }
+            };
             bytes += send_frame(
                 &udp,
                 peer,
@@ -589,7 +625,7 @@ mod windows_impl {
                 &mut seq,
                 &mut frame_id,
                 &mut pacer,
-                qpc_us(),
+                packet_capture_us,
                 &mut packets,
                 drain_deadline,
                 &mut wait,
@@ -610,7 +646,7 @@ mod windows_impl {
             "{{\"role\":\"host\",\"seconds\":{:.2},\"frames\":{frames},\"packets\":{packets},\
              \"bytes\":{bytes},\"bitrate_bps\":{:.0},\"fps\":{fps:.2},\"encoded_bytes\":{encoded_bytes},\
              \"avg_frame_bytes\":{avg_frame_bytes:.0},\"measured_bps\":{measured_bps:.0},\
-             \"pacer_target_bps\":{pacer_bps},\"fps_priority_skips\":{priority_skips},\
+             \"pacer_target_bps\":{pacer_bps},\"fps_priority_skips\":{priority_skips},\"pair_misses\":{pair_misses},\
              \"send_wait_p50_us\":{send_wait_p50},\"send_wait_p99_us\":{send_wait_p99}}}",
             elapsed,
             bytes as f64 * 8.0 / elapsed
@@ -624,6 +660,15 @@ mod windows_impl {
             measured_bps / 1_000_000.0
         );
         Ok(())
+    }
+
+    /// 按编码包自带的 pts 回查它对应的采集时刻（键为编码器内部的 100ns 采样时间）。
+    ///
+    /// 编码器下一次 poll 取到的包通常属于上一帧（in-box MFT 固有 1 帧延迟），
+    /// 用本轮 `captured_us` 会把时间戳配超前整整一帧——S3f 修的就是这处。
+    fn take_capture(pending: &mut VecDeque<(u64, u64)>, pts_100ns: u64) -> Option<u64> {
+        let index = pending.iter().position(|(pts, _)| *pts == pts_100ns)?;
+        pending.remove(index).map(|(_, capture_us)| capture_us)
     }
 
     /// 把一个访问单元分片发送，返回发送字节数。
