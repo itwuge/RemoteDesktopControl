@@ -872,6 +872,135 @@ unsafe impl Send for EncodeStage {}
 /// 本线程把「提交 + 等包」从主循环里拿走：它一周期仍是 ≈11 ms，但**阻塞在采集队列上**，
 /// 帧一落地就被取走；主循环只剩解码/呈现（≈0.5 ms/帧），两侧都留出余量，
 /// 队列里不再积压一个刷新周期。
+///
+/// S7-9（本轮）：本线程的单轮串行工时 W（p50 14.0 / 尾部 ≈15.9）仍贴着 16.7 ms 帧周期，
+/// 13.1% 的帧因此漏一拍。抓手是把「准备」与「取包」拆成两级流水：第 N 帧在飞时，
+/// 先完成第 N+1 帧的 CPU 准备段（时间码覆盖 / 色彩交换），再回到取包循环，
+/// 准备段与 `enc_wait` 重叠，W 里不再含准备段。
+///
+/// **红线**：提前提交必须有界（`in_flight ≤ 1`）。S7-8 实测过「取包循环里队列有帧就提前
+/// 回去取帧」（无界提前提交）：AMF 输入队列被灌满后 `push` 阻塞、**全程 0 包**（`s78-final`）。
+///
+/// 已准备、待提交的一帧（S7-9：准备段与提交段分离）。
+enum PreparedFrame {
+    /// 纹理直出路径：`overlay.draw` 已完成，等待 `push_texture`。
+    Gpu {
+        /// 目标纹理裸句柄（`rdc_capture::GpuFrame::texture`）。
+        texture: usize,
+        /// 纹理数组层号。
+        array_slice: u32,
+        /// 帧本体（持有纹理租约，提交后延迟归还）。
+        frame: Frame,
+        /// 已填好采集/排队分段、待补提交分段的计时。
+        timing: FrameTiming,
+        /// 采集时间戳（纳秒）。
+        pts_ns: u64,
+        /// 是否请求关键帧。
+        force_key: bool,
+    },
+    /// CPU BGRA 路径：`swap_rb` + 时间码已完成，等待 `push`。
+    Cpu {
+        /// 帧本体（缓冲已就地转换）。
+        frame: Frame,
+        /// 已填好采集/排队分段、待补提交分段的计时。
+        timing: FrameTiming,
+        /// 采集时间戳（纳秒）。
+        pts_ns: u64,
+        /// 是否请求关键帧。
+        force_key: bool,
+    },
+}
+
+impl PreparedFrame {
+    /// 取准备阶段的分段计时（提交时补 `submit_qpc` / `submit_call_us`）。
+    fn timing(&self) -> FrameTiming {
+        match self {
+            Self::Gpu { timing, .. } | Self::Cpu { timing, .. } => *timing,
+        }
+    }
+}
+
+/// 准备一帧：时间码覆盖（纹理路径）或色彩交换 + 时间码（CPU 路径）。**不含提交**。
+///
+/// 返回 `Ok(None)` 表示该帧被丢弃（尺寸变化，错误已写入 `stats`）。
+#[allow(clippy::too_many_arguments)]
+fn prepare_frame(
+    queued: QueuedFrame,
+    rx_wait_us: u64,
+    overlay: &mut BarcodeOverlay,
+    context: &ID3D11DeviceContext,
+    stats: &Stats,
+    width: u32,
+    height: u32,
+    elapsed_ms: u32,
+) -> Result<Option<PreparedFrame>, String> {
+    let QueuedFrame {
+        mut frame,
+        enqueue_qpc,
+    } = queued;
+    if frame.width != width || frame.height != height {
+        return Err(format!(
+            "采集尺寸变化 {}x{}，当前纹理 {width}x{height}",
+            frame.width, frame.height
+        ));
+    }
+    // 捕获瞬间 → 编码线程取到帧 的排队时长（与采集同源 QPC，可直接相减）。
+    let rx_queue_us = qpc_us().saturating_sub(frame.meta.qpc_us);
+    // 其中：捕获瞬间 → 入队（采集回读 + 发布），剩下的是真正在队列里等的时间。
+    let publish_us = enqueue_qpc.saturating_sub(frame.meta.qpc_us);
+    stats.captured.fetch_add(1, Ordering::Relaxed);
+    stats
+        .capture_us
+        .store(u64::from(frame.capture_cost_us), Ordering::Relaxed);
+    let capture_us = u64::from(frame.capture_cost_us);
+    let capture_qpc = frame.meta.qpc_us;
+    let pts_ns = frame.meta.pts_ns;
+    let force_key = stats.captured.load(Ordering::Relaxed) == 1;
+    let mut timing = FrameTiming {
+        capture_qpc,
+        capture_us,
+        rx_queue_us,
+        rx_wait_us,
+        publish_us,
+        ..FrameTiming::default()
+    };
+    // 段计时：采集帧到手 → 准备完成（含时间码覆盖/色彩交换），不含提交调用。
+    let t_prep = Instant::now();
+    if let Some((texture, array_slice)) = frame.gpu.as_ref().map(|g| (g.texture, g.array_slice)) {
+        // 纹理直出：时间码用 GPU 小纹理覆盖，像素从不回读 CPU。
+        overlay.draw(context, texture, array_slice, elapsed_ms)?;
+        timing.push_us = t_prep.elapsed().as_micros() as u64;
+        return Ok(Some(PreparedFrame::Gpu {
+            texture,
+            array_slice,
+            frame,
+            timing,
+            pts_ns,
+            force_key,
+        }));
+    }
+    let len = frame.width as usize * frame.height as usize * 4;
+    if frame.buffer.as_slice().len() < len {
+        return Err("采集帧缓冲小于整帧长度".to_owned());
+    }
+    {
+        let pixels = &mut frame.buffer.as_mut_slice()[..len];
+        // 编解码层的像素契约是 RGBA8（rdc-protocol/rdc-codec、nv12.rs、AMF shim
+        // 的 push_rgba 都按 RGBA8 收），所以这里必须做 B↔R 交换。
+        // 块 4 B 实测：删掉交换后 push 段 4.66 → 4.34~6.93 ms（噪声内，无收益），
+        // 且 AMF shim 的 AMF_SURFACE_BGRA 标签与层契约不一致，故保留交换。
+        swap_rb(pixels);
+        draw_barcode(pixels, frame.width as usize, elapsed_ms);
+    }
+    timing.push_us = t_prep.elapsed().as_micros() as u64;
+    Ok(Some(PreparedFrame::Cpu {
+        frame,
+        timing,
+        pts_ns,
+        force_key,
+    }))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_encode_stage(
     stage: EncodeStage,
@@ -888,173 +1017,139 @@ fn run_encode_stage(
         mut overlay,
         mut encoder,
     } = stage;
-    // 按编码顺序入队、按出包顺序出队（S7-5 块 1：分段必须来自同一帧）。
-    let mut pending_submit: VecDeque<FrameTiming> = VecDeque::with_capacity(4);
-    // 已提交但尚未取回包的帧数（CPU/纹理两条入队路径共用）。
-    // S7-7 块 1：取包循环用它判断「本轮该等的包是否都到了」。
-    let mut submitted_outstanding: usize = 0;
+    // S7-9：恰一帧在飞。`in_flight` 非空时**禁止提交**下一帧——这是防「无界提前提交」
+    // 灌满 AMF 输入队列、让 `push` 阻塞的硬约束（S7-8 `s78-final` 的全程 0 包事故）。
+    let mut in_flight: Option<FrameTiming> = None;
+    // 已准备、等待提交的下一帧（准备段与在飞帧的 `enc_wait` 重叠）。
+    let mut prepared: Option<PreparedFrame> = None;
     // 取包等待上限：AMF 固有出包 9.2ms p99 10.7（S7-6），留余量后 25ms；
-    // 超过即视为编码器失速，退回「先干别的、下一轮再取」，不无限阻塞。
+    // 超过即视为编码器失速，下一轮继续等，不无限阻塞。
     const POLL_DEADLINE_MS: u64 = 25;
+    // 连续失速累计（微秒）：≥200 ms 记一条错误，避免「已卡死但界面无提示」。
+    const STALL_ERROR_US: u64 = 200_000;
+    let mut stall_us: u64 = 0;
     // 纹理直出路径下延迟归还的帧（租约保护：编码器可能异步持有纹理）。
     let mut held_gpu_frames: VecDeque<Frame> = VecDeque::with_capacity(4);
     loop {
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        // 阻塞在这个队列上：采集一产出帧就被取走，不等主循环空闲。
-        let t_rx = Instant::now();
-        let queued = match queue.pop_timeout(Duration::from_millis(100)) {
-            QueuePop::Frame(queued) => queued,
-            QueuePop::Timeout => continue,
-            QueuePop::Closed => break,
-        };
-        let enqueue_qpc = queued.enqueue_qpc;
-        let frame = queued.frame;
-        let rx_wait_us = t_rx.elapsed().as_micros() as u64;
-        let t_busy = Instant::now();
         let mut poll_us: u64 = 0;
-        // 用带标签块代替早退 `continue`：本轮仍必须继续排空出包。
-        'frame: {
-            let elapsed_ms = start.elapsed().as_millis() as u32 % 1_000_000;
-            let mut bgra = frame;
-            // 捕获瞬间 → 编码线程取到帧 的排队时长（与采集同源 QPC，可直接相减）。
-            let rx_queue_us = qpc_us().saturating_sub(bgra.meta.qpc_us);
-            // 其中：捕获瞬间 → 入队（采集回读 + 发布），剩下的是真正在队列里等的时间。
-            let publish_us = enqueue_qpc.saturating_sub(bgra.meta.qpc_us);
-            if bgra.width != width || bgra.height != height {
-                stats.set_error(format!(
-                    "采集尺寸变化 {}x{}，当前纹理 {width}x{height}",
-                    bgra.width, bgra.height
-                ));
-                break 'frame;
-            }
-            stats.captured.fetch_add(1, Ordering::Relaxed);
-            stats
-                .capture_us
-                .store(u64::from(bgra.capture_cost_us), Ordering::Relaxed);
-            let cap_us = u64::from(bgra.capture_cost_us);
-            let cap_qpc = bgra.meta.qpc_us;
-            let pts_ns = bgra.meta.pts_ns;
-            let force_key = stats.captured.load(Ordering::Relaxed) == 1;
-            let gpu = bgra.gpu.as_ref().map(|g| (g.texture, g.array_slice));
-            // 段计时：采集帧到手 → 编码器入队（含时间码覆盖/色彩交换）。
-            let t_encode = Instant::now();
-            if let Some((texture, array_slice)) = gpu {
-                // 纹理直出：时间码用 GPU 小纹理覆盖，像素从不回读 CPU。
-                if let Err(error) = overlay.draw(&context, texture, array_slice, elapsed_ms) {
-                    stats.set_error(error);
-                    break 'frame;
-                }
-                if let Err(error) = encoder.push_texture(texture, array_slice, pts_ns, force_key)
-                {
-                    stats.set_error(format!("编码入队失败（纹理）: {error}"));
-                    break 'frame;
-                }
-                submitted_outstanding += 1;
-                pending_submit.push_back(FrameTiming {
-                    capture_qpc: cap_qpc,
-                    capture_us: cap_us,
-                    rx_queue_us,
-                    push_us: t_encode.elapsed().as_micros() as u64,
-                    submit_qpc: qpc_us(),
-                    rx_wait_us,
-                    submit_busy_us: t_busy.elapsed().as_micros() as u64,
-                    publish_us,
-                    ..FrameTiming::default()
-                });
-                // 租约延迟 3 帧归还：AMF 可能在 SubmitInput 返回后仍持有纹理直到出包。
-                held_gpu_frames.push_back(bgra);
-                if held_gpu_frames.len() > 3 {
-                    held_gpu_frames.pop_front();
-                }
-            } else {
-                let len = bgra.width as usize * bgra.height as usize * 4;
-                if bgra.buffer.as_slice().len() < len {
-                    stats.set_error("采集帧缓冲小于整帧长度".to_owned());
-                    break 'frame;
-                }
-                let slice = &mut bgra.buffer.as_mut_slice()[..len];
-                // 编解码层的像素契约是 RGBA8（rdc-protocol/rdc-codec、nv12.rs、AMF shim
-                // 的 push_rgba 都按 RGBA8 收），所以这里必须做 B↔R 交换。
-                // 块 4 B 实测：删掉交换后 push 段 4.66 → 4.34~6.93 ms（噪声内，无收益），
-                // 且 AMF shim 的 AMF_SURFACE_BGRA 标签与层契约不一致，故保留交换。
-                swap_rb(slice);
-                draw_barcode(slice, bgra.width as usize, elapsed_ms);
-                // push 段 = 颜色交换 + 时间码 + 提交。
-                let push_us = t_encode.elapsed().as_micros() as u64;
-                if let Err(error) = encoder.push(bgra.buffer, pts_ns, force_key) {
-                    stats.set_error(format!("编码入队失败: {error}"));
-                    break 'frame;
-                }
-                let submit_call_us = t_encode.elapsed().as_micros() as u64;
-                submitted_outstanding += 1;
-                pending_submit.push_back(FrameTiming {
-                    capture_qpc: cap_qpc,
-                    capture_us: cap_us,
-                    rx_queue_us,
-                    push_us,
-                    submit_qpc: qpc_us(),
-                    rx_wait_us,
-                    submit_busy_us: t_busy.elapsed().as_micros() as u64,
-                    publish_us,
-                    submit_call_us,
-                    ..FrameTiming::default()
-                });
-                // 32 帧仍未出包说明编码器失速，清空避免时间戳错位放大误差。
-                if pending_submit.len() > 32 {
-                    pending_submit.clear();
-                    submitted_outstanding = 0;
+        // ① 提交段：恰一帧在飞 —— 上一帧的包还没取回就不提交下一帧（防无界提前提交）。
+        if in_flight.is_none() {
+            if let Some(prepared) = prepared.take() {
+                let t_submit = Instant::now();
+                let mut timing = prepared.timing();
+                let submitted = match prepared {
+                    PreparedFrame::Gpu {
+                        texture,
+                        array_slice,
+                        frame,
+                        pts_ns,
+                        force_key,
+                        ..
+                    } => encoder
+                        .push_texture(texture, array_slice, pts_ns, force_key)
+                        .map_err(|error| format!("编码入队失败（纹理）: {error}"))
+                        .map(|()| {
+                            // 租约延迟 3 帧归还：AMF 可能在 SubmitInput 返回后仍持有纹理直到出包。
+                            held_gpu_frames.push_back(frame);
+                            if held_gpu_frames.len() > 3 {
+                                held_gpu_frames.pop_front();
+                            }
+                        }),
+                    PreparedFrame::Cpu {
+                        frame, pts_ns, force_key, ..
+                    } => encoder
+                        .push(frame.buffer, pts_ns, force_key)
+                        .map_err(|error| format!("编码入队失败: {error}")),
+                };
+                match submitted {
+                    Ok(()) => {
+                        timing.submit_qpc = qpc_us();
+                        timing.submit_call_us = t_submit.elapsed().as_micros() as u64;
+                        timing.submit_busy_us = timing.push_us + timing.submit_call_us;
+                        in_flight = Some(timing);
+                        stall_us = 0;
+                    }
+                    Err(message) => stats.set_error(message),
                 }
             }
         }
-
-        // 取包：poll 到本轮已提交的帧全部出包，或到截止时间（S7-6 appsim C 的节奏）。
-        let poll_deadline = Instant::now() + Duration::from_millis(POLL_DEADLINE_MS);
-        loop {
-            if stop.load(Ordering::Relaxed) {
-                return;
-            }
-            let t_poll = Instant::now();
-            let packet = encoder.poll_packet();
-            let poll_one = t_poll.elapsed().as_micros() as u64;
-            poll_us += poll_one;
-            let Some(packet) = packet else {
-                // 该等的包都到了（没有未取回的提交）→ 收工，回到采集队列。
-                if submitted_outstanding == 0 || Instant::now() >= poll_deadline {
-                    break;
-                }
-                std::thread::yield_now();
-                continue;
-            };
-            submitted_outstanding = submitted_outstanding.saturating_sub(1);
-            let now_qpc = qpc_us();
-            let mut timing = pending_submit.pop_front().unwrap_or_default();
-            timing.enc_wait_us = now_qpc.saturating_sub(timing.submit_qpc);
-            if pending_submit.len() > 32 {
-                pending_submit.clear();
-                submitted_outstanding = 0;
-            }
-            stats.encoded.fetch_add(1, Ordering::Relaxed);
-            stats
-                .encoded_bytes
-                .fetch_add(packet.data.len() as u64, Ordering::Relaxed);
-            // push 段在编码线程里补全，按出包时刻落地。
-            stats.encode_us.store(timing.push_us, Ordering::Relaxed);
-            // 包队列深度 2：满了就等（背压回传到采集队列，由它按「丢最旧」处理）。
-            let mut out = EncodeOut { packet, timing };
-            loop {
-                match packets.try_send(out) {
-                    Ok(()) => break,
-                    Err(TrySendError::Full(back)) => {
-                        if stop.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        std::thread::sleep(Duration::from_millis(1));
-                        out = back;
+        // ② 准备段：排队取帧并完成准备（不含提交），与在飞帧的 `enc_wait` 重叠。
+        // 有帧在飞时用 1 ms 超时：队列暂时空也不能把取包拖后 100 ms。
+        if prepared.is_none() {
+            let t_rx = Instant::now();
+            let pop_timeout_ms = if in_flight.is_some() { 1 } else { 100 };
+            match queue.pop_timeout(Duration::from_millis(pop_timeout_ms)) {
+                QueuePop::Frame(queued) => {
+                    let rx_wait_us = t_rx.elapsed().as_micros() as u64;
+                    let elapsed_ms = start.elapsed().as_millis() as u32 % 1_000_000;
+                    match prepare_frame(
+                        queued,
+                        rx_wait_us,
+                        &mut overlay,
+                        &context,
+                        &stats,
+                        width,
+                        height,
+                        elapsed_ms,
+                    ) {
+                        Ok(prepared_now) => prepared = prepared_now,
+                        Err(message) => stats.set_error(message),
                     }
-                    Err(TrySendError::Disconnected(_)) => return,
                 }
+                QueuePop::Timeout => {}
+                QueuePop::Closed => break,
+            }
+        }
+        // ③ 取包段：此时准备段已跑完，等的就是 AMF 内部编码时间。
+        if let Some(mut timing) = in_flight.take() {
+            let deadline = Instant::now() + Duration::from_millis(POLL_DEADLINE_MS);
+            loop {
+                if stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                let t_poll = Instant::now();
+                let packet = encoder.poll_packet();
+                poll_us += t_poll.elapsed().as_micros() as u64;
+                let Some(packet) = packet else {
+                    if Instant::now() >= deadline {
+                        // 失速：不放弃这次飞帧（否则退化成无界重提交），下一轮继续等。
+                        stall_us += POLL_DEADLINE_MS * 1_000;
+                        if stall_us >= STALL_ERROR_US {
+                            stats.set_error("编码器 200 ms 无包输出（已记录，继续等待）");
+                        }
+                        in_flight = Some(timing);
+                        break;
+                    }
+                    std::thread::yield_now();
+                    continue;
+                };
+                stall_us = 0;
+                timing.enc_wait_us = qpc_us().saturating_sub(timing.submit_qpc);
+                stats.encoded.fetch_add(1, Ordering::Relaxed);
+                stats
+                    .encoded_bytes
+                    .fetch_add(packet.data.len() as u64, Ordering::Relaxed);
+                // push 段在编码线程里补全，按出包时刻落地。
+                stats.encode_us.store(timing.push_us, Ordering::Relaxed);
+                // 包队列深度 2：满了就等（背压回传到采集队列，由它按「丢最旧」处理）。
+                let mut out = EncodeOut { packet, timing };
+                loop {
+                    match packets.try_send(out) {
+                        Ok(()) => break,
+                        Err(TrySendError::Full(back)) => {
+                            if stop.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            std::thread::sleep(Duration::from_millis(1));
+                            out = back;
+                        }
+                        Err(TrySendError::Disconnected(_)) => return,
+                    }
+                }
+                break;
             }
         }
         stats.poll_us.store(poll_us, Ordering::Relaxed);
