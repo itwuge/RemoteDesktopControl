@@ -490,6 +490,12 @@ fn capture_loop_dxgi(
         None
     };
     let mut frame_id: u64 = 0;
+    // S7-8 诊断：每 5s 统计一次，仅当 5s 内 0 帧时打印一行，用于区分
+    // 「桌面静止（DDA 只回 WAIT_TIMEOUT）」与「采集故障（AccessLost/池耗尽）」。正常出帧不打印。
+    let mut diag_frames: u64 = 0;
+    let mut diag_noframe: u64 = 0;
+    let mut diag_pool: u64 = 0;
+    let mut diag_since = std::time::Instant::now();
     loop {
         if token.is_requested() {
             break;
@@ -539,6 +545,7 @@ fn capture_loop_dxgi(
                 };
                 sink.on_frame(frame);
                 frame_id = frame_id.wrapping_add(1);
+                diag_frames += 1;
             }
             Ok(Acquired::Gpu(shot)) => {
                 let Some(buffer) = pool.acquire() else {
@@ -567,15 +574,18 @@ fn capture_loop_dxgi(
                 };
                 sink.on_frame(frame);
                 frame_id = frame_id.wrapping_add(1);
+                diag_frames += 1;
             }
             Ok(Acquired::NoFrame) => {
                 // 桌面无变化：不是丢帧，记超时便于区分「静止画面」与「采集故障」。
                 stats.add_timeout();
+                diag_noframe += 1;
             }
             Ok(Acquired::PoolExhausted) => {
                 // 纹理池满：说明下游（编码/通道）积压，记丢帧暴露背压。
                 stats.add_pool_exhausted();
                 stats.add_dropped(1);
+                diag_pool += 1;
             }
             Err(err) => {
                 // 切换分辨率/锁屏/UAC 会返回 ACCESS_LOST：重建 duplication 而不是结束会话。
@@ -594,6 +604,17 @@ fn capture_loop_dxgi(
                 warn!(error = %err, "DXGI 采集失败，线程退出");
                 return;
             }
+        }
+        if diag_since.elapsed() >= std::time::Duration::from_secs(5) {
+            if diag_frames == 0 {
+                eprintln!(
+                    "[capture-diag] 5s: frames=0 noframe={diag_noframe} pool_exhausted={diag_pool}"
+                );
+            }
+            diag_frames = 0;
+            diag_noframe = 0;
+            diag_pool = 0;
+            diag_since = std::time::Instant::now();
         }
     }
 }
