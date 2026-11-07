@@ -12,7 +12,7 @@
 
 use rdc_security::{verify_signature_b64, IdentityKeyPair};
 
-use crate::s5::devices::DeviceList;
+use crate::s5::devices::{DeviceList, DeviceRecord};
 
 // =====** 常量 =====**
 
@@ -127,14 +127,43 @@ pub fn decide(
     presented_pub: &str,
     context: &PairingContext<'_>,
 ) -> Result<PairingDecision, PairingError> {
-    let record = context.devices.get(device_id);
+    decide_for_record(
+        context.devices.get(device_id),
+        presented_pub,
+        context.account_service_reachable,
+        context.passwordless_enabled,
+    )
+}
+
+/// 按单条设备记录决定认证方式（页面/桥接层可直接调用）。
+///
+/// 为什么单独提供：权限页快照只需要一条记录的判定，不必构造整个地址簿上下文；
+/// 与 [`decide`] 共用同一套规则，避免两处逻辑漂移。
+///
+/// # Arguments
+/// * `record` - 设备记录；`None` 表示未知设备
+/// * `presented_pub` - 对端本次出示的身份公钥
+/// * `account_service_reachable` - 账号服务是否可达
+/// * `passwordless_enabled` - 用户是否开启完全免密
+///
+/// # Returns
+/// 认证方式与依据。
+///
+/// # Errors
+/// 已信任但公钥与地址簿不一致时返回 [`PairingError::PublicKeyMismatch`]。
+pub fn decide_for_record(
+    record: Option<&DeviceRecord>,
+    presented_pub: &str,
+    account_service_reachable: bool,
+    passwordless_enabled: bool,
+) -> Result<PairingDecision, PairingError> {
     let trusted = record.map(|record| record.trusted).unwrap_or(false);
     let stored_key = record.map(|record| record.public_key_b64.as_str()).unwrap_or("");
     if !trusted {
         return Ok(PairingDecision {
             mode: PairingMode::PairingCode,
             requires_pairing_code: true,
-            used_local_fallback: !context.account_service_reachable,
+            used_local_fallback: !account_service_reachable,
             reason: "untrusted_device",
         });
     }
@@ -142,25 +171,25 @@ pub fn decide(
         return Ok(PairingDecision {
             mode: PairingMode::PairingCode,
             requires_pairing_code: true,
-            used_local_fallback: !context.account_service_reachable,
+            used_local_fallback: !account_service_reachable,
             reason: "missing_public_key",
         });
     }
     if stored_key != presented_pub {
         return Err(PairingError::PublicKeyMismatch);
     }
-    if !context.passwordless_enabled {
+    if !passwordless_enabled {
         return Ok(PairingDecision {
             mode: PairingMode::PairingCode,
             requires_pairing_code: true,
-            used_local_fallback: !context.account_service_reachable,
+            used_local_fallback: !account_service_reachable,
             reason: "passwordless_disabled",
         });
     }
     Ok(PairingDecision {
         mode: PairingMode::Passwordless,
         requires_pairing_code: false,
-        used_local_fallback: !context.account_service_reachable,
+        used_local_fallback: !account_service_reachable,
         reason: "trusted_local_key",
     })
 }

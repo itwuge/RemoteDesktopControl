@@ -15,6 +15,7 @@ use rdc_core::s5::grant::{
     DEFAULT_VALIDITY_MS, MAX_VALIDITY_MS, REVOCATION_UI_TEXT,
 };
 use rdc_core::s5::multi::{authorize_input, wall_capabilities, SessionRole};
+use rdc_core::s5::passwordless::decide_for_record;
 use rdc_core::s5::settings::AppSettings;
 use rdc_protocol::Capabilities;
 use rdc_security::{fingerprint_from_b64, IdentityKeyPair};
@@ -1272,19 +1273,29 @@ fn to_grant_dto(record: &GrantRecord) -> GrantDto {
 
 /// 构建设备 DTO（带认证方式）。
 fn to_trust_dto(record: &DeviceRecord, passwordless_enabled: bool) -> TrustDeviceDto {
-    let ready = record.trusted && !record.public_key_b64.is_empty();
+    // 认证方式统一由内核判定，避免页面与握手侧规则漂移。
+    let decision = decide_for_record(
+        Some(record),
+        &record.public_key_b64,
+        true,
+        passwordless_enabled,
+    )
+    .unwrap_or_else(|_| rdc_core::s5::passwordless::PairingDecision {
+        mode: rdc_core::s5::passwordless::PairingMode::PairingCode,
+        requires_pairing_code: true,
+        used_local_fallback: false,
+        reason: "public_key_mismatch",
+    });
     TrustDeviceDto {
         device_id: record.device_id.clone(),
         name: record.name.clone(),
         trusted: record.trusted,
         same_account: record.same_account,
         fingerprint: safe_fingerprint(&record.public_key_b64),
-        passwordless_ready: ready,
-        auth_mode: if ready && passwordless_enabled {
-            "passwordless".to_owned()
-        } else {
-            "pairing_code".to_owned()
-        },
+        // 「可免密」在页面上表示「有可验签的公钥」，与免密开关无关；
+        // 实际本次走哪种方式由 auth_mode 表达。
+        passwordless_ready: record.trusted && !record.public_key_b64.is_empty(),
+        auth_mode: decision.mode.as_str().to_owned(),
         last_online_ms: record.last_online_ms,
     }
 }
@@ -1368,6 +1379,7 @@ fn issue_and_store(
     validity_days: u32,
     now: u64,
     audit: &mut AuditLog,
+    epoch_base: Option<u64>,
 ) -> Result<(), String> {
     if grantee_pub.trim().is_empty() {
         return Err("被授权方公钥不能为空（请先从已配对设备选择）".to_owned());
@@ -1385,7 +1397,7 @@ fn issue_and_store(
             grantee_pub,
             perms: bits,
             validity_ms: Some(validity),
-            revoked_epoch_base: store.revoked_epoch(),
+            revoked_epoch_base: epoch_base.unwrap_or_else(|| store.revoked_epoch()),
         },
         now,
     )
@@ -1448,6 +1460,7 @@ pub fn grant_create(
         validity_days,
         now_ms,
         &mut audit,
+        None,
     )?;
     append_audit(&audit)?;
     build_snapshot()
@@ -1490,6 +1503,7 @@ pub fn grant_create_for_device(
         validity_days,
         now_ms,
         &mut audit,
+        None,
     )?;
     append_audit(&audit)?;
     build_snapshot()
@@ -1557,7 +1571,12 @@ pub fn grant_reissue(
         validity_days,
         now_ms,
         &mut audit,
+        // 新令牌基线取「吊销后」的世代，避免下一跳把新令牌判成回退。
+        Some(store.revoked_epoch().saturating_add(1)),
     )?;
+    // issue_and_store 自己完成了加载/保存，这里必须重新加载，
+    // 否则会用旧内存快照保存并丢掉刚签发的令牌。
+    store = load_grants()?;
     store
         .revoke(&grant_id, now_ms, &mut audit)
         .map_err(|error| error.to_string())?;
