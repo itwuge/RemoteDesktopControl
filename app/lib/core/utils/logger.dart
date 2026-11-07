@@ -8,6 +8,8 @@
 
 import 'dart:developer' as developer;
 
+import 'package:flutter/foundation.dart';
+
 /// 日志级别。
 enum LogLevel { debug, info, warn, error }
 
@@ -39,5 +41,10 @@ class RdcLogger {
       error: error,
       stackTrace: stackTrace,
     );
+    // debug 构建额外写一条 logcat：`developer.log` 不进 logcat，验收取数（fps/延迟）
+    // 与现场排障都需要在 `adb logcat` 里看到同一行；release 不开，避免刷屏。
+    if (kDebugMode) {
+      debugPrint('[$tag] $message');
+    }
   }
 }

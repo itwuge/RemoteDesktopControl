@@ -127,11 +127,15 @@ fn media_nonce(header: &PacketHeader, direction: u8) -> [u8; 12] {
     nonce
 }
 
-/// 把一个媒体 datagram 解封装 + 解密，返回包头与视频消息明文。
-fn open_datagram(
+/// 把一个媒体 datagram 解封装 + 解密，只接受 `allowed` 里的通道。
+///
+/// 视频下行与输入上行共用这套头部/长度/AEAD 校验；通道白名单由调用方给出，
+/// 避免两处各写一份 nonce/AAD 逻辑导致线格式漂移。
+fn open_datagram_allowed(
     datagram: &[u8],
     key: Option<&AeadKey>,
     direction: u8,
+    allowed: &[StreamKind],
 ) -> Result<(PacketHeader, Vec<u8>), (&'static str, String)> {
     let header = PacketHeader::decode(datagram).map_err(|error| ("bad_header", error.to_string()))?;
     header
@@ -139,10 +143,11 @@ fn open_datagram(
         .map_err(|error| ("bad_header", error.to_string()))?;
     let stream = StreamKind::from_u8(header.stream)
         .ok_or_else(|| ("wrong_stream", format!("未知通道 {}", header.stream)))?;
-    if stream.as_u8() != StreamKind::VideoMain.as_u8()
-        && stream.as_u8() != StreamKind::VideoSub.as_u8()
-    {
-        return Err(("wrong_stream", format!("通道 {} 不是视频通道", header.stream)));
+    if !allowed.contains(&stream) {
+        return Err((
+            "wrong_stream",
+            format!("通道 {}（{stream:?}）不在本路径白名单内", header.stream),
+        ));
     }
     let key = key.ok_or_else(|| ("key_missing", "媒体密钥尚未安装".to_owned()))?;
     let payload_len = header.payload_len as usize;
@@ -182,7 +187,12 @@ fn open_datagram(
 pub fn ingest_datagram(datagram: &[u8]) -> Result<VideoStatsDto, String> {
     let (header, plaintext) = {
         let guard = lock_state();
-        match open_datagram(datagram, guard.key.as_ref(), guard.direction) {
+        match open_datagram_allowed(
+            datagram,
+            guard.key.as_ref(),
+            guard.direction,
+            &[StreamKind::VideoMain, StreamKind::VideoSub],
+        ) {
             Ok(ok) => ok,
             Err((kind, message)) => {
                 drop(guard);
@@ -240,15 +250,30 @@ fn record_error(kind: &'static str, message: String) -> Result<VideoStatsDto, St
 /// # Errors
 /// 消息编码失败、超出单包上限或包头非法时返回错误字符串。
 pub fn build_datagram(
-    mut header: PacketHeader,
+    header: PacketHeader,
     message: &VideoMessage,
     key: &[u8; 32],
     direction: u8,
 ) -> Result<Vec<u8>, String> {
     let plaintext = rdc_protocol::encode_video_message(message).map_err(|e| e.to_string())?;
+    build_plain_datagram(header, &plaintext, key, direction)
+}
+
+/// 把任意明文（视频消息或输入事件）封装成线上媒体包。
+///
+/// 视频下行与输入上行共用这一份 nonce/AAD/长度实现；`payload_len` 会被覆盖。
+///
+/// # Errors
+/// 明文超过单包上限或包头非法时返回错误字符串。
+pub(crate) fn build_plain_datagram(
+    mut header: PacketHeader,
+    plaintext: &[u8],
+    key: &[u8; 32],
+    direction: u8,
+) -> Result<Vec<u8>, String> {
     if plaintext.len() > FRAGMENT_PAYLOAD_MAX {
         return Err(format!(
-            "视频消息 {} 字节超过单包上限 {FRAGMENT_PAYLOAD_MAX}",
+            "明文 {} 字节超过单包上限 {FRAGMENT_PAYLOAD_MAX}",
             plaintext.len()
         ));
     }
@@ -257,7 +282,7 @@ pub fn build_datagram(
     let key = AeadKey::new(*key);
     let nonce = media_nonce(&header, direction);
     let ciphertext = key
-        .seal_with_aad(&plaintext, &nonce, &header_bytes)
+        .seal_with_aad(plaintext, &nonce, &header_bytes)
         .map_err(|e| e.to_string())?;
     let mut out = Vec::with_capacity(PACKET_HEADER_LEN + ciphertext.len());
     out.extend_from_slice(&header_bytes);

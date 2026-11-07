@@ -2033,3 +2033,49 @@ pub fn device_set_public_key(
         .map_err(|error| error.to_string())?;
     build_snapshot()
 }
+
+// =====** 直连会话（阶段 6） =====**
+
+/// 直连会话状态 DTO（定义见 `direct_session`）。
+pub use crate::direct_session::DirectSessionDto;
+
+/// 建立「IP:端口」直连会话（S8-2 明文 TCP，不做配对校验）。
+///
+/// TCP 套接字由 Rust 侧创建并持有；Flutter 只传入参数与展示结果。
+///
+/// # Arguments
+/// * `host` - 被控端 IP 或域名
+/// * `port` - 被控端 TCP 端口（Linux 线默认 45900）
+///
+/// # Returns
+/// 已建立时的会话快照（含 CONFIG 尺寸/fps 与计数）。
+///
+/// # Errors
+/// 返回 `CODE: 人话`，例如 `E_CONNECT_REFUSED: 连接 ... 失败`。
+pub fn direct_connect(host: String, port: u16) -> Result<DirectSessionDto, String> {
+    crate::direct_session::connect(host, port)
+}
+
+/// 断开直连会话并回收接收线程；重复调用安全。
+pub fn direct_disconnect() {
+    crate::direct_session::disconnect();
+}
+
+/// 读取直连会话快照（含队列丢弃与输入计数）。
+pub fn direct_status() -> DirectSessionDto {
+    crate::direct_session::status()
+}
+
+/// 经输入通道上送一批事件（触摸已转成 Pointer 移动/按下/抬起，文本按 UTF-8 文本事件编码）。
+///
+/// # Arguments
+/// * `events` - 与本地注入相同的 DTO；坐标须已换算为远端物理像素
+///
+/// # Returns
+/// 成功发送的事件数。
+///
+/// # Errors
+/// 未连接、事件非法、明文超单包上限或发送失败时返回错误文本。
+pub fn direct_send_input(events: Vec<InputEventDto>) -> Result<u64, String> {
+    crate::direct_session::send_input(events)
+}

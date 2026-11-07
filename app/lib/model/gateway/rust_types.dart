@@ -1214,3 +1214,89 @@ class VideoStatsInfo {
   /// 最近错误。
   final String? lastError;
 }
+
+/// 直连会话快照（对应 Rust `DirectSessionDto`，S8-2 明文 TCP）。
+class DirectSessionInfo {
+  /// 创建快照。
+  const DirectSessionInfo({
+    required this.connected,
+    required this.host,
+    required this.port,
+    required this.configured,
+    required this.width,
+    required this.height,
+    required this.fps,
+    required this.bytesReceived,
+    required this.framesReceived,
+    required this.framesDropped,
+    required this.ingestErrors,
+    required this.inputSent,
+    required this.inputErrors,
+    required this.lastError,
+  });
+
+  /// 未连接时的空快照。
+  const DirectSessionInfo.empty()
+    : connected = false,
+      host = '',
+      port = 0,
+      configured = false,
+      width = 0,
+      height = 0,
+      fps = 0,
+      bytesReceived = 0,
+      framesReceived = 0,
+      framesDropped = 0,
+      ingestErrors = 0,
+      inputSent = 0,
+      inputErrors = 0,
+      lastError = null;
+
+  /// 是否已连接。
+  final bool connected;
+
+  /// 目标主机。
+  final String host;
+
+  /// 目标端口。
+  final int port;
+
+  /// 是否已收到 CONFIG。
+  final bool configured;
+
+  /// 远端画面宽（CONFIG）。
+  final int width;
+
+  /// 远端画面高（CONFIG）。
+  final int height;
+
+  /// 远端帧率（CONFIG）。
+  final int fps;
+
+  /// 收到的字节数。
+  final int bytesReceived;
+
+  /// 收到的视频帧数（入队前）。
+  final int framesReceived;
+
+  /// 因内存预算/条数上限丢掉的帧数。
+  final int framesDropped;
+
+  /// 合成/重组失败数。
+  final int ingestErrors;
+
+  /// 已发送输入事件数。
+  final int inputSent;
+
+  /// 输入发送失败数。
+  final int inputErrors;
+
+  /// 最近错误（`CODE: 人话`）。
+  final String? lastError;
+
+  /// 丢弃率（0..1）；无帧时为 0。
+  double get dropRate {
+    final total = framesReceived + framesDropped;
+    return total == 0 ? 0 : framesDropped / total;
+  }
+}

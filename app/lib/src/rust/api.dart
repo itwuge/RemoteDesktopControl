@@ -4,6 +4,7 @@
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
 import 'clipboard_service.dart';
+import 'direct_session.dart';
 import 'file_service.dart';
 import 'frb_generated.dart';
 import 'input_service.dart';
@@ -830,6 +831,45 @@ Future<PermissionSnapshotDto> deviceSetPublicKey({
   deviceId: deviceId,
   publicKeyB64: publicKeyB64,
 );
+
+/// 建立「IP:端口」直连会话（S8-2 明文 TCP，不做配对校验）。
+///
+/// TCP 套接字由 Rust 侧创建并持有；Flutter 只传入参数与展示结果。
+///
+/// # Arguments
+/// * `host` - 被控端 IP 或域名
+/// * `port` - 被控端 TCP 端口（Linux 线默认 45900）
+///
+/// # Returns
+/// 已建立时的会话快照（含 CONFIG 尺寸/fps 与计数）。
+///
+/// # Errors
+/// 返回 `CODE: 人话`，例如 `E_CONNECT_REFUSED: 连接 ... 失败`。
+Future<DirectSessionDto> directConnect({
+  required String host,
+  required int port,
+}) => RustLib.instance.api.crateApiDirectConnect(host: host, port: port);
+
+/// 断开直连会话并回收接收线程；重复调用安全。
+Future<void> directDisconnect() =>
+    RustLib.instance.api.crateApiDirectDisconnect();
+
+/// 读取直连会话快照（含队列丢弃与输入计数）。
+Future<DirectSessionDto> directStatus() =>
+    RustLib.instance.api.crateApiDirectStatus();
+
+/// 经输入通道上送一批事件（触摸已转成 Pointer 移动/按下/抬起，文本按 UTF-8 文本事件编码）。
+///
+/// # Arguments
+/// * `events` - 与本地注入相同的 DTO；坐标须已换算为远端物理像素
+///
+/// # Returns
+/// 成功发送的事件数。
+///
+/// # Errors
+/// 未连接、事件非法、明文超单包上限或发送失败时返回错误文本。
+Future<BigInt> directSendInput({required List<InputEventDto> events}) =>
+    RustLib.instance.api.crateApiDirectSendInput(events: events);
 
 /// 审计条目 DTO。
 class AuditEntryDto {

@@ -100,6 +100,9 @@ class _SessionPageState extends State<SessionPage> {
     // 进入控制页即启动真实画面管线（幂等，由控制器内部去重）。
     controller.startPreview();
     controller.preview.addListener(_syncRemoteSize);
+    // 直连不走本机回环统计：远端尺寸只出现在直连快照里，必须一并监听，
+    // 否则视口 remoteSize 为空，触摸映射会一直丢弃输入。
+    controller.direct.addListener(_syncRemoteSize);
     _syncRemoteSize();
   }
 
@@ -107,6 +110,7 @@ class _SessionPageState extends State<SessionPage> {
   void dispose() {
     // 只释放本页新增的视图态；管线由控制器停止（旋转不会走到这里）。
     controller.preview.removeListener(_syncRemoteSize);
+    controller.direct.removeListener(_syncRemoteSize);
     _hideTimer?.cancel();
     _viewport.dispose();
     _focusNode.dispose();
@@ -117,6 +121,13 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 把解码帧尺寸同步给视口控制器（只重算矩阵，不碰解码器）。
   void _syncRemoteSize() {
+    final direct = controller.direct.value;
+    if (controller.isDirect && direct != null && direct.width > 0) {
+      _viewport.updateRemoteSize(
+        Size(direct.width.toDouble(), direct.height.toDouble()),
+      );
+      return;
+    }
     final info = controller.preview.value;
     if (info == null) return;
     _viewport.updateRemoteSize(
@@ -340,7 +351,9 @@ class _SessionPageState extends State<SessionPage> {
     _lastRemotePoint = point;
     final x = point.dx.toInt();
     final y = point.dy.toInt();
-    if (_activeButton == 0) {
+    if (_activeButton == 0 || controller.isDirect) {
+      // Linux 被控端（直连）：按住期间的移动必须用纯 Move（button=0/pressed=0），
+      // 否则会在每次移动时重复下发同键按下（见 android-connect-linux.md §7.1）。
       controller.sendInputEvents([InputEventSpec.move(x: x, y: y)]);
     } else {
       controller.sendInputEvents([
@@ -558,11 +571,124 @@ class _SessionPageState extends State<SessionPage> {
                     onPressed: _reconnect,
                   ),
                 ],
+                const SizedBox(height: RdcTokens.spaceLg),
+                // 阶段 6：手动直连入口（IP + TCP 端口），不依赖信令、不做配对校验。
+                RdcButton(
+                  label: '直连被控端',
+                  icon: Icons.wifi_tethering,
+                  primary: error == null,
+                  onPressed: _showDirectDialog,
+                ),
+                const SizedBox(height: RdcTokens.spaceSm),
+                Text(
+                  _directSummary(),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: RdcTokens.fontCaption,
+                    color: RdcTokens.textMuted,
+                  ),
+                ),
               ],
             ),
           ),
         );
       },
+    );
+  }
+
+  /// 直连状态的一行摘要（尺寸/帧率、收帧、丢帧、最近错误码）。
+  String _directSummary() {
+    final info = controller.direct.value;
+    if (!controller.isDirect || info == null) {
+      return '输入被控端 IP 与 TCP 端口（默认 45900）';
+    }
+    final error = info.lastError;
+    return '${info.width}×${info.height}@${info.fps}'
+        ' · 收帧 ${info.framesReceived}'
+        ' · 丢帧 ${info.framesDropped}'
+        '${error == null ? '' : ' · $error'}';
+  }
+
+  /// 手动直连对话框：IP + TCP 端口（本轮不做配对校验）。
+  ///
+  /// 成功返回后画面由 Rust 的接收线程送入既有纹理管线；失败原因（`CODE: 人话`）
+  /// 同时写回占位区与提示条，避免只显示「连接失败」。
+  Future<void> _showDirectDialog() async {
+    final host = TextEditingController(text: '192.168.37.130');
+    final port = TextEditingController(text: '45900');
+    final formKey = GlobalKey<FormState>();
+    final submitted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('直连被控端'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: host,
+                decoration: const InputDecoration(
+                  labelText: '被控端 IP',
+                  hintText: '例如 192.168.37.130',
+                ),
+                validator: (value) =>
+                    (value == null || value.trim().isEmpty) ? '请填写 IP' : null,
+              ),
+              TextFormField(
+                controller: port,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'TCP 端口',
+                  hintText: '默认 45900',
+                ),
+                validator: (value) {
+                  final parsed = int.tryParse(value?.trim() ?? '');
+                  if (parsed == null || parsed <= 0 || parsed > 65535) {
+                    return '端口需为 1..65535';
+                  }
+                  return null;
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() ?? false) {
+                Navigator.of(dialogContext).pop(true);
+              }
+            },
+            child: const Text('连接'),
+          ),
+        ],
+      ),
+    );
+    if (submitted != true || !mounted) return;
+    final info = await controller.startDirect(
+      host: host.text.trim(),
+      port: int.parse(port.text.trim()),
+    );
+    if (!mounted) return;
+    final error = controller.previewError.value;
+    if (info == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error ?? '连接失败（无错误码）')),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '直连已建立 ${info.host}:${info.port} '
+          '${info.width}×${info.height}@${info.fps}',
+        ),
+      ),
     );
   }
 
@@ -628,41 +754,74 @@ class _SessionPageState extends State<SessionPage> {
   // =====** 组件：指标与设备标识 =====**
 
   /// 画面上的连接质量角标（fps / 端到端延迟 / 码率 / 丢帧），全部来自 Rust 真实统计。
+  ///
+  /// 直连模式没有本地回环统计，改用直连快照：远端尺寸/帧率、收帧、丢帧、重组错误。
+  ///
+  /// 模式判定必须挂在 `direct` 通知器上重建：`isDirect` 只是普通布尔，
+  /// 页面不会因为直连建立而重build，分支一旦选错就一直显示回环格式。
   Widget _buildStatsPill() {
-    return ValueListenableBuilder<ControlPreviewInfo?>(
-      valueListenable: controller.preview,
-      builder: (context, info, _) {
-        if (info == null || !info.running) return const SizedBox.shrink();
-        final latencyMs = info.latencyLastUs / 1000.0;
-        final kbps = info.bitrateKbps;
-        final bitrate = kbps >= 1000
-            ? '${(kbps / 1000).toStringAsFixed(1)} Mbps'
-            : '$kbps kbps';
-        return Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: RdcTokens.background.withValues(alpha: 0.72),
-            borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
-          ),
-          child: Text(
-            '${info.fps.toStringAsFixed(1)} fps · '
-            '${latencyMs.toStringAsFixed(0)} ms · '
-            '$bitrate · 丢 ${info.droppedFrames}',
-            style: const TextStyle(
-              fontSize: RdcTokens.fontCaption,
-              color: RdcTokens.textPrimary,
-            ),
-          ),
+    return ValueListenableBuilder<DirectSessionInfo?>(
+      valueListenable: controller.direct,
+      builder: (context, direct, _) {
+        if (controller.isDirect) {
+          if (direct == null || !direct.connected) return const SizedBox.shrink();
+          final dropped = direct.framesReceived == 0 && direct.framesDropped == 0
+              ? '0.0%'
+              : '${(direct.dropRate * 100).toStringAsFixed(1)}%';
+          return _statsPill(
+            '${direct.width}×${direct.height}@${direct.fps} · '
+            '收 ${direct.framesReceived} · 丢 $dropped'
+            '${direct.ingestErrors == 0 ? '' : ' · 错 ${direct.ingestErrors}'}',
+          );
+        }
+        return ValueListenableBuilder<ControlPreviewInfo?>(
+          valueListenable: controller.preview,
+          builder: (context, info, _) {
+            if (info == null || !info.running) return const SizedBox.shrink();
+            final latencyMs = info.latencyLastUs / 1000.0;
+            final kbps = info.bitrateKbps;
+            final bitrate = kbps >= 1000
+                ? '${(kbps / 1000).toStringAsFixed(1)} Mbps'
+                : '$kbps kbps';
+            return _statsPill(
+              '${info.fps.toStringAsFixed(1)} fps · '
+              '${latencyMs.toStringAsFixed(0)} ms · '
+              '$bitrate · 丢 ${info.droppedFrames}',
+            );
+          },
         );
       },
     );
   }
 
+  /// 角标外框（内容由调用方按模式提供）。
+  Widget _statsPill(String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: RdcTokens.background.withValues(alpha: 0.72),
+        borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: RdcTokens.fontCaption,
+          color: RdcTokens.textPrimary,
+        ),
+      ),
+    );
+  }
+
   /// 设备名 + 输入权限胶囊。
   Widget _buildDeviceChips() {
-    return ValueListenableBuilder(
-      valueListenable: shell.activeDeviceName,
-      builder: (context, deviceName, _) {
+    // 同时监听直连快照：直连/断开时顶栏设备名要立即切换。
+    return AnimatedBuilder(
+      animation: Listenable.merge([shell.activeDeviceName, controller.direct]),
+      builder: (context, _) {
+        final direct = controller.direct.value;
+        final deviceName = controller.isDirect && direct != null
+            ? '${direct.host}:${direct.port}'
+            : shell.activeDeviceName.value;
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -704,9 +863,12 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 断开：先走 bye 收尾（报告写进提示），再返回设备列表。
   Future<void> _disconnect() async {
+    final wasDirect = controller.isDirect;
     final report = await controller.endSession();
     if (!mounted) return;
-    final detail = report == null
+    final detail = wasDirect
+        ? '直连已断开'
+        : report == null
         ? '收尾报告缺失（详见日志）'
         : 'bye ${report.byeAcked ? "已确认" : "未确认"}'
             ' · 服务残留 ${report.servicesRunningAfter}'
@@ -723,6 +885,13 @@ class _SessionPageState extends State<SessionPage> {
   /// 工具条；[floating] 为真时是宽布局的顶部悬浮样式。
   Widget _buildToolbar({required bool floating, required bool wide}) {
     final actions = <Widget>[
+      // Android 直连入口放在工具条：本机回环预览已占用纹理时占位区不可见。
+      if (Platform.isAndroid && !controller.isDirect)
+        RdcButton(
+          label: '直连',
+          icon: Icons.wifi_tethering,
+          onPressed: _showDirectDialog,
+        ),
       RdcButton(
         label: AppStrings.disconnect,
         icon: Icons.logout,

@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 阶段 6 直连：Rust 会话层需要创建 TCP 套接字访问被控端（默认 45900）。 -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="RDC"
         android:name="${applicationName}"

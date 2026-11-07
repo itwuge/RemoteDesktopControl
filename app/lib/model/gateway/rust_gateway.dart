@@ -498,6 +498,80 @@ class RustGateway {
     return _toInputStats(await rust_api.inputStatus());
   }
 
+  // =========** 直连会话（阶段 6） =========
+
+  /// 建立「IP:端口」直连会话（S8-2 明文 TCP）。
+  ///
+  /// TCP 套接字、有界帧队列与接收线程全部在 Rust 侧；Dart 只拿快照。
+  ///
+  /// 抛出：`CODE: 人话` 字符串（E_CONNECT_REFUSED / E_CONFIG_TIMEOUT 等）。
+  Future<DirectSessionInfo> directConnect({
+    required String host,
+    required int port,
+  }) async {
+    _ensureInitialized();
+    final dto = await rust_api.directConnect(host: host, port: port);
+    return _toDirectSession(dto);
+  }
+
+  /// 断开直连会话并回收 Rust 接收线程。
+  Future<void> directDisconnect() async {
+    _ensureInitialized();
+    await rust_api.directDisconnect();
+  }
+
+  /// 读取直连会话快照（含队列丢弃与输入计数）。
+  Future<DirectSessionInfo> directStatus() async {
+    _ensureInitialized();
+    return _toDirectSession(await rust_api.directStatus());
+  }
+
+  /// 经输入通道上送一批事件。
+  ///
+  /// 返回成功发送的事件数。
+  Future<int> directSendInput(List<InputEventSpec> events) async {
+    _ensureInitialized();
+    final dtos = events.map(_toInputDto).toList(growable: false);
+    return (await rust_api.directSendInput(events: dtos)).toInt();
+  }
+
+  /// 把输入事件值对象转成生成代码的 DTO（本地注入与直连共用）。
+  rust_input.InputEventDto _toInputDto(InputEventSpec event) {
+    return rust_input.InputEventDto(
+      kind: event.kind,
+      x: event.x,
+      y: event.y,
+      button: event.button,
+      pressed: event.pressed,
+      deltaX: event.deltaX,
+      deltaY: event.deltaY,
+      scanCode: event.scanCode,
+      modifiers: event.modifiers,
+      deleteUnits: event.deleteUnits,
+      text: event.text,
+    );
+  }
+
+  /// 把直连快照 DTO 转成值对象。
+  DirectSessionInfo _toDirectSession(dynamic dto) {
+    return DirectSessionInfo(
+      connected: dto.connected as bool,
+      host: dto.host as String,
+      port: dto.port as int,
+      configured: dto.configured as bool,
+      width: dto.width as int,
+      height: dto.height as int,
+      fps: dto.fps as int,
+      bytesReceived: (dto.bytesReceived as BigInt).toInt(),
+      framesReceived: (dto.framesReceived as BigInt).toInt(),
+      framesDropped: (dto.framesDropped as BigInt).toInt(),
+      ingestErrors: (dto.ingestErrors as BigInt).toInt(),
+      inputSent: (dto.inputSent as BigInt).toInt(),
+      inputErrors: (dto.inputErrors as BigInt).toInt(),
+      lastError: dto.lastError as String?,
+    );
+  }
+
   /// 把 Rust 输入统计 DTO 转成值对象。
   InputStatsInfo _toInputStats(rust_input.InputStatsDto dto) {
     return InputStatsInfo(

@@ -19,6 +19,7 @@ mod control_service;
 #[cfg(target_os = "linux")]
 mod control_service_linux;
 mod clipboard_service;
+mod direct_session;
 mod file_service;
 mod input_service;
 mod session_service;

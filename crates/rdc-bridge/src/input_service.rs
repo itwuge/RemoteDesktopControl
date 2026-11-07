@@ -455,7 +455,7 @@ fn last_snapshot() -> InputStatsDto {
 /// DTO → 事件，并做一次 **S4 线格式往返**（encode → decode）。
 ///
 /// 与网络通道使用同一编码器，保证本机回环验证的载荷就是 S4 真实发送的字节。
-fn to_event(dto: &InputEventDto) -> Result<InputEvent, String> {
+pub(crate) fn to_event(dto: &InputEventDto) -> Result<InputEvent, String> {
     let event = match dto.kind.as_str() {
         "move" => InputEvent::Pointer(PointerEvent {
             x: dto.x,

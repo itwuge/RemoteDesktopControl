@@ -232,6 +232,88 @@ APK 复验见 §2.10。
 
 ---
 
+### 2.11 阶段 6 判据（socket 所有权 + Android 直连客户端）—— 【先落盘，后写代码】
+
+范围：只做「手动 `IP:端口` 直连」，不做信令/账号、不做配对校验。对端为
+Linux 被控端 `rdc-serve` 的 **S8-2 明文 TCP 协议**（`kind 1..4`，见
+`RDC-linux/research/android-connect-linux.md`）；本轮对生产协议零改动。
+
+| # | 判据 | 阈值 / 判定方式 | 类型 |
+|---|---|---|---|
+| G1 | 直连页可用 | 输入 IP + TCP 端口（默认 45900），无配对码输入；失败必须给出 `CODE: 人话`（如 `E_CONNECT_REFUSED: 连接 … 失败`） | 宿主可测 |
+| G2 | socket 所有者 | TCP 套接字只在 Rust 侧创建与持有（`rdc-bridge/src/direct_session.rs`）；Dart 无 socket 调用 | 静态 |
+| G3 | 不改协议 | `git diff crates/rdc-protocol` 为零；线上只出现 kind 1..4；不新增配对/握手报文 | 静态 |
+| G4 | 媒体链路 | `kind=VIDEO` 整帧 → 本地 Frame/Fragment 适配 → `video_service` 重组 → MediaCodec 上屏；不重写线格式 | 静态 + 单测 |
+| G5 | 接收有界 | 接收线程不碰 UI；帧队列 16 MiB + 64 条双上限，满即丢最旧并累加 `frames_dropped`；单帧超预算直接丢 | 单测 |
+| G6 | 出画面 | 模拟器截图可见 VM 桌面（非黑屏/占位图），首个有效帧为 IDR | 设备 |
+| G7 | 上屏 fps | 对端 CONFIG 1280×800@60；客户端 10 秒窗口 `fps ≥ 25` | 设备 |
+| G8 | 延迟 | 客户端侧 p50 ≤ 120 ms、p99 ≤ 250 ms（对端 pts_ns 采集时间戳 → 解码输出，含网络） | 设备 |
+| G9 | 触摸（Pointer 语义） | 点击 3 个已知坐标，VM 侧 `xdotool getmouselocation` 误差 ≤ 2 px 且按键状态改变；断连/切后台补 Up | 设备 |
+| G10 | 中文输入 | IME 组合文本经 `kind=INPUT` tag4 上送，VM 侧可回读同一字符串。**已知风险**：Linux 注入器对 `InputEvent::Text` 返回 `Unsupported`（属 Linux 线），若确认不支持则记「阻塞在 Linux 注入器」 | 设备 |
+| G11 | 横竖屏 | 旋转后 `textureId` 不变；CONFIG 变化触发一次重配并等待新 IDR，画面比例正确 | 设备 |
+| G12 | 5 分钟真推流 | 连续动态桌面 5 分钟：无崩溃/ANR；客户端 RSS 增长 ≤ 50 MB；`frames_dropped/frames_received ≤ 5%` | 设备 |
+| G13 | 收尾 | 断开发送 `kind=4 BYE` 并释放 socket/线程；清理 `target/`、`app/build`、`.gradle/caches` 并记录释放字节数 | 宿主 |
+
+**判定纪律**：G6–G12 若无设备/被控端任一侧缺失，只记「未覆盖」，不写入通过项；
+数字不达标就写不达标，不取近似值。失败一律附错误码与一句人话。
+
+#### 阶段 6 结果（执行后回填）
+
+| # | 结果 | 证据 |
+|---|---|---|
+| G1–G13 | 待执行 | — |
+
+---
+
+### 2.12 阶段 6 构建链与连通性判据（2026-11-08 先落盘，后动手）
+
+**环境基线（探测于 2026-11-08，本机 Windows）**
+
+| 项 | 实测状态 | 证据命令 |
+|---|---|---|
+| Flutter | 3.47.9，位于 `C:\dev\flutter`，**未进 PATH** | `C:\dev\flutter\bin\flutter.bat --version` |
+| Rust | 1.99.1，位于 `C:\Users\Administrator\.cargo\bin`，仅装 `x86_64-pc-windows-msvc` | `rustc --version` / `rustup target list --installed` |
+| Android SDK | **缺失** | `flutter doctor -v` → `X Unable to locate Android SDK` |
+| JDK | **缺失**（无 `java.exe`，`JAVA_HOME` 为空） | 全盘搜索 `java.exe` 无结果 |
+| adb / 设备 | **缺失**，`flutter devices` 只有 Windows/Chrome/Edge | `flutter devices` |
+| cargo-ndk / aarch64-linux-android | **缺失** | `cargo ndk` → `no such command` |
+| Gradle 缓存 | 无 `~/.gradle`，wrapper 需联网下载 9.3.1 | `Get-ChildItem ~/.gradle` |
+| 网络 | `maven.google.com` 超时 | `flutter doctor -v` 网络项 |
+| 磁盘 | C 盘 13.68 GB 空闲 | `Get-PSDrive C` |
+| 历史构建机 | Ubuntu 22.04 VM `192.168.37.130`（SDK 36 / NDK 28.2.13676358 / JDK 17 / cargo-ndk 4.1.2） | §2.10 记录；当前 `vmrun list` 为 0、ping 不通 |
+| 现存 APK | `dist/app-debug-s9-stage3.apk` 94,614,894 B，2026-11-07 22:05，不含阶段 6 代码 | `Get-ChildItem dist` |
+
+**构建判据（B 组）**
+
+| # | 判据 | 阈值 / 判定方式 | 可在本机执行 |
+|---|---|---|---|
+| B1 | Rust 宿主编译 | `cargo check -p rdc-bridge`（x86_64-pc-windows-msvc）退出码 0，无 error | 是 |
+| B2 | Rust 单测 | `cargo test -p rdc-protocol -p rdc-bridge` 全绿，`direct_session` 6 条在内 | 是 |
+| B3 | Dart 静态 | `flutter analyze` 输出 `No issues found!` | 是 |
+| B4 | Dart 单测 | `flutter test` 全绿 | 是 |
+| B5 | arm64 APK 产出 | `flutter build apk --debug --target-platform android-arm64` 退出码 0，产物存在且 `unzip -l` 含 `lib/arm64-v8a/librdc_bridge.so` | **否**（需 SDK/JDK/NDK） |
+| B6 | APK 可安装 | 设备上 `adb install` 返回 `Success`，启动后 `pidof com.rdc.rdc` 非空 | **否**（需设备） |
+
+**连通性判据（C 组，对应「地址输入 → 连接 → 画面接收 → 输入回传」四环）**
+
+| 环节 | 判据 | 类型 |
+|---|---|---|
+| C1 地址输入 | 直连对话框可输入 IP 与端口（默认 45900），空 IP / 端口越界给出字段级错误 | 宿主静态 + 页面 |
+| C2 连接 | `direct_connect` 失败必须返回 `CODE: 人话`（`E_ARGS`/`E_RESOLVE`/`E_CONNECT_REFUSED`/`E_CONNECT_TIMEOUT`/`E_CONFIG_TIMEOUT`），页面同时写占位区与提示条 | 宿主单测 + 设备 |
+| C3 画面接收 | 收到 CONFIG 后 `configured=true`；`kind=VIDEO` 经重组进入解码器；设备上截图可见被控端桌面（非黑屏） | 设备 |
+| C4 输入回传 | 触摸经 `kind=INPUT` 上送；被控端 `xdotool getmouselocation` 误差 ≤ 2 px；断连补 Up | 设备 |
+| C5 收尾 | 断开释放 socket/接收线程，重复调用安全；`frames_dropped/frames_received ≤ 5%` | 单测 + 设备 |
+
+**判定纪律**：B5/B6/C3/C4 任一所需环境缺失时只记「未覆盖」并写明缺什么，不得记为通过；不得为出包而放宽版本或签名要求。
+
+#### 阶段 6 构建/连通结果（执行后回填）
+
+| # | 结果 | 证据 |
+|---|---|---|
+| B1–B6 / C1–C5 | 待执行 | — |
+
+---
+
 ## 三、阶段 2 现状（代码完成，设备侧未验证）
 
 | # | 现状 | 阻塞 |

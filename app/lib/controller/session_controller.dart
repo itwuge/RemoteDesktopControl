@@ -146,6 +146,18 @@ class SessionController {
   /// 防止上一轮 `pollVideoFrame` 未返回时重入。
   bool _videoPollInflight = false;
 
+  /// 直连诊断采样：(对端采集 pts_us, 本机收到时刻 micros) 交替写入。
+  ///
+  /// 对端 pts 是 VM 的 `CLOCK_MONOTONIC`，与本机时钟不同源；这里只落原始对，
+  /// 由验证脚本用 VM 侧 `date + uptime` 的 mono→wall 偏移离线换算延迟。
+  final List<int> _latencyPairs = <int>[];
+
+  /// 直连上屏帧率窗口计数。
+  int _fpsWindowCount = 0;
+
+  /// 直连上屏帧率窗口起点。
+  DateTime _fpsWindowStart = DateTime.now();
+
   /// 已应用到解码器的配置版本；元数据变化时重建。
   int _appliedConfigId = -1;
 
@@ -154,6 +166,17 @@ class SessionController {
 
   /// 协商结果是否含文本能力位（`TEXT_INPUT = bit13`）。
   bool _textInputEnabled = false;
+
+  // =====** 直连会话状态（阶段 6） =====**
+
+  /// 是否处于直连模式：socket/密钥/接收线程都在 Rust 侧。
+  bool _directMode = false;
+
+  /// 直连会话快照（SAS、队列丢弃、输入计数）。
+  final ValueNotifier<DirectSessionInfo?> direct = ValueNotifier(null);
+
+  /// 是否处于直连模式（页面用它区分本地回环与远端直连）。
+  bool get isDirect => _directMode;
 
   /// 当前可用的远端文本输入客户端（单测与页面入口使用）。
   RemoteTextInput? get textInput => _textInput;
@@ -239,6 +262,67 @@ class SessionController {
         error: error,
         stackTrace: stackTrace,
       );
+    } finally {
+      _starting = false;
+    }
+  }
+
+  /// 建立直连会话：手动 `IP:端口`，不经过信令，也不做配对校验。
+  ///
+  /// 调用顺序：Rust 建 TCP 连接并等 CONFIG → 创建 Android 纹理 → 启动帧轮询 → 文本接线。
+  /// 返回值：成功时为会话快照；失败返回 `null` 并把 `CODE: 人话` 写入 [previewError]。
+  ///
+  /// 参数 [host]：被控端 IP 或域名。
+  /// 参数 [port]：被控端 TCP 端口（Linux 被控端默认 45900）。
+  Future<DirectSessionInfo?> startDirect({
+    required String host,
+    required int port,
+  }) async {
+    if (_starting) return null;
+    if (!_android) {
+      previewError.value = '直连页仅支持 Android 客户端';
+      return null;
+    }
+    _starting = true;
+    previewError.value = null;
+    try {
+      final info = await gateway.directConnect(host: host, port: port);
+      direct.value = info;
+      _directMode = true;
+      // 直连模式下输入直接经 Rust 输入通道上送，不需要本地注入器。
+      _inputRunning = true;
+      inputError.value = null;
+      // S8-2 线协议没有能力位：文本事件能否生效取决于对端注入器；
+      // Linux 注入器当前对 Text 返回 Unsupported（验证阶段按实际回读记录）。
+      _textInputEnabled = true;
+      // 切换画面来源：先释放本机回环预览的解码器与纹理，避免两个 MediaCodec 并存。
+      await _stopAndroidVideo();
+      await _startAndroidVideo();
+      _ensureTextInput();
+      _statusTimer?.cancel();
+      _statusTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => _refreshStatus(),
+      );
+      RdcLogger.log(
+        'SessionController',
+        '直连建立 ${info.host}:${info.port} '
+            '${info.width}x${info.height}@${info.fps}',
+      );
+      return info;
+    } catch (error, stackTrace) {
+      previewError.value = '$error';
+      _directMode = false;
+      direct.value = null;
+      inputError.value = null;
+      RdcLogger.log(
+        'SessionController',
+        '直连建立失败',
+        level: LogLevel.error,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
     } finally {
       _starting = false;
     }
@@ -358,10 +442,40 @@ class SessionController {
         await _applyRemoteConfig(frame.config);
       }
       videoChannel.push(frame.data);
+      if (_directMode) {
+        _sampleDirectFrame(frame.ptsUs);
+      }
     } catch (error) {
       RdcLogger.log('SessionController', '拉取远端视频帧失败: $error');
     } finally {
       _videoPollInflight = false;
+    }
+  }
+
+  /// 直连诊断采样：每 8 帧输出一行原始 (pts, 本机收到时刻)，并每 5 秒打印一次上屏帧率。
+  ///
+  /// 采样只用于验收取数，不参与解码/上屏路径，队列长度固定 16 个整数。
+  void _sampleDirectFrame(int ptsUs) {
+    if (ptsUs > 0) {
+      _latencyPairs.add(ptsUs);
+      _latencyPairs.add(DateTime.now().microsecondsSinceEpoch);
+      if (_latencyPairs.length >= 16) {
+        RdcLogger.log('Latency', 'LAT ${_latencyPairs.join(',')}');
+        _latencyPairs.clear();
+      }
+    }
+    _fpsWindowCount += 1;
+    final now = DateTime.now();
+    final elapsed = now.difference(_fpsWindowStart).inMilliseconds;
+    if (elapsed >= 5000) {
+      final fps = _fpsWindowCount * 1000.0 / elapsed;
+      RdcLogger.log(
+        'Latency',
+        'FPS ${fps.toStringAsFixed(1)} frames=$_fpsWindowCount '
+            'window=${elapsed}ms',
+      );
+      _fpsWindowCount = 0;
+      _fpsWindowStart = now;
     }
   }
 
@@ -518,6 +632,10 @@ class SessionController {
 
   /// 停止画面管线：先注销纹理，再停止输入与 Rust（避免句柄提前释放）。
   Future<void> stopPreview() async {
+    if (_directMode) {
+      await _stopDirect();
+      return;
+    }
     _statusTimer?.cancel();
     _statusTimer = null;
     _stopFramePolling();
@@ -606,6 +724,10 @@ class SessionController {
   /// 返回：收尾报告（含 bye 往返、服务残留、句柄差值与端口释放）；
   /// 报告为空表示 Rust 侧未返回（调用失败，失败原因已记录日志）。
   Future<SessionTeardownInfo?> endSession({String reason = '用户断开'}) async {
+    if (_directMode) {
+      await _stopDirect();
+      return null;
+    }
     _statusTimer?.cancel();
     _statusTimer = null;
     _stopFramePolling();
@@ -643,6 +765,11 @@ class SessionController {
 
   /// 启动输入通道；失败时只记录错误，不影响画面。
   Future<void> _startInput(ControlPreviewInfo info) async {
+    // 直连模式没有本地注入器：输入直接经 Rust 的输入通道上送。
+    if (_directMode) {
+      _inputRunning = true;
+      return;
+    }
     // Android 首帧前尺寸可能为 0：等 `_refreshStatus` 拿到有效尺寸后再启动。
     if (_android && (info.width <= 0 || info.height <= 0)) {
       return;
@@ -671,6 +798,10 @@ class SessionController {
   /// 停止输入通道：先排空串行链，再让 Rust 抬起所有键/钮并返回收尾统计。
   Future<void> _stopInput() async {
     _inputStartAttempted = false;
+    if (_directMode) {
+      _inputRunning = false;
+      return;
+    }
     if (!_inputRunning) return;
     _inputRunning = false;
     try {
@@ -694,7 +825,11 @@ class SessionController {
     final batch = List<InputEventSpec>.unmodifiable(events);
     _inputChain = _inputChain.then((_) async {
       try {
-        inputStats.value = await gateway.pushInput(batch);
+        if (_directMode) {
+          await gateway.directSendInput(batch);
+        } else {
+          inputStats.value = await gateway.pushInput(batch);
+        }
       } catch (error, stackTrace) {
         inputError.value = '$error';
         RdcLogger.log(
@@ -772,7 +907,8 @@ class SessionController {
 
   /// 冲刷挂起的移动（指针抬起后调用，避免末点丢失）。
   void flushInputEvents() {
-    if (!_inputRunning) return;
+    // 直连模式没有“挂起移动”的本地合并器，事件已即时发出。
+    if (!_inputRunning || _directMode) return;
     _inputChain = _inputChain.then((_) async {
       try {
         inputStats.value = await gateway.flushInput();
@@ -784,6 +920,23 @@ class SessionController {
 
   /// 刷新一次指标。
   Future<void> _refreshStatus() async {
+    if (_directMode) {
+      // 直连没有本地回环会话：不读协商位/本地输入统计，只轮询直连快照。
+      try {
+        final info = await gateway.directStatus();
+        direct.value = info;
+        final error = info.lastError;
+        if (error != null && error.isNotEmpty) {
+          previewError.value = error;
+        }
+      } catch (error) {
+        RdcLogger.log('SessionController', '读取直连状态失败: $error');
+      }
+      if (_android) {
+        await _refreshAndroidVideo();
+      }
+      return;
+    }
     if (_android) {
       await _refreshAndroidVideo();
     } else {
@@ -885,10 +1038,46 @@ class SessionController {
     inputStats.dispose();
     inputError.dispose();
     session.dispose();
+    direct.dispose();
+  }
+
+  /// 直连会话收尾：先停轮询/输入，再切纹理，最后由 Rust 关 socket 回收线程。
+  Future<void> _stopDirect() async {
+    _statusTimer?.cancel();
+    _statusTimer = null;
+    _detachTextInput();
+    await _stopInput();
+    await _stopAndroidVideo();
+    try {
+      await gateway.directDisconnect();
+    } catch (error) {
+      RdcLogger.log('SessionController', '断开直连失败: $error');
+    }
+    _directMode = false;
+    direct.value = null;
+    textureId.value = null;
+    preview.value = null;
+    _latencyPairs.clear();
+    _fpsWindowCount = 0;
+    _fpsWindowStart = DateTime.now();
   }
 
   /// 无通知器写入的管线回收。
   Future<void> _teardown() async {
+    if (_directMode) {
+      _textInput?.detach();
+      _textInput = null;
+      if (_android) {
+        await _stopAndroidVideo();
+      }
+      try {
+        await gateway.directDisconnect();
+      } catch (_) {
+        // 窗口关闭路径，忽略失败。
+      }
+      _directMode = false;
+      return;
+    }
     _textInput?.detach();
     _textInput = null;
     if (_android) {

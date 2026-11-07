@@ -17,6 +17,7 @@
 
 package com.rdc.rdc.video
 
+import android.content.Context
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -25,6 +26,7 @@ import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import io.flutter.view.TextureRegistry
 
 /// Flutter 插件：把 `rdc/video_decoder` 通道接到 [H264Decoder]。
 class VideoDecoderPlugin :
@@ -41,6 +43,10 @@ class VideoDecoderPlugin :
     private var decoder: H264Decoder? = null
     private var lifecycle: Lifecycle? = null
 
+    /// 重建解码器实例所需的引擎资源（dispose 后 create 会新建实例）。
+    private var registry: TextureRegistry? = null
+    private var appContext: Context? = null
+
     /// 前后台观察者：后台暂停解码，前台重建 Surface（保留 textureId）。
     private val observer = object : DefaultLifecycleObserver {
         override fun onResume(owner: LifecycleOwner) {
@@ -55,6 +61,8 @@ class VideoDecoderPlugin :
     // =====** FlutterPlugin =====**
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        registry = binding.textureRegistry
+        appContext = binding.applicationContext
         val created = H264Decoder(binding.textureRegistry, binding.applicationContext)
         decoder = created
         channel = MethodChannel(binding.binaryMessenger, CHANNEL).also {
@@ -67,12 +75,31 @@ class VideoDecoderPlugin :
         channel = null
         decoder?.dispose()
         decoder = null
+        registry = null
+        appContext = null
     }
 
     // =====** MethodChannel =====**
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        val target = decoder
+        // `create` 允许在 dispose 之后重新打开：已释放的实例不可复用，必须新建。
+        // 否则 `released`/`paused` 会带着上一周期的值，解码泵与入队全部静默失效（黑屏）。
+        val target = if (call.method == "create") {
+            val current = decoder
+            if (current == null || current.isDisposed) {
+                val registry = this.registry
+                val context = this.appContext
+                if (registry == null || context == null) {
+                    result.error("unattached", "解码插件未绑定到 FlutterEngine", null)
+                    return
+                }
+                H264Decoder(registry, context).also { decoder = it }
+            } else {
+                current
+            }
+        } else {
+            decoder
+        }
         if (target == null) {
             result.error("unattached", "解码插件未绑定到 FlutterEngine", null)
             return

@@ -12,6 +12,7 @@ import 'clipboard_service.dart';
 import 'dart:async';
 import 'dart:convert';
 
+import 'direct_session.dart';
 import 'file_service.dart';
 import 'frb_generated.dart';
 import 'input_service.dart';
@@ -71,6 +72,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DeviceListDto dco_decode_device_list_dto(dynamic raw);
+
+  @protected
+  DirectSessionDto dco_decode_direct_session_dto(dynamic raw);
 
   @protected
   double dco_decode_f_64(dynamic raw);
@@ -246,6 +250,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   DeviceListDto sse_decode_device_list_dto(SseDeserializer deserializer);
+
+  @protected
+  DirectSessionDto sse_decode_direct_session_dto(SseDeserializer deserializer);
 
   @protected
   double sse_decode_f_64(SseDeserializer deserializer);
@@ -457,6 +464,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_device_list_dto(DeviceListDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_direct_session_dto(
+    DirectSessionDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_f_64(double self, SseSerializer serializer);

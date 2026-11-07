@@ -59,7 +59,17 @@ class H264Decoder(
     private val gate = FrameGate()
     private var paused = false
     private var released = false
+    /// 是否已被 `dispose`（实例不可复用；插件会在下次 `create` 时新建实例）。
+    ///
+    /// 为什么不能复用：`released`/`paused` 由解码线程异步置位，复用实例时新周期
+    /// 可能先看到旧值，导致 `pump` 直接退出、所有 `push` 被丢弃（黑屏）。
+    @Volatile
+    private var disposed = false
     private val pending = ArrayDeque<FeedChunk>()
+
+    /// 实例是否已释放；`true` 表示调用方必须新建实例再 `create`。
+    val isDisposed: Boolean
+        get() = disposed
 
     // =====** 线程 =====**
 
@@ -183,7 +193,11 @@ class H264Decoder(
     }
 
     /// 释放全部资源（纹理、Surface、MediaCodec、线程）。
+    ///
+    /// 释放后本实例不可再用：`isDisposed` 立即为 `true`，调用方须新建实例。
     fun dispose() {
+        // 同步置位：必须在返回前让调用方看到，避免新建实例的判断落空。
+        disposed = true
         val worker = handler
         val textureProducer = producer
         producer = null
