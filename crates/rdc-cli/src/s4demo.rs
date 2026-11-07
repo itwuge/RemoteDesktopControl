@@ -10,22 +10,27 @@
 
 use std::error::Error;
 use std::net::SocketAddr;
+use std::sync::{mpsc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use rdc_connect::{dial, establish, listen, DirectListener, EstablishedSession, QuicSignalClient};
-use rdc_input::{create_injector, InputEvent, PointerEvent, Viewport};
+use rdc_input::{create_injector, InputEvent, KeyEvent, PointerEvent, Viewport};
 use rdc_protocol::{
     CallMode, CandidateDesc, CandidateProto, Capabilities, SignalMessage, SignalPath,
 };
 use rdc_security::{hmac_sha256_b64, IdentityKeyPair, PairingCode, SessionHandshake};
 use rdc_signal::SignalServer;
-use windows::Win32::Foundation::POINT;
+use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::HiDpi::{
     SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetSystemMetrics, SetCursorPos, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    CallNextHookEx, GetCursorPos, GetMessageW, GetSystemMetrics, PeekMessageW, PostThreadMessageW,
+    SetCursorPos, SetWindowsHookExW, UnhookWindowsHookEx, HHOOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED,
+    MSG, PM_NOREMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+    SM_YVIRTUALSCREEN, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 // =====** 类型与常量 =====**
@@ -328,6 +333,225 @@ pub async fn run_input() -> DemoResult<()> {
         Ok(())
     } else {
         Err(format!("[input] FAIL: {}", failures.join("、")).into())
+    }
+}
+
+// =====** demo-keys =====**
+
+/// demo-keys 使用的安全扫描码（A/B/C，不含任何修饰键）。
+const KEY_SCAN_CODES: [u16; 6] = [0x1E, 0x30, 0x2E, 0x1E, 0x30, 0x2E];
+/// demo-keys 每条注入后的等待。
+const KEY_PACE: Duration = Duration::from_millis(8);
+
+/// 一条低级钩子记录（只收注入事件）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct KeyRecord {
+    /// 扫描码。
+    scan_code: u16,
+    /// 是否按下（否则为抬起）。
+    down: bool,
+    /// 是否带注入标记（本演示应恒为 true）。
+    injected: bool,
+}
+
+/// 钩子回调写入的记录缓冲。
+static KEY_EVENTS: Mutex<Vec<KeyRecord>> = Mutex::new(Vec::new());
+
+/// 低级键盘钩子线程：安装 → 消息泵 → 收到 `WM_QUIT` 后卸载并退出。
+struct KeyboardHook {
+    /// 钩子线程。
+    thread: JoinHandle<()>,
+    /// 线程 id（用于投递 `WM_QUIT`）。
+    thread_id: u32,
+}
+
+impl KeyboardHook {
+    /// 安装 `WH_KEYBOARD_LL` 钩子并等待线程就绪。
+    ///
+    /// # Errors
+    /// 线程创建失败或钩子安装失败（5 s 内未就绪）时返回错误。
+    fn install() -> DemoResult<Self> {
+        let (tx, rx) = mpsc::channel::<(u32, bool)>();
+        let thread = std::thread::Builder::new()
+            .name("s4-key-hook".into())
+            .spawn(move || unsafe {
+                let mut msg = MSG::default();
+                // 先创建消息队列，保证主线程的 PostThreadMessage 不会落空。
+                let _ = PeekMessageW(&mut msg, HWND(0), 0, 0, PM_NOREMOVE);
+                let thread_id = GetCurrentThreadId();
+                match SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), HINSTANCE(0), 0) {
+                    Ok(hook) => {
+                        let _ = tx.send((thread_id, true));
+                        loop {
+                            let ret = GetMessageW(&mut msg, HWND(0), 0, 0);
+                            if ret.0 == 0 || ret.0 == -1 {
+                                break;
+                            }
+                        }
+                        let _ = UnhookWindowsHookEx(hook);
+                    }
+                    Err(_) => {
+                        let _ = tx.send((thread_id, false));
+                    }
+                }
+            })?;
+        let (thread_id, installed) = rx.recv_timeout(Duration::from_secs(5))?;
+        if !installed {
+            return Err("SetWindowsHookExW(WH_KEYBOARD_LL) 失败".into());
+        }
+        Ok(Self { thread, thread_id })
+    }
+
+    /// 停止钩子线程并取走记录（保证线程 join，无残留）。
+    fn stop(self) -> Vec<KeyRecord> {
+        unsafe {
+            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+        }
+        let _ = self.thread.join();
+        std::mem::take(&mut *KEY_EVENTS.lock().expect("钩子记录锁"))
+    }
+}
+
+/// 低级键盘钩子过程：只记录带 `LLKHF_INJECTED` 的按下/抬起。
+unsafe extern "system" fn keyboard_hook(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if code >= 0 {
+        let info = &*(lparam.0 as *const KBDLLHOOKSTRUCT);
+        if info.flags.0 & LLKHF_INJECTED.0 != 0 {
+            let message = wparam.0 as u32;
+            if message == WM_KEYDOWN
+                || message == WM_KEYUP
+                || message == WM_SYSKEYDOWN
+                || message == WM_SYSKEYUP
+            {
+                if let Ok(mut events) = KEY_EVENTS.lock() {
+                    events.push(KeyRecord {
+                        scan_code: info.scanCode as u16,
+                        down: message == WM_KEYDOWN || message == WM_SYSKEYDOWN,
+                        injected: true,
+                    });
+                }
+            }
+        }
+    }
+    CallNextHookEx(HHOOK(0), code, wparam, lparam)
+}
+
+/// 按键通道演示：注入 A/B/C 的按下/抬起，低级钩子逐条比对。
+///
+/// # Returns
+/// 记录条数、顺序与注入标记全部一致时返回 `Ok(())`。
+///
+/// # Errors
+/// 钩子安装、会话、注入失败或比对不一致时返回错误。
+pub async fn run_keys() -> DemoResult<()> {
+    let start = Instant::now();
+    KEY_EVENTS.lock().expect("钩子记录锁").clear();
+    let hook = KeyboardHook::install()?;
+    let mut events = Vec::with_capacity(KEY_SCAN_CODES.len() * 2);
+    for scan_code in KEY_SCAN_CODES {
+        events.push(InputEvent::Key(KeyEvent {
+            scan_code,
+            pressed: true,
+            modifiers: 0,
+        }));
+        events.push(InputEvent::Key(KeyEvent {
+            scan_code,
+            pressed: false,
+            modifiers: 0,
+        }));
+    }
+    println!(
+        "[keys] 钩子就绪，准备注入 {} 条（A/B/C 按下抬起）",
+        events.len()
+    );
+
+    let fixture = signal_fixture().await?;
+    let code = PairingCode::generate();
+    let host_id = IdentityKeyPair::generate();
+    let ctrl_id = IdentityKeyPair::generate();
+    let code_proof = hmac_sha256_b64(code.as_str().as_bytes(), b"rdc-s4");
+    let (host_rt, ctrl_rt) = tokio::join!(
+        setup_host(
+            fixture.addr,
+            &fixture.cert,
+            &fixture.key,
+            host_id,
+            code.clone()
+        ),
+        setup_ctrl(fixture.addr, &fixture.cert, ctrl_id, code, code_proof)
+    );
+    let mut host_rt = host_rt?;
+    let mut ctrl_rt = ctrl_rt?;
+
+    let max_events = events.len() as u32;
+    let host_fut = async {
+        match create_injector() {
+            Ok(mut injector) => {
+                rdc_core::s4::input::run_host(
+                    &mut host_rt.secure,
+                    &mut *injector,
+                    max_events,
+                    Some(KEY_PACE),
+                    |_| {},
+                )
+                .await
+            }
+            Err(err) => Err(rdc_core::s4::S4Error::Input(err)),
+        }
+    };
+    let ctrl_fut = async {
+        rdc_core::s4::input::run_ctrl(&mut ctrl_rt.secure, &events).await
+    };
+    let (host_result, ctrl_result) = tokio::join!(host_fut, ctrl_fut);
+    host_rt.close();
+    ctrl_rt.close();
+    let observed = hook.stop();
+
+    let injected = host_result.map_err(|e| e.to_string())?;
+    let counters = ctrl_result.map_err(|e| e.to_string())?;
+    println!(
+        "[keys] 发送 {} 条，注入 {} 条，钩子记录 {} 条（钩子仅统计 LLKHF_INJECTED）",
+        counters.sent,
+        injected,
+        observed.len()
+    );
+
+    let mut failures = Vec::new();
+    if observed.len() != events.len() {
+        failures.push(format!(
+            "记录条数 {} != 发送 {}",
+            observed.len(),
+            events.len()
+        ));
+    }
+    for (index, (record, event)) in observed.iter().zip(events.iter()).enumerate() {
+        if let InputEvent::Key(key) = event {
+            if record.scan_code != key.scan_code || record.down != key.pressed {
+                failures.push(format!(
+                    "第 {index} 条错位：记录 {} {} / 期望 {} {}",
+                    record.scan_code,
+                    if record.down { "down" } else { "up" },
+                    key.scan_code,
+                    if key.pressed { "down" } else { "up" }
+                ));
+            }
+        }
+        if !record.injected {
+            failures.push(format!("第 {index} 条缺少 LLKHF_INJECTED"));
+        }
+    }
+
+    if failures.is_empty() {
+        println!(
+            "[keys] 顺序与注入标记一致：{}/{}；+{} ms",
+            observed.len(),
+            events.len(),
+            start.elapsed().as_millis()
+        );
+        println!("[keys] PASS +{} ms", start.elapsed().as_millis());
+        Ok(())
+    } else {
+        Err(format!("[keys] FAIL: {}", failures.join("；")).into())
     }
 }
 

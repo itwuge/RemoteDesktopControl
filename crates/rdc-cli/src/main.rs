@@ -41,11 +41,13 @@ async fn main() -> ExitCode {
         Some("s3b3") => run_s3b3(&mut args),
         Some("s3b4") => run_s3b4(&mut args),
         Some("demo-input") => run_s4_demo("demo-input", 60, s4demo::run_input()).await,
+        Some("demo-keys") => run_s4_demo("demo-keys", 60, s4demo::run_keys()).await,
         Some(other) => {
             eprintln!("未知子命令: {other}");
             eprintln!(
-                "可用: doctor | selftest | demo | demo-input | s3a [--fixture] | s3b [--frames N] | \
-                 s3b3 [--instances K] [--frames N] [--bitrate B] | s3b4 [host|ctrl] [--secs S]"
+                "可用: doctor | selftest | demo | demo-input | demo-keys | s3a [--fixture] | \
+                 s3b [--frames N] | s3b3 [--instances K] [--frames N] [--bitrate B] | \
+                 s3b4 [host|ctrl] [--secs S]"
             );
             ExitCode::FAILURE
         }
