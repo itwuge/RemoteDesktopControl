@@ -99,6 +99,13 @@ windows = { version = "0.56", features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+# --- S8 Linux X11 平台依赖（仅 Linux 后端使用，见 research/linux-x11-design.md）---
+# x11rb 为纯 Rust X11 协议实现：不需要 libX11/libxcb 头文件，便于 CI 与容器构建；
+# 只开启实际用到的扩展，避免拉入无关协议代码。
+x11rb = { version = "0.13", features = ["randr", "shm", "xfixes", "xtest"] }
+# libc 仅用于 XShm 共享内存段（shmget/shmat）与 uinput ioctl，均属 Linux 平台 API。
+libc = "0.2"
+
 # --- 内部 crate 依赖（统一在此声明，crate 内用 workspace = true 引用）---
 rdc-protocol = { path = "crates/rdc-protocol" }
 rdc-runtime = { path = "crates/rdc-runtime" }
