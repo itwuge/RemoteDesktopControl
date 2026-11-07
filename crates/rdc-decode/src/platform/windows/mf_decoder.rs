@@ -32,7 +32,8 @@ use windows::Win32::Media::MediaFoundation::{
     MFT_ENUM_FLAG_SORTANDFILTER, MFT_MESSAGE_NOTIFY_BEGIN_STREAMING,
     MFT_MESSAGE_NOTIFY_END_OF_STREAM, MFT_MESSAGE_NOTIFY_START_OF_STREAM,
     MFT_MESSAGE_COMMAND_FLUSH, MFT_MESSAGE_SET_D3D_MANAGER, MFT_OUTPUT_DATA_BUFFER,
-    MFT_OUTPUT_STREAM_PROVIDES_SAMPLES, MFT_REGISTER_TYPE_INFO, MF_E_NO_EVENTS_AVAILABLE,
+    MFT_OUTPUT_STREAM_PROVIDES_SAMPLES, MFT_OUTPUT_STREAM_SINGLE_SAMPLE_PER_BUFFER,
+    MFT_REGISTER_TYPE_INFO, MF_E_NO_EVENTS_AVAILABLE,
     MF_E_TRANSFORM_NEED_MORE_INPUT, MF_E_TRANSFORM_STREAM_CHANGE, MF_EVENT_FLAG_NO_WAIT,
     MF_LOW_LATENCY, MF_SA_D3D11_AWARE, MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, MF_VERSION, ICodecAPI,
     CODECAPI_AVLowLatencyMode,
@@ -248,6 +249,30 @@ impl BoolVariant {
     }
 }
 
+/// `CODECAPI_AVLowLatencyMode` 在部分 in-box 解码器上要求 VT_UI4（实测 0x80070057 报 VT_UI4 != vt）。
+#[repr(C)]
+struct UInt32Variant {
+    vt: u16,
+    reserved: [u16; 3],
+    value: u32,
+    padding: [u8; 12],
+}
+
+impl UInt32Variant {
+    fn new(value: u32) -> Self {
+        Self {
+            vt: windows::Win32::System::Variant::VT_UI4.0,
+            reserved: [0; 3],
+            value,
+            padding: [0; 12],
+        }
+    }
+
+    fn as_ptr(&self) -> *const windows::core::VARIANT {
+        self as *const Self as *const windows::core::VARIANT
+    }
+}
+
 // =====** MfH264Decoder =====**
 
 /// 独占一个 H.264 解码 MFT 的会话。
@@ -422,16 +447,23 @@ impl MfH264Decoder {
                     .map_err(|e| DecodeError::DecoderUnavailable(format!("异步解锁({name}): {e}")))?;
                 // 低时延对解码同样有意义；老驱动不认该属性时不阻断。
                 let _ = attrs.SetUINT32(&MF_LOW_LATENCY, 1);
-                // 限制 MFT 在管线里可持有/分配的输出样本上限（3 帧起步），压小内部积压。
-                let _ = attrs.SetUINT32(&MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, 3);
+                // 4C：把 MFT 可持有/分配的输出样本上限压到 1（一进一出），减少内部积压。
+                let _ = attrs.SetUINT32(&MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, 1);
             }
         }
         // CODECAPI 低延迟是 VT_BOOL；属性形式 (MF_LOW_LATENCY) 在部分 in-box 解码器上不生效。
-        if let Ok(codec) = transform.cast::<ICodecAPI>() {
-            let value = BoolVariant::new(true);
-            unsafe {
-                let _ = codec.SetValue(&CODECAPI_AVLowLatencyMode, value.as_ptr());
+        // 4C 要求把实际结果打印出来，不能只看「设置没报错」。
+        match transform.cast::<ICodecAPI>() {
+            Ok(codec) => {
+                let ui4 = UInt32Variant::new(1);
+                let bool_v = BoolVariant::new(true);
+                let hr_ui4 = unsafe { codec.SetValue(&CODECAPI_AVLowLatencyMode, ui4.as_ptr()) };
+                let hr_bool = unsafe { codec.SetValue(&CODECAPI_AVLowLatencyMode, bool_v.as_ptr()) };
+                eprintln!(
+                    "[mfdec] {name}: CODECAPI_AVLowLatencyMode=1 VT_UI4 -> {hr_ui4:?} / VT_BOOL -> {hr_bool:?}"
+                );
             }
+            Err(_) => eprintln!("[mfdec] {name}: 不支持 ICodecAPI，低延迟只能靠 MF_LOW_LATENCY"),
         }
 
         let output = make_output_type(width, height, fps)?;
@@ -478,6 +510,16 @@ impl MfH264Decoder {
                 })?
         };
         let provides_samples = (info.dwFlags as i32) & MFT_OUTPUT_STREAM_PROVIDES_SAMPLES.0 != 0;
+        // 4C：把 MFT 自己声明的输出流能力打印出来（能否真正一进一出）。
+        // CAN_BUFFER(0x200)/DO_NOT_THROTTLE(0x400) 在 windows crate 里没有绑定，按 mftransform.h 取值。
+        let flags = info.dwFlags as i32;
+        eprintln!(
+            "[mfdec] {name}: 输出流 flags=0x{flags:X} provides_samples={} can_buffer={} do_not_throttle={} single_sample_per_buffer={}",
+            provides_samples,
+            flags & 0x200 != 0,
+            flags & 0x400 != 0,
+            flags & MFT_OUTPUT_STREAM_SINGLE_SAMPLE_PER_BUFFER.0 != 0,
+        );
         let frame_len = width.saturating_mul(height).saturating_mul(3) / 2;
 
         let decoder = Self {
