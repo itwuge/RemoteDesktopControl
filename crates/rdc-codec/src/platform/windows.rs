@@ -72,6 +72,8 @@ pub struct PlatformEncoder {
     queue: VecDeque<EncodedPacket>,
     /// 实际选用的编码器名称。
     selected_name: String,
+    /// 是否允许软件 MFT（仅 `RDC_ENCODER=software` 诊断路径为 true）。
+    software: bool,
 }
 
 impl PlatformEncoder {
@@ -91,6 +93,21 @@ impl PlatformEncoder {
             started: None,
             queue: VecDeque::new(),
             selected_name: String::new(),
+            software: false,
+        }
+    }
+
+    /// 构造「只允许软件 MFT」的编码器（S7-7 块 3 对照基线，默认路径不会走到这里）。
+    ///
+    /// # Returns
+    /// 空实例；`configure` 时按 `MFT_ENUM_FLAG_ALL` 枚举并优先选择同步软件 MFT。
+    ///
+    /// # Errors
+    /// 不会失败；选不到软件 MFT 时由 `configure` 返回错误，不回退硬编。
+    pub fn new_software() -> Self {
+        Self {
+            software: true,
+            ..Self::new()
         }
     }
 
@@ -268,17 +285,28 @@ impl VideoEncoder for PlatformEncoder {
             ));
         }
 
-        let activations = mf::enumerate_h264(false)?;
+        let activations = mf::enumerate_h264(self.software)?;
         if activations.is_empty() {
             return Err(CodecError::HardwareUnsupported);
         }
         // 按系统排序依次尝试：某个 MFT 激活/协商失败时换下一个，避免单点失败。
         let mut last_err = CodecError::HardwareUnsupported;
         for activation in activations {
+            // 软编诊断路径必须真选到软件 MFT；选不到就让 configure 失败，绝不静默退回硬编。
+            if self.software && !mf::is_software_activation(&activation) {
+                continue;
+            }
             let pcfg = to_protocol_config(&config);
             match mf::MfH264Session::new(&activation, &pcfg) {
                 Ok(session) => {
                     self.selected_name = session.name().to_owned();
+                    if self.software {
+                        // M1 要求：软编诊断路径必须打印实际选中的 MFT 名称与 software 标记。
+                        eprintln!(
+                            "[enc] backend=mf-sw selected=\"{}\" software=true",
+                            self.selected_name
+                        );
+                    }
                     self.session = Some(session);
                     self.activation = Some(activation);
                     self.config = Some(config);

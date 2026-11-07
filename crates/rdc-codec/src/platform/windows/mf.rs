@@ -35,7 +35,7 @@ use windows::Win32::Media::MediaFoundation::{
     CODECAPI_AVEncMPVDefaultBPictureCount, CODECAPI_AVEncMPVGOPSize,
     CODECAPI_AVEncVideoForceKeyFrame, CODECAPI_AVEncVideoMaxNumRefFrame,
     CODECAPI_AVEncCommonMaxBitRate, CODECAPI_AVEncCommonQualityVsSpeed,
-    MFT_FRIENDLY_NAME_Attribute,
+    MFT_FRIENDLY_NAME_Attribute, MF_TRANSFORM_FLAGS_Attribute,
     MEDIA_EVENT_GENERATOR_GET_EVENT_FLAGS, METransformHaveOutput, METransformNeedInput,
     MF_EVENT_FLAG_NO_WAIT,
 };
@@ -180,6 +180,20 @@ pub fn activation_name(activate: &IMFActivate) -> String {
         }
     }
     "MF H.264 encoder".to_owned()
+}
+
+/// 该激活对象是否为**同步软件** MFT（`MFT_ENUM_FLAG_SYNCMFT` 且非硬件）。
+///
+/// 用途：S7-7 块 3 的 `RDC_ENCODER=software` 诊断路径要确保选到的是软编，
+/// 而不是枚举顺序里混进来的硬件 MFT。
+pub fn is_software_activation(activate: &IMFActivate) -> bool {
+    let flags = match unsafe { activate.GetUINT32(&MF_TRANSFORM_FLAGS_Attribute) } {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    const MFT_ENUM_FLAG_SYNCMFT_VALUE: u32 = 0x1;
+    const MFT_ENUM_FLAG_HARDWARE_VALUE: u32 = 0x2;
+    flags & MFT_ENUM_FLAG_SYNCMFT_VALUE != 0 && flags & MFT_ENUM_FLAG_HARDWARE_VALUE == 0
 }
 
 // =====** 编码输出样本 =====**

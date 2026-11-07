@@ -58,11 +58,13 @@ pub fn create_encoder(kind: CodecKind) -> Result<Box<dyn VideoEncoder>, CodecErr
                     );
                 }
             }
+        } else if requested == Some(crate::backend::BackendKind::Software) {
+            // S7-7 块 3：显式软编诊断路径（只选同步软件 MFT，选不到就失败，不回退硬编）。
+            tracing::info!("[enc] backend=mf-sw reason=显式指定 RDC_ENCODER=software");
+            return Ok(Box::new(windows::PlatformEncoder::new_software()));
         } else if matches!(
             requested,
-            Some(crate::backend::BackendKind::Nvenc)
-                | Some(crate::backend::BackendKind::OneVpl)
-                | Some(crate::backend::BackendKind::Software)
+            Some(crate::backend::BackendKind::Nvenc) | Some(crate::backend::BackendKind::OneVpl)
         ) {
             tracing::warn!(
                 "[enc] backend=mf reason=指定后端 {:?} 尚未接入，按回退链退到 MFT",
