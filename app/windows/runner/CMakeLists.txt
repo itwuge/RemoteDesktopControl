@@ -48,6 +48,14 @@ find_program(RDC_CARGO_EXECUTABLE cargo HINTS "$ENV{USERPROFILE}/.cargo/bin" "$E
 if(RDC_CARGO_EXECUTABLE)
   set(RDC_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../..")
 
+  # DLL 产物目录：默认仓库内 target/release；外部构建脚本用 RDC_DLL_DIR 显式指定，
+  # 该值必须与 cargo 的 CARGO_TARGET_DIR 指向同一目录，否则下面的复制会找不到文件（MSB3073）。
+  set(RDC_DLL_SOURCE_DIR "$ENV{RDC_DLL_DIR}")
+  if(NOT RDC_DLL_SOURCE_DIR)
+    set(RDC_DLL_SOURCE_DIR "${RDC_REPO_ROOT}/target/release")
+  endif()
+  message(STATUS "rdc_bridge.dll 来源目录：${RDC_DLL_SOURCE_DIR}")
+
   add_custom_target(rdc_ffi_build ALL
     COMMAND "${RDC_CARGO_EXECUTABLE}" build -p rdc-bridge --release
     WORKING_DIRECTORY "${RDC_REPO_ROOT}"
@@ -58,7 +66,7 @@ if(RDC_CARGO_EXECUTABLE)
 
   add_custom_command(TARGET ${BINARY_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${RDC_REPO_ROOT}/target/release/rdc_bridge.dll"
+      "${RDC_DLL_SOURCE_DIR}/rdc_bridge.dll"
       "$<TARGET_FILE_DIR:${BINARY_NAME}>/rdc_bridge.dll"
     COMMENT "复制 rdc_bridge.dll 到输出目录"
     VERBATIM
