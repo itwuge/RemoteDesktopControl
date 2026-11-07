@@ -1,12 +1,11 @@
 {
-    "generatedAt":  "2026-11-08T04:54:21+08:00",
+    "generatedAt":  "2026-11-08T05:21:46+08:00",
     "project":  "RemoteDesktopControl",
-    "total":  449,
+    "total":  442,
     "byRule":  {
                    "R-C-15":  1,
                    "R-C-2":  219,
                    "R-C-3":  166,
-                   "R-C-5":  7,
                    "R-L-1":  30,
                    "R-L-4":  4,
                    "R-L-9":  1,
@@ -528,13 +527,13 @@
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-cli/src/s3b4.rs",
-                        "line":  654,
+                        "line":  655,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-cli/src/s3b4.rs",
-                        "line":  999,
+                        "line":  1000,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
@@ -786,13 +785,13 @@
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-codec/src/platform/windows.rs",
-                        "line":  174,
+                        "line":  177,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-codec/src/platform/windows/amf.rs",
-                        "line":  158,
+                        "line":  159,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
@@ -1278,55 +1277,55 @@
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  135,
+                        "line":  138,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  435,
+                        "line":  438,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  577,
+                        "line":  580,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  610,
+                        "line":  613,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  672,
+                        "line":  675,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  681,
+                        "line":  684,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  728,
+                        "line":  731,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  779,
+                        "line":  782,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  962,
+                        "line":  978,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
@@ -1920,7 +1919,7 @@
                     {
                         "rule":  "R-C-3",
                         "file":  "crates/rdc-codec/src/platform/windows.rs",
-                        "line":  617,
+                        "line":  631,
                         "message":  "error.to_string() loses platform code/source."
                     },
                     {
@@ -2316,62 +2315,20 @@
                     {
                         "rule":  "R-C-3",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  796,
+                        "line":  799,
                         "message":  "map_err(|_| ...) discards the original error."
                     },
                     {
                         "rule":  "R-C-3",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  804,
+                        "line":  807,
                         "message":  "map_err(|_| ...) discards the original error."
                     },
                     {
                         "rule":  "R-C-3",
                         "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  808,
+                        "line":  811,
                         "message":  "map_err(|_| ...) discards the original error."
-                    },
-                    {
-                        "rule":  "R-C-5",
-                        "file":  "crates/rdc-bridge/src/control_service.rs",
-                        "line":  1218,
-                        "message":  "streaming VecDeque field has no declared capacity."
-                    },
-                    {
-                        "rule":  "R-C-5",
-                        "file":  "crates/rdc-cli/src/s3b4.rs",
-                        "line":  525,
-                        "message":  "streaming VecDeque field has no declared capacity."
-                    },
-                    {
-                        "rule":  "R-C-5",
-                        "file":  "crates/rdc-codec/src/platform/windows.rs",
-                        "line":  72,
-                        "message":  "streaming VecDeque field has no declared capacity."
-                    },
-                    {
-                        "rule":  "R-C-5",
-                        "file":  "crates/rdc-codec/src/platform/windows.rs",
-                        "line":  94,
-                        "message":  "streaming VecDeque field without capacity limit."
-                    },
-                    {
-                        "rule":  "R-C-5",
-                        "file":  "crates/rdc-codec/src/platform/windows/amf.rs",
-                        "line":  60,
-                        "message":  "streaming VecDeque field has no declared capacity."
-                    },
-                    {
-                        "rule":  "R-C-5",
-                        "file":  "crates/rdc-codec/src/platform/windows/amf.rs",
-                        "line":  97,
-                        "message":  "streaming VecDeque field without capacity limit."
-                    },
-                    {
-                        "rule":  "R-C-5",
-                        "file":  "crates/rdc-signal/src/server.rs",
-                        "line":  408,
-                        "message":  "unbounded channel/queue has no capacity limit."
                     },
                     {
                         "rule":  "R-L-1",
@@ -2412,13 +2369,13 @@
                     {
                         "rule":  "R-L-1",
                         "file":  "crates/rdc-codec/src/platform/windows.rs",
-                        "line":  305,
+                        "line":  308,
                         "message":  "eprintln! bypasses the unified logging layer."
                     },
                     {
                         "rule":  "R-L-1",
                         "file":  "crates/rdc-codec/src/platform/windows.rs",
-                        "line":  677,
+                        "line":  691,
                         "message":  "eprintln! bypasses the unified logging layer."
                     },
                     {

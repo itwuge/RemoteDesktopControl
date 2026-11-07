@@ -104,7 +104,7 @@
   },
 
   "baseline": {
-    "allowedCount": 449,
+    "allowedCount": 442,
     "file": "logs/gate-baseline.json"
   },
 

@@ -437,10 +437,11 @@ function Get-ChangedSet {
     $git = Get-Command git -ErrorAction SilentlyContinue
     if ($null -eq $git) { Fail-Script "-Changed requires git, but git was not found in PATH." }
     $outputs = @()
-    $outputs += (& git -C $script:RootFull diff --name-only ("{0}...HEAD" -f $BaseRef) 2>$null)
-    $outputs += (& git -C $script:RootFull diff --name-only 2>$null)
-    $outputs += (& git -C $script:RootFull diff --cached --name-only 2>$null)
-    $outputs += (& git -C $script:RootFull ls-files --others --exclude-standard 2>$null)
+    # core.quotepath=false：否则 git 会把非 ASCII 路径写成 "\345\217..." 八进制转义，glob 匹配不到。
+    $outputs += (& git -C $script:RootFull -c core.quotepath=false diff --name-only ("{0}...HEAD" -f $BaseRef) 2>$null)
+    $outputs += (& git -C $script:RootFull -c core.quotepath=false diff --name-only 2>$null)
+    $outputs += (& git -C $script:RootFull -c core.quotepath=false diff --cached --name-only 2>$null)
+    $outputs += (& git -C $script:RootFull -c core.quotepath=false ls-files --others --exclude-standard 2>$null)
     foreach ($line in $outputs) {
         if ($null -eq $line) { continue }
         $line = ([string]$line).Trim()
@@ -568,6 +569,8 @@ function Invoke-Rule-UnboundedQueue {
                 continue
             }
             if ($line -match '(?i)(queue|pending|backlog|reasm|jitter|history|ring)[A-Za-z0-9_]*\s*:\s*VecDeque\s*<') {
+                # 允许的显式上限声明：同行写 `// capacity: 32` 或使用 `with_capacity(N)`。
+                if ($line -match '(?i)(capacity|容量)\s*[:(=]?\s*\d+') { continue }
                 Add-Violation $ruleId $rel $lineNo "R-C-5 streaming VecDeque field has no declared capacity."
                 continue
             }

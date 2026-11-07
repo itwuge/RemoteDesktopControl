@@ -522,7 +522,8 @@ mod windows_impl {
         let mut send_waits: Vec<u64> = Vec::new();
         // 待配对队列：(送入编码器的 pts, 该帧真实的采集时刻)。
         // 编码器有固有延迟，poll 取到的包可能属于更早的帧，必须按包的 pts 回查。
-        let mut pending_captures: VecDeque<(u64, u64)> = VecDeque::new();
+        // capacity: 32（下方 len>32 会挤掉最旧项）。
+        let mut pending_captures: VecDeque<(u64, u64)> = VecDeque::with_capacity(32);
         let mut pair_misses = 0u64;
         let started = Instant::now();
 

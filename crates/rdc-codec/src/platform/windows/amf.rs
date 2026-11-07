@@ -57,7 +57,8 @@ pub struct AmfEncoder {
     probe_caps: ProbeCapsFn,
 
     config: Option<VideoConfig>,
-    pending: VecDeque<EncodedPacket>,
+    /// 已取回但尚未交出的包，与 shim 的 queue_depth 对齐。
+    pending: VecDeque<EncodedPacket>, // capacity: 1
     out_buf: Vec<u8>,
     name: &'static str,
     warned_keyframe: bool,
@@ -94,7 +95,7 @@ impl AmfEncoder {
                 last_error,
                 probe_caps,
                 config: None,
-                pending: VecDeque::new(),
+                pending: VecDeque::with_capacity(QUEUE_DEPTH as usize),
                 out_buf: vec![0u8; 4 * 1024 * 1024],
                 name: "amf-h264-d3d11",
                 warned_keyframe: false,

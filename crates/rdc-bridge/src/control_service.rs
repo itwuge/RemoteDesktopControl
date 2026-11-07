@@ -1329,8 +1329,8 @@ fn run_pipeline(
     let mut latency_samples: Vec<u64> = Vec::with_capacity(64);
     let mut frame_views: HashMap<usize, ID3D11VideoProcessorInputView> = HashMap::new();
     let mut log_file = open_log();
-    // 解码侧时间戳（按包入队、按解出出队）。
-    let mut pending_decode: VecDeque<FrameTiming> = VecDeque::with_capacity(4);
+    // 解码侧时间戳（按包入队、按解出出队）；capacity: 32，超出即清空（见下方 len>32 判断）。
+    let mut pending_decode: VecDeque<FrameTiming> = VecDeque::with_capacity(32);
     let mut enc_latency_us: u64 = 0;
     // 一次送入可能解出 0..N 帧，复用缓冲避免每包分配。
     let mut decoded_frames: Vec<DecodedFrame> = Vec::new();

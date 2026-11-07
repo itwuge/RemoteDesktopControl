@@ -41,6 +41,9 @@ const MAX_FRAME_BYTES: usize = MAX_SIGNAL_PACKET;
 /// TLS 自签证书的 SAN（客户端必须用同一名称连接）。
 pub const TLS_SERVER_NAME: &str = "rdc.local";
 
+/// 每连接服务端推送队列上限；信令是低频控制面，64 条足够，超出说明对端已停摆。
+const PUSH_CHANNEL_CAPACITY: usize = 64;
+
 // =====** 错误类型 =====**
 
 /// 服务端启动/运行错误。
@@ -67,8 +70,8 @@ struct PeerRecord {
     token: String,
     /// token 签发时间（毫秒）。
     token_issued_ms: i64,
-    /// 服务端向该对端推送消息的通道。
-    push_tx: mpsc::UnboundedSender<SignalEnvelope>,
+    /// 服务端向该对端推送消息的通道（有界，capacity: 64）。
+    push_tx: mpsc::Sender<SignalEnvelope>,
     /// 连接稳定 ID，用于断链清理。
     conn_id: usize,
     /// 重放窗口（只在校验通过的包上推进）。
@@ -405,7 +408,7 @@ async fn handle_register(
         return;
     }
 
-    let (push_tx, mut push_rx) = mpsc::unbounded_channel::<SignalEnvelope>();
+    let (push_tx, mut push_rx) = mpsc::channel::<SignalEnvelope>(PUSH_CHANNEL_CAPACITY);
     let token = random_token();
     {
         let mut registry = lock(&shared.registry);
@@ -527,7 +530,7 @@ async fn handle_call(
             },
         );
     }
-    if target_tx.send(server_msg(incoming)).is_err() {
+    if target_tx.try_send(server_msg(incoming)).is_err() {
         lock(&shared.sessions).remove(&session);
         let body = SignalMessage::Error {
             code: SignalErrorCode::PeerNotFound,
@@ -902,9 +905,22 @@ fn update_candidates(
 }
 
 /// 向某 peer 推送一条消息。
+///
+/// # Returns
+/// 已写入推送队列返回 `true`；对端不在线、连接关闭或队列已满返回 `false`。
 fn push_to_peer(shared: &Shared, peer_id: &str, env: SignalEnvelope) -> bool {
     let tx = lock(&shared.registry).get(peer_id).map(|p| p.push_tx.clone());
-    tx.is_some_and(|tx| tx.send(env).is_ok())
+    match tx {
+        Some(tx) => match tx.try_send(env) {
+            Ok(()) => true,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                tracing::warn!(peer = %peer_id, capacity = PUSH_CHANNEL_CAPACITY, "推送队列已满，丢弃信令消息");
+                false
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => false,
+        },
+        None => false,
+    }
 }
 
 /// 连接断开后清理该连接的 peer 与会话。

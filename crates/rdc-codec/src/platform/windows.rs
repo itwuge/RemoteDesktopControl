@@ -54,6 +54,9 @@ const BITRATE_CANDIDATES: [u32; 5] =
 /// 硬件编码器选择名称前缀，用于日志与报告。
 const BACKEND_HW: &str = "mf-h264-hw";
 
+/// 已编码包的输出队列上限：正常一进一出，上限只用于防止消费者停摆时无界增长。
+const ENCODE_OUTPUT_QUEUE_CAPACITY: usize = 8;
+
 // =====** PlatformEncoder =====**
 
 /// Windows Media Foundation H.264 编码器。
@@ -68,8 +71,8 @@ pub struct PlatformEncoder {
     stats: EncodeStats,
     /// 统计起点；首次 `push` 时置位。
     started: Option<Instant>,
-    /// 已产出但尚未被 `poll_packet` 取走的包。
-    queue: VecDeque<EncodedPacket>,
+    /// 已产出但尚未被 `poll_packet` 取走的包；满时丢最旧。
+    queue: VecDeque<EncodedPacket>, // capacity: 8
     /// 实际选用的编码器名称。
     selected_name: String,
     /// 是否允许软件 MFT（仅 `RDC_ENCODER=software` 诊断路径为 true）。
@@ -93,7 +96,7 @@ impl PlatformEncoder {
             session: None,
             stats: EncodeStats::new(),
             started: None,
-            queue: VecDeque::new(),
+            queue: VecDeque::with_capacity(ENCODE_OUTPUT_QUEUE_CAPACITY),
             selected_name: String::new(),
             software: false,
             poll_error_reported: false,
@@ -375,7 +378,18 @@ impl VideoEncoder for PlatformEncoder {
         let packets = self.encode_slice(frame.as_slice(), pts_ns, force_keyframe)?;
         // frame 在此 drop，缓冲自动归还内存池。
         drop(frame);
-        self.queue.extend(packets);
+        // 有界输出队列：消费者停摆时丢最旧包，避免队列无界增长（历史事故：60 秒涨到 11GB）。
+        for packet in packets {
+            if self.queue.len() >= ENCODE_OUTPUT_QUEUE_CAPACITY {
+                self.queue.pop_front();
+                tracing::warn!(
+                    event = "codec.output.queue.drop",
+                    capacity = ENCODE_OUTPUT_QUEUE_CAPACITY,
+                    "编码输出队列已满，丢弃最旧包"
+                );
+            }
+            self.queue.push_back(packet);
+        }
         Ok(())
     }
 
