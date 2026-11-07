@@ -93,25 +93,28 @@
 | 构建结果 | 空壳 APK 构建 **exit=0**，130 个依赖文件正常解析；日志无 `maven.google.com` 报错 |
 | 版本固定 | AGP **9.1.0**、Kotlin **2.4.0**、Gradle **9.3.1**、compileSdk/targetSdk **36**、minSdk **26**、NDK **28.2.13676358** |
 
-### 2.6 静态分析
+### 2.6 静态分析与单元测试
 
 | 命令 | 结果 |
 |---|---|
-| `flutter analyze` | 首轮 1 条 info（`session_page.dart:368` `unnecessary_underscores`，Flutter 3.47 新增 lint）→ 已改为 Dart 3 通配符 `_`；复测结果见提交说明 |
+| `flutter analyze` | 首轮 1 条 info（`session_page.dart` `unnecessary_underscores`，Flutter 3.47 新增 lint）→ 修复后 **No issues found!**（5.3 s） |
+| `flutter test test/touch_mapper_test.dart` | **10/10 通过**（单击序列、长按右键含左键补抬、拖动、滚轮折算与符号、滚动/缩放判定） |
+| `flutter test`（全量） | **13/13 通过**（0.00 s 级，宿主无设备依赖） |
+| 最终 APK（含触摸手势改动） | `flutter build apk --debug --target-platform android-arm64` **13 s**；93,389,750 B；sha256 `5e47f7a74e1b85f09beaf272ebf93c51ee13136ecdbbbda80dfff14aec28ca90`；`unzip -l` 仍含 `lib/arm64-v8a/librdc_bridge.so`（1,141,680 B） |
 
 ---
 
-## 三、阶段 2 现状（明确未完成）
+## 三、阶段 2 现状（部分实现，未真机验证）
 
 | # | 现状 | 阻塞 |
 |---|---|---|
 | B1 MediaCodec | 未实现 | 无真机；解码需 SurfaceTexture 外部纹理，无法静态验证出画面 |
-| B2 触摸→鼠标 | 共享视图已有「指针按下/拖动/抬起→button/move」与滚轮换算（`session_page.dart`），但**没有**双指滚动→滚轮、长按右键的移动端映射 | 需补 `TouchMapper` 并接入手势；无误触验证手段 |
-| B3 软键盘 | 只有硬件键扫描码；IME 文本输入未接 | 需隐藏 TextField/TextInputClient 通道 |
+| B2 触摸→鼠标 | **部分实现**：点击/拖动沿用既有指针路径；新增双指滚动→滚轮（40 本地像素=1 格）、长按→右键，映射纯函数见 `app/lib/model/input/touch_mapper.dart`，10 条单测全通过 | 可跑通逻辑，但命中精度/手感需真机 |
+| B3 软键盘 | 只有硬件键扫描码；IME 文本输入未接 | 需隐藏 TextField/TextInputClient 通道，且 Rust 输入协议目前只有扫描码事件 |
 | B4 横竖屏 | `ViewportController` 已是唯一入口，`Texture` 只改尺寸不换 `textureId`，设计满足「只换皮不换核」；Android 尚未产生 textureId | 解码器缺失导致无纹理可测 |
 | B5 稳定性 | 未验证 | 无设备 |
 
-**停止点**：阶段 1 完成并提交；阶段 2 起点为「Kotlin MediaCodec 解码器 + Flutter 外部纹理注册」。
+**停止点**：阶段 1 完成；阶段 2 已完成触摸手势映射（B2 的滚动/右键部分）。下一块起点：Kotlin MediaCodec 解码器 + Flutter 外部纹理注册（B1），随后才是 B3/B4/B5。
 
 ---
 

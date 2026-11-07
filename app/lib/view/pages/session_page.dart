@@ -11,6 +11,7 @@
 // ============================================================
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -23,6 +24,7 @@ import '../../controller/viewport_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
 import '../../model/gateway/rust_types.dart';
+import '../../model/input/touch_mapper.dart';
 import '../components/info_row.dart';
 import '../components/rdc_button.dart';
 import '../components/rgba_preview.dart';
@@ -78,6 +80,13 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 最近一次「用户意图」的远端坐标；抬手必须用它，否则 press/release 落两处。
   Offset? _lastRemotePoint;
+
+  /// Android 触摸按下的指针集合：用于区分单指拖动与双指滚动/缩放。
+  /// 桌面指针路径不写这个集合，行为完全不变。
+  final Set<int> _touchPointers = <int>{};
+
+  /// Android 双指滚动累计位移（本地像素），每满 40 px 下发一格滚轮。
+  Offset _scrollAccum = Offset.zero;
 
   /// 会话控制器。
   SessionController get controller => widget.controller;
@@ -161,8 +170,35 @@ class _SessionPageState extends State<SessionPage> {
   }
 
   /// 手势：双指缩放围绕焦点、单指拖动平移；矩阵未同步时丢弃输入。
+  ///
+  /// Android 触摸补充（仅该平台生效，桌面指针路径完全不变）：
+  /// 双指且缩放几乎不变时判为滚动，按 40 本地像素 1 格折算滚轮；
+  /// 只有真的在捏合/张开（scale 变了）才继续走缩放。
   void _handleScaleUpdate(ScaleUpdateDetails details) {
     if (_viewport.matrixDirty || _inEchoWindow) return;
+    if (Platform.isAndroid && details.pointerCount > 1) {
+      final isScroll = TouchMapper.isScrollGesture(
+        scale: details.scale,
+        dx: details.focalPointDelta.dx,
+        dy: details.focalPointDelta.dy,
+      );
+      if (isScroll) {
+        _scrollAccum += details.focalPointDelta;
+        if (_scrollAccum.dx.abs() >= TouchMapper.pixelsPerWheelTick ||
+            _scrollAccum.dy.abs() >= TouchMapper.pixelsPerWheelTick) {
+          final events = TouchMapper.scroll(
+            dx: _scrollAccum.dx,
+            dy: _scrollAccum.dy,
+          );
+          if (events.isNotEmpty && _inputReady) {
+            controller.sendInputEvents(events);
+            _markInjected();
+          }
+          _scrollAccum = Offset.zero;
+        }
+        return;
+      }
+    }
     if (details.pointerCount > 1) {
       final factor = details.scale / _gestureScale;
       _gestureScale = details.scale;
@@ -221,9 +257,21 @@ class _SessionPageState extends State<SessionPage> {
   }
 
   /// 指针按下：请求键盘焦点并下发按键按下事件。
+  ///
+  /// Android 单指触摸继续走「按下=左键按下」以支持拖动；
+  /// 第二根手指落下时立即释放左键，避免滚动/缩放期间远端一直按住左键。
   void _onPointerDown(PointerDownEvent event) {
     if (!_inputReady) return;
     _focusNode.requestFocus();
+    if (Platform.isAndroid && event.kind == PointerDeviceKind.touch) {
+      _touchPointers.add(event.pointer);
+      if (_touchPointers.length > 1) {
+        _releaseActiveButton();
+        controller.flushInputEvents();
+        _markInjected();
+        return;
+      }
+    }
     final code = _buttonCode(event.buttons);
     if (code == 0) return;
     final point = _desktopPoint(event.localPosition);
@@ -241,12 +289,52 @@ class _SessionPageState extends State<SessionPage> {
     _markInjected();
   }
 
+  /// 释放当前按下的鼠标键（不冲刷队列）；用于多指切换与长按右键前清理状态。
+  void _releaseActiveButton() {
+    final code = _activeButton;
+    _activeButton = 0;
+    if (code == 0) return;
+    final point = _lastRemotePoint;
+    _lastRemotePoint = null;
+    if (point == null) return;
+    controller.sendInputEvents([
+      InputEventSpec.button(
+        x: point.dx.toInt(),
+        y: point.dy.toInt(),
+        button: code,
+        pressed: false,
+      ),
+    ]);
+  }
+
+  /// Android 长按：把触摸按下时已下发的左键补抬起，再点一次右键。
+  ///
+  /// 只在 Android 注册（桌面仍走 Listener 的指针按键，不改变既有语义）。
+  void _onAndroidLongPress(LongPressStartDetails details) {
+    if (!_inputReady) return;
+    final point = _desktopPoint(details.localPosition);
+    if (point == null) return;
+    final leftHeld = _activeButton == 1;
+    _activeButton = 0;
+    _lastRemotePoint = null;
+    controller.sendInputEvents(
+      TouchMapper.longPressRight(
+        OffsetI(point.dx.toInt(), point.dy.toInt()),
+        leftHeld: leftHeld,
+      ),
+    );
+    _markInjected();
+    controller.flushInputEvents();
+  }
+
   /// 指针移动：无按键时是纯移动；按住时带上按键，交由合并器按拖动限频。
   ///
   /// 处于回声窗口的移动来自我们自己的注入（XTest 移动了真实指针），必须丢弃：
   /// 否则会被当成新的用户移动再次下发，形成放大反馈。
   void _onPointerMove(PointerMoveEvent event) {
     if (!_inputReady || _inEchoWindow) return;
+    // 双指滚动/缩放期间不逐指下发移动：否则远端会收到两条互相拉扯的拖动。
+    if (Platform.isAndroid && _touchPointers.length > 1) return;
     final point = _desktopPoint(event.localPosition);
     if (point == null) return;
     _lastRemotePoint = point;
@@ -266,7 +354,10 @@ class _SessionPageState extends State<SessionPage> {
   ///
   /// 抬手用 [_lastRemotePoint]（用户意图点），不用 `localPosition`：
   /// 注入已把真实指针挪走，按回传位置抬起会 press/release 落两处。
-  void _onPointerRelease(Offset local) {
+  void _onPointerRelease(Offset local, [int? pointer]) {
+    // 先移除触摸指针：双指缩放结束后，剩余指针的移动应恢复正常处理。
+    if (pointer != null) _touchPointers.remove(pointer);
+    if (_touchPointers.isEmpty) _scrollAccum = Offset.zero;
     if (!_inputReady) return;
     final code = _activeButton;
     _activeButton = 0;
@@ -348,8 +439,10 @@ class _SessionPageState extends State<SessionPage> {
           behavior: HitTestBehavior.opaque,
           onPointerDown: _onPointerDown,
           onPointerMove: _onPointerMove,
-          onPointerUp: (event) => _onPointerRelease(event.localPosition),
-          onPointerCancel: (event) => _onPointerRelease(event.localPosition),
+          onPointerUp: (event) =>
+              _onPointerRelease(event.localPosition, event.pointer),
+          onPointerCancel: (event) =>
+              _onPointerRelease(event.localPosition, event.pointer),
           onPointerSignal: _onPointerSignal,
           child: Stack(
             fit: StackFit.expand,
@@ -358,7 +451,14 @@ class _SessionPageState extends State<SessionPage> {
                 behavior: HitTestBehavior.opaque,
                 onTap: () => _onSurfaceTap(wide),
                 onDoubleTap: _viewport.reset,
-                onScaleStart: (_) => _gestureScale = 1.0,
+                // 长按右键仅移动端启用；桌面保留原行为（不注册该回调）。
+                onLongPressStart: Platform.isAndroid
+                    ? _onAndroidLongPress
+                    : null,
+                onScaleStart: (_) {
+                  _gestureScale = 1.0;
+                  _scrollAccum = Offset.zero;
+                },
                 onScaleUpdate: _handleScaleUpdate,
                 child: ValueListenableBuilder<int?>(
                   valueListenable: controller.textureId,
