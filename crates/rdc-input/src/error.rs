@@ -23,4 +23,7 @@ pub enum InputError {
     /// 视口参数非法（宽高为 0 或缩放比非正）。
     #[error("视口参数非法")]
     InvalidViewport,
+    /// 输入事件载荷非法（长度不符、未知 tag 或非法枚举值）。
+    #[error("输入事件载荷非法")]
+    MalformedPayload,
 }

@@ -88,6 +88,55 @@ pub struct TouchEvent {
     pub phase: TouchPhase,
 }
 
+// =====** ButtonState =====**
+
+/// 指针按键下压状态。
+///
+/// 协议里“按下”与“拖动中”都是 `button=Some, pressed=true`（见 [`PointerEvent`]），
+/// 因此注入端与合并端都必须维护一份下压状态：第一次看到某键为按下 → 注入 DOWN，
+/// 之后同键的按下事件都是拖动中的移动，不得重复注入 DOWN。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ButtonState {
+    /// 位图，见 [`ButtonState::bit`]。
+    bits: u8,
+}
+
+impl ButtonState {
+    /// 空状态（所有键都抬起）。
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 按键对应的位。
+    fn bit(button: &PointerButton) -> u8 {
+        match button {
+            PointerButton::Left => 1,
+            PointerButton::Right => 2,
+            PointerButton::Middle => 4,
+        }
+    }
+
+    /// 该键当前是否处于按下状态。
+    pub fn is_down(&self, button: &PointerButton) -> bool {
+        self.bits & Self::bit(button) != 0
+    }
+
+    /// 标记该键为按下。
+    pub fn press(&mut self, button: &PointerButton) {
+        self.bits |= Self::bit(button);
+    }
+
+    /// 标记该键为抬起。
+    pub fn release(&mut self, button: &PointerButton) {
+        self.bits &= !Self::bit(button);
+    }
+
+    /// 会话结束或重连后清空（避免对端以为键还按着）。
+    pub fn clear(&mut self) {
+        self.bits = 0;
+    }
+}
+
 // =====** InputEvent =====**
 
 /// 单个输入事件。

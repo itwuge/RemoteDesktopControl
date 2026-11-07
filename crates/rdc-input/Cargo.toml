@@ -21,3 +21,7 @@ rdc-runtime = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+
+# 平台 API 只允许出现在 src/platform/*.rs；Windows 注入后端使用 SendInput。
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true, features = ["Win32_UI_Input_KeyboardAndMouse"] }
