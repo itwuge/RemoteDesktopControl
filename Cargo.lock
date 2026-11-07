@@ -1126,6 +1126,7 @@ name = "rdc-cli"
 version = "0.1.0"
 dependencies = [
  "rdc-capture",
+ "rdc-clipboard",
  "rdc-codec",
  "rdc-connect",
  "rdc-core",
