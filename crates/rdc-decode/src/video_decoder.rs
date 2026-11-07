@@ -6,9 +6,9 @@
 //! 调用方：rdc-cli 的 S3b-4 实测工具、后续 rdc-core 的解码任务
 //!
 //! 选择规则：
-//! - `RDC_DECODER` 未设置或 `mf`：Media Foundation（现状默认）。
-//! - `RDC_DECODER=ffmpeg`：FFmpeg（需以 `ffmpeg` feature 构建）；`RDC_FFMPEG_MODE=d3d11`
-//!   时走 d3d11va 硬解并输出 GPU 纹理，否则单线程软解 + 系统内存 NV12。
+//! - 以 `ffmpeg` feature 构建时默认 FFmpeg（S3f 实测 p99 35.8~41.2 ms vs MF 340 ms）；
+//!   `RDC_FFMPEG_MODE=d3d11` 时走 d3d11va 硬解并输出 GPU 纹理，否则单线程软解 + 系统内存 NV12。
+//! - `RDC_DECODER=mf` 显式回退 Media Foundation；未启用 feature 时只能 MF。
 //! - FFmpeg 打开失败时回落 MF，并在 stderr 明确记录（报告里的 `decoder_path` 反映实际值）。
 
 use crate::error::DecodeError;
@@ -27,11 +27,24 @@ pub enum DecoderBackend {
 }
 
 impl DecoderBackend {
-    /// 从 `RDC_DECODER` 读取选择；未识别值按 MF 处理。
+    /// 从 `RDC_DECODER` 读取选择；未设置时按构建 feature 取默认。
+    ///
+    /// 默认值：启用 `ffmpeg` feature 走 FFmpeg，否则 MF。
+    /// `RDC_DECODER=mf` 始终可显式回退，`RDC_DECODER=ffmpeg` 在未编译该后端时会继续落到 MF。
     pub fn from_env() -> Self {
         match std::env::var("RDC_DECODER").unwrap_or_default().as_str() {
+            "mf" => Self::Mf,
             "ffmpeg" => Self::Ffmpeg,
-            _ => Self::Mf,
+            _ => {
+                #[cfg(feature = "ffmpeg")]
+                {
+                    Self::Ffmpeg
+                }
+                #[cfg(not(feature = "ffmpeg"))]
+                {
+                    Self::Mf
+                }
+            }
         }
     }
 
