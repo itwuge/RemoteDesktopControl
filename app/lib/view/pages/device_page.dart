@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 
 import '../../controller/device_controller.dart';
 import '../../controller/shell_controller.dart';
+import '../../controller/viewport_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/utils/formatters.dart';
@@ -60,37 +61,30 @@ class _DevicePageState extends State<DevicePage> {
     super.dispose();
   }
 
-  // =====** 组件：搜索区（一排） =====**
+  // =====** 组件：搜索区（一排 / 窄屏分行） =====**
 
-  Widget _buildSearchRow() {
+  /// 筛选与新增按钮组。
+  Widget _buildFilterButtons() {
     return ValueListenableBuilder(
       valueListenable: widget.controller.filterIndex,
       builder: (context, filter, _) {
-        return Row(
+        return Wrap(
+          spacing: RdcTokens.spaceSm,
+          runSpacing: RdcTokens.spaceSm,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            RdcField(
-              label: AppStrings.deviceSearchHint,
-              child: RdcTextField(
-                controller: _search,
-                hint: AppStrings.deviceSearchHint,
-                onChanged: widget.controller.setQuery,
-              ),
-            ),
-            const SizedBox(width: RdcTokens.spaceMd),
             RdcStateButton(
               label: AppStrings.filterAll,
               active: filter == 0,
               icon: Icons.inbox,
               onPressed: () => widget.controller.setFilter(0),
             ),
-            const SizedBox(width: RdcTokens.spaceSm),
             RdcStateButton(
               label: AppStrings.filterTrusted,
               active: filter == 1,
               icon: Icons.verified_user,
               onPressed: () => widget.controller.setFilter(1),
             ),
-            const SizedBox(width: RdcTokens.spaceMd),
             RdcButton(
               label: AppStrings.deviceAdd,
               icon: Icons.add,
@@ -103,103 +97,159 @@ class _DevicePageState extends State<DevicePage> {
     );
   }
 
-  // =====** 组件：设备卡片 =====**
+  /// 搜索字段。
+  Widget _buildSearchField({required bool expand}) {
+    return RdcField(
+      label: AppStrings.deviceSearchHint,
+      expand: expand,
+      child: RdcTextField(
+        controller: _search,
+        hint: AppStrings.deviceSearchHint,
+        onChanged: widget.controller.setQuery,
+      ),
+    );
+  }
 
-  Widget _buildDeviceCard(DeviceRow device) {
+  Widget _buildSearchRow(bool wide) {
+    if (wide) {
+      return Row(
+        children: [
+          _buildSearchField(expand: true),
+          const SizedBox(width: RdcTokens.spaceMd),
+          _buildFilterButtons(),
+        ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSearchField(expand: false),
+        const SizedBox(height: RdcTokens.spaceMd),
+        _buildFilterButtons(),
+      ],
+    );
+  }
+
+  // =====** 组件：设备卡片（宽屏一行 / 窄屏上下两段） =====**
+
+  Widget _buildDeviceCard(DeviceRow device, bool wide) {
     final trusted = device.trusted;
+    final iconBox = Container(
+      width: 40,
+      height: 40,
+      decoration: BoxDecoration(
+        color: RdcTokens.surfaceRaised,
+        borderRadius: BorderRadius.circular(RdcTokens.radiusControl),
+      ),
+      child: Icon(
+        Icons.desktop_windows,
+        size: 20,
+        color: trusted ? RdcTokens.accent : RdcTokens.textMuted,
+      ),
+    );
+    final nameColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          device.name,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: RdcTokens.fontBody,
+            fontWeight: FontWeight.w600,
+            color: RdcTokens.textPrimary,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          device.id,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: RdcTokens.fontCaption,
+            color: RdcTokens.textMuted,
+          ),
+        ),
+      ],
+    );
+    final statusPill = RdcStatusPill(
+      text: trusted ? AppStrings.trusted : AppStrings.untrusted,
+      color: trusted ? RdcTokens.success : RdcTokens.textMuted,
+    );
+    final lastOnline = Text(
+      Formatters.lastOnline(device.lastOnline),
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        fontSize: RdcTokens.fontCaption,
+        color: RdcTokens.textMuted,
+      ),
+    );
+    final connectButton = RdcButton(
+      label: AppStrings.connect,
+      icon: Icons.link,
+      primary: true,
+      onPressed: () => widget.shell.openControl(
+        deviceId: device.id,
+        deviceName: device.name,
+      ),
+    );
+    final editButton = RdcButton(
+      label: AppStrings.edit,
+      icon: Icons.edit,
+      onPressed: () => _showDeviceDialog(
+        deviceId: device.id,
+        name: device.name,
+        trusted: trusted,
+        sameAccount: device.sameAccount,
+      ),
+    );
+    final deleteButton = RdcButton(
+      label: AppStrings.delete,
+      icon: Icons.delete_outline,
+      onPressed: () => _confirmDelete(device.id, device.name),
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: RdcTokens.spaceMd),
       child: RdcHoverCard(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: RdcTokens.surfaceRaised,
-                borderRadius: BorderRadius.circular(RdcTokens.radiusControl),
-              ),
-              child: Icon(
-                Icons.desktop_windows,
-                size: 20,
-                color: trusted ? RdcTokens.accent : RdcTokens.textMuted,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              flex: 3,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+        padding: EdgeInsets.symmetric(
+          horizontal: wide ? 18 : 14,
+          vertical: wide ? 14 : RdcTokens.spaceMd,
+        ),
+        child: wide
+            ? Row(
                 children: [
-                  Text(
-                    device.name,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: RdcTokens.fontBody,
-                      fontWeight: FontWeight.w600,
-                      color: RdcTokens.textPrimary,
-                    ),
+                  iconBox,
+                  const SizedBox(width: 14),
+                  Expanded(flex: 3, child: nameColumn),
+                  Expanded(flex: 2, child: lastOnline),
+                  statusPill,
+                  const SizedBox(width: RdcTokens.spaceLg),
+                  connectButton,
+                  const SizedBox(width: RdcTokens.spaceSm),
+                  editButton,
+                  const SizedBox(width: RdcTokens.spaceSm),
+                  deleteButton,
+                ],
+              )
+            : Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      iconBox,
+                      const SizedBox(width: RdcTokens.spaceMd),
+                      Expanded(child: nameColumn),
+                      statusPill,
+                    ],
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    device.id,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: RdcTokens.fontCaption,
-                      color: RdcTokens.textMuted,
-                    ),
+                  const SizedBox(height: RdcTokens.spaceSm),
+                  lastOnline,
+                  const SizedBox(height: RdcTokens.spaceMd),
+                  Wrap(
+                    spacing: RdcTokens.spaceSm,
+                    runSpacing: RdcTokens.spaceSm,
+                    children: [connectButton, editButton, deleteButton],
                   ),
                 ],
               ),
-            ),
-            Expanded(
-              flex: 2,
-              child: Text(
-                Formatters.lastOnline(device.lastOnline),
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: RdcTokens.fontCaption,
-                  color: RdcTokens.textMuted,
-                ),
-              ),
-            ),
-            RdcStatusPill(
-              text: trusted ? AppStrings.trusted : AppStrings.untrusted,
-              color: trusted ? RdcTokens.success : RdcTokens.textMuted,
-            ),
-            const SizedBox(width: RdcTokens.spaceLg),
-            RdcButton(
-              label: AppStrings.connect,
-              icon: Icons.link,
-              primary: true,
-              onPressed: () => widget.shell.openControl(
-                deviceId: device.id,
-                deviceName: device.name,
-              ),
-            ),
-            const SizedBox(width: RdcTokens.spaceSm),
-            RdcButton(
-              label: AppStrings.edit,
-              icon: Icons.edit,
-              onPressed: () => _showDeviceDialog(
-                deviceId: device.id,
-                name: device.name,
-                trusted: trusted,
-                sameAccount: device.sameAccount,
-              ),
-            ),
-            const SizedBox(width: RdcTokens.spaceSm),
-            RdcButton(
-              label: AppStrings.delete,
-              icon: Icons.delete_outline,
-              onPressed: () => _confirmDelete(
-                device.id,
-                device.name,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -388,71 +438,80 @@ class _DevicePageState extends State<DevicePage> {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(RdcTokens.spacePage),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildSearchRow(),
-          const SizedBox(height: RdcTokens.spaceLg),
-          ValueListenableBuilder(
-            valueListenable: widget.controller.errorMessage,
-            builder: (context, error, _) {
-              if (error == null) return const SizedBox.shrink();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: RdcTokens.spaceMd),
-                child: RdcStatusPill(text: error, color: RdcTokens.danger),
-              );
-            },
-          ),
-          ValueListenableBuilder(
-            valueListenable: widget.controller.visibleDevices,
-            builder: (context, devices, _) {
-              if (devices.isEmpty) {
-                final hasAny = widget.controller.allDevices.value.isNotEmpty;
-                if (hasAny) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: RdcTokens.spaceXl),
-                    child: Center(
-                      child: Text(
-                        '没有匹配的设备',
-                        style: TextStyle(color: RdcTokens.textMuted),
-                      ),
-                    ),
+    // 方向只决定布局形态（搜索区/卡片分行），不缩放内容。
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final wide = ViewportController.resolveWide(constraints.biggest);
+        return SingleChildScrollView(
+          padding: const EdgeInsets.all(RdcTokens.spacePage),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildSearchRow(wide),
+              const SizedBox(height: RdcTokens.spaceLg),
+              ValueListenableBuilder(
+                valueListenable: widget.controller.errorMessage,
+                builder: (context, error, _) {
+                  if (error == null) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: RdcTokens.spaceMd),
+                    child: RdcStatusPill(text: error, color: RdcTokens.danger),
                   );
-                }
-                return _buildEmptyState();
-              }
-              return Column(
-                children: [
-                  for (final device in devices) _buildDeviceCard(device),
-                  const SizedBox(height: RdcTokens.spaceSm),
-                  ValueListenableBuilder(
-                    valueListenable: widget.controller.page,
-                    builder: (context, page, _) => ValueListenableBuilder(
-                      valueListenable: widget.controller.pageCount,
-                      builder: (context, pageCount, _) => RdcPager(
-                        page: page,
-                        pageCount: pageCount,
-                        total: widget.controller.allDevices.value.length,
-                        onChanged: widget.controller.goToPage,
+                },
+              ),
+              ValueListenableBuilder(
+                valueListenable: widget.controller.visibleDevices,
+                builder: (context, devices, _) {
+                  if (devices.isEmpty) {
+                    final hasAny = widget.controller.allDevices.value.isNotEmpty;
+                    if (hasAny) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(
+                          vertical: RdcTokens.spaceXl,
+                        ),
+                        child: Center(
+                          child: Text(
+                            '没有匹配的设备',
+                            style: TextStyle(color: RdcTokens.textMuted),
+                          ),
+                        ),
+                      );
+                    }
+                    return _buildEmptyState();
+                  }
+                  return Column(
+                    children: [
+                      for (final device in devices)
+                        _buildDeviceCard(device, wide),
+                      const SizedBox(height: RdcTokens.spaceSm),
+                      ValueListenableBuilder(
+                        valueListenable: widget.controller.page,
+                        builder: (context, page, _) => ValueListenableBuilder(
+                          valueListenable: widget.controller.pageCount,
+                          builder: (context, pageCount, _) => RdcPager(
+                            page: page,
+                            pageCount: pageCount,
+                            total: widget.controller.allDevices.value.length,
+                            onChanged: widget.controller.goToPage,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(height: RdcTokens.spaceSm),
-                  Text(
-                    '设备文件：${widget.controller.filePath.value}',
-                    style: const TextStyle(
-                      fontSize: RdcTokens.fontCaption,
-                      color: RdcTokens.textMuted,
-                    ),
-                  ),
-                ],
-              );
-            },
+                      const SizedBox(height: RdcTokens.spaceSm),
+                      Text(
+                        '设备文件：${widget.controller.filePath.value}',
+                        style: const TextStyle(
+                          fontSize: RdcTokens.fontCaption,
+                          color: RdcTokens.textMuted,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

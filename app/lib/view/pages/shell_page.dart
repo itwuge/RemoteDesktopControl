@@ -226,20 +226,45 @@ class _ShellPageState extends State<ShellPage> {
       child: ValueListenableBuilder(
         valueListenable: widget.shell.activeTab,
         builder: (context, active, _) {
-          return Row(
-            children: [
-              for (var index = 0; index < labels.length; index++) ...[
-                if (index != 0) const SizedBox(width: RdcTokens.spaceSm),
-                Expanded(
-                  child: RdcStateButton(
-                    label: labels[index],
-                    icon: icons[index],
-                    active: active == index,
-                    onPressed: () => widget.shell.selectTab(index),
-                  ),
-                ),
-              ],
-            ],
+          // 窄屏（手机竖屏）四个入口排成两行两列，避免按钮被压扁溢出。
+          return LayoutBuilder(
+            builder: (context, constraints) {
+              if (constraints.maxWidth < 480.0) {
+                final itemWidth =
+                    (constraints.maxWidth - RdcTokens.spaceSm) / 2;
+                return Wrap(
+                  spacing: RdcTokens.spaceSm,
+                  runSpacing: RdcTokens.spaceSm,
+                  children: [
+                    for (var index = 0; index < labels.length; index++)
+                      SizedBox(
+                        width: itemWidth,
+                        child: RdcStateButton(
+                          label: labels[index],
+                          icon: icons[index],
+                          active: active == index,
+                          onPressed: () => widget.shell.selectTab(index),
+                        ),
+                      ),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  for (var index = 0; index < labels.length; index++) ...[
+                    if (index != 0) const SizedBox(width: RdcTokens.spaceSm),
+                    Expanded(
+                      child: RdcStateButton(
+                        label: labels[index],
+                        icon: icons[index],
+                        active: active == index,
+                        onPressed: () => widget.shell.selectTab(index),
+                      ),
+                    ),
+                  ],
+                ],
+              );
+            },
           );
         },
       ),

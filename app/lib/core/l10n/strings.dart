@@ -239,6 +239,9 @@ class AppStrings {
   /// 全屏。
   static const fullscreen = '全屏';
 
+  /// 复位视图（缩放/平移回到适配态）。
+  static const resetView = '复位视图';
+
   /// 剪贴板。
   static const clipboard = '剪贴板';
 

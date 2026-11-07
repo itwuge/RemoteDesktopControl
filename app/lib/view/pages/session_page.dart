@@ -1,16 +1,22 @@
 // ============================================================
-// 页面用途：远程控制页（视频区 + 底部悬浮工具条）
+// 页面用途：远程控制页（视频区 + 工具条；横竖屏两种布局）
 //
 // 层级：view/pages
 // 被谁组装：shell_page.dart
 // 数据来源：SessionController（角色权限来自 Rust；画面来自 Rust 管线注册的外部纹理）
 // 边界：视频必须走外部纹理，不允许逐帧转 Image；纹理未接通时显示明确说明
+// 布局：宽（横屏/宽屏）→ 全出血画面 + 顶部悬浮工具条（3 秒淡出）；
+//       窄（竖屏）→ 画面上、统计与工具条下的上下布局
+// 旋转：只经 ViewportController 重算渲染矩阵；不重建 textureId、不重启采集管线
 // ============================================================
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../../controller/session_controller.dart';
 import '../../controller/shell_controller.dart';
+import '../../controller/viewport_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
 import '../../model/gateway/rust_types.dart';
@@ -40,6 +46,21 @@ class SessionPage extends StatefulWidget {
 
 /// 远程控制页状态。
 class _SessionPageState extends State<SessionPage> {
+  /// 视口控制器：方向切换与坐标矩阵的唯一入口（纯视图态）。
+  final ViewportController _viewport = ViewportController();
+
+  /// 宽布局工具条自动淡出定时器。
+  Timer? _hideTimer;
+
+  /// 宽布局工具条是否可见。
+  bool _toolbarVisible = true;
+
+  /// 上一次的宽布局判定，用于在方向切换时重置工具条。
+  bool _lastWide = false;
+
+  /// 上一次手势的累计缩放（ScaleUpdateDetails.scale 是累计值）。
+  double _gestureScale = 1.0;
+
   /// 会话控制器。
   SessionController get controller => widget.controller;
 
@@ -51,13 +72,85 @@ class _SessionPageState extends State<SessionPage> {
     super.initState();
     // 进入控制页即启动真实画面管线（幂等，由控制器内部去重）。
     controller.startPreview();
+    controller.preview.addListener(_syncRemoteSize);
+    _syncRemoteSize();
   }
 
   @override
   void dispose() {
+    // 只释放本页新增的视图态；管线由控制器停止（旋转不会走到这里）。
+    controller.preview.removeListener(_syncRemoteSize);
+    _hideTimer?.cancel();
+    _viewport.dispose();
     // 离开页面时释放纹理与采集管线。
     controller.stopPreview();
     super.dispose();
+  }
+
+  /// 把解码帧尺寸同步给视口控制器（只重算矩阵，不碰解码器）。
+  void _syncRemoteSize() {
+    final info = controller.preview.value;
+    if (info == null) return;
+    _viewport.updateRemoteSize(
+      Size(info.width.toDouble(), info.height.toDouble()),
+    );
+  }
+
+  /// 视口变化的唯一入口：post-frame 即「布局完成」，清脏标志放行输入。
+  ///
+  /// 返回：无返回值；尺寸未变时 [ViewportController.updateViewport] 自行去重。
+  void _syncViewport(Size size) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _viewport.updateViewport(size);
+      _viewport.onLayoutDone();
+      final wide = _viewport.isWideLayout;
+      if (wide != _lastWide) {
+        _lastWide = wide;
+        if (wide) {
+          _showToolbar(autoHide: true);
+        } else {
+          _hideTimer?.cancel();
+          if (!_toolbarVisible) setState(() => _toolbarVisible = true);
+        }
+      }
+    });
+  }
+
+  /// 显示工具条；[autoHide] 为真时 3 秒无操作淡出（仅宽布局使用）。
+  void _showToolbar({required bool autoHide}) {
+    _hideTimer?.cancel();
+    if (!_toolbarVisible && mounted) {
+      setState(() => _toolbarVisible = true);
+    }
+    if (autoHide) {
+      _hideTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _toolbarVisible = false);
+      });
+    }
+  }
+
+  /// 点击画面：宽布局唤回/收起工具条。
+  void _onSurfaceTap(bool wide) {
+    if (!wide) return;
+    if (_toolbarVisible) {
+      _hideTimer?.cancel();
+      setState(() => _toolbarVisible = false);
+    } else {
+      _showToolbar(autoHide: true);
+    }
+  }
+
+  /// 手势：双指缩放围绕焦点、单指拖动平移；矩阵未同步时丢弃输入。
+  void _handleScaleUpdate(ScaleUpdateDetails details) {
+    if (_viewport.matrixDirty) return;
+    if (details.pointerCount > 1) {
+      final factor = details.scale / _gestureScale;
+      _gestureScale = details.scale;
+      _viewport.zoom(factor, focal: details.localFocalPoint);
+    } else if (details.focalPointDelta != Offset.zero) {
+      _viewport.pan(details.focalPointDelta);
+    }
   }
 
   /// 提示某功能待接线。
@@ -67,81 +160,99 @@ class _SessionPageState extends State<SessionPage> {
     );
   }
 
-  // =====** 组件：视频区 + 悬浮工具条 =====**
+  // =====** 组件：视频区 =====**
 
-  /// 真实纹理画面或明确的待接通说明。
-  Widget _buildSurface() {
-    return ValueListenableBuilder<int?>(
-      valueListenable: controller.textureId,
-      builder: (context, textureId, _) {
-        if (textureId != null) {
-          return ValueListenableBuilder<ControlPreviewInfo?>(
-            valueListenable: controller.preview,
-            builder: (context, info, _) {
-              final width = info?.width ?? 1920;
-              final height = info?.height ?? 1080;
-              return ClipRRect(
-                borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
-                child: ColoredBox(
-                  color: Colors.black,
-                  child: FittedBox(
-                    fit: BoxFit.contain,
-                    child: SizedBox(
-                      width: width.toDouble(),
-                      height: height.toDouble(),
-                      child: Texture(
-                        textureId: textureId,
-                        filterQuality: FilterQuality.low,
+  /// 画面区：外部纹理 + ViewportController 的渲染矩阵（不逐帧拷贝）。
+  ///
+  /// 只调整 `Transform` 与 `Texture` 的显示尺寸，绝不重建 `textureId`。
+  Widget _buildSurface(bool wide) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _syncViewport(constraints.biggest);
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _onSurfaceTap(wide),
+          onDoubleTap: _viewport.reset,
+          onScaleStart: (_) => _gestureScale = 1.0,
+          onScaleUpdate: _handleScaleUpdate,
+          child: ValueListenableBuilder<int?>(
+            valueListenable: controller.textureId,
+            builder: (context, textureId, _) {
+              if (textureId == null) return _buildPlaceholder();
+              return ListenableBuilder(
+                listenable: _viewport,
+                builder: (context, _) {
+                  // 显示矩形完全由 ViewportController 的同一矩阵推出；
+                  // 用定位矩形而不是 Transform，避免外部纹身在变换下漏绘。
+                  final rect = _viewport.displayRect;
+                  return ClipRect(
+                    child: ColoredBox(
+                      color: Colors.black,
+                      child: Stack(
+                        children: [
+                          Positioned(
+                            left: rect.left,
+                            top: rect.top,
+                            width: rect.width,
+                            height: rect.height,
+                            child: Texture(
+                              textureId: textureId,
+                              filterQuality: FilterQuality.low,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ),
-                ),
+                  );
+                },
               );
             },
-          );
-        }
-        return ValueListenableBuilder<String?>(
-          valueListenable: controller.previewError,
-          builder: (context, error, _) {
-            return Container(
-              decoration: BoxDecoration(
-                color: Colors.black,
-                borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
-                border: Border.all(color: RdcTokens.border),
-              ),
-              alignment: Alignment.center,
-              child: Padding(
-                padding: const EdgeInsets.all(RdcTokens.spaceXl),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      error == null
-                          ? Icons.videocam_outlined
-                          : Icons.videocam_off_outlined,
-                      size: 38,
-                      color: RdcTokens.textMuted,
-                    ),
-                    const SizedBox(height: RdcTokens.spaceMd),
-                    Text(
-                      error == null
-                          ? AppStrings.sessionTextureStarting
-                          : '${AppStrings.sessionTextureFailed}$error',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: RdcTokens.fontBody,
-                        color: RdcTokens.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
+          ),
         );
       },
     );
   }
+
+  /// 纹理尚未接通时的明确说明（不显示假画面）。
+  Widget _buildPlaceholder() {
+    return ValueListenableBuilder<String?>(
+      valueListenable: controller.previewError,
+      builder: (context, error, _) {
+        return Container(
+          color: Colors.black,
+          alignment: Alignment.center,
+          child: Padding(
+            padding: const EdgeInsets.all(RdcTokens.spaceXl),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  error == null
+                      ? Icons.videocam_outlined
+                      : Icons.videocam_off_outlined,
+                  size: 38,
+                  color: RdcTokens.textMuted,
+                ),
+                const SizedBox(height: RdcTokens.spaceMd),
+                Text(
+                  error == null
+                      ? AppStrings.sessionTextureStarting
+                      : '${AppStrings.sessionTextureFailed}$error',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: RdcTokens.fontBody,
+                    color: RdcTokens.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // =====** 组件：指标与设备标识 =====**
 
   /// 画面上的实时指标（fps / 端到端延迟 / 丢帧）。
   Widget _buildStatsPill() {
@@ -169,131 +280,103 @@ class _SessionPageState extends State<SessionPage> {
     );
   }
 
-  // =====** 组件：视频区 + 悬浮工具条 =====**
-
-  Widget _buildVideoArea(BuildContext context) {
+  /// 设备名 + 输入权限胶囊。
+  Widget _buildDeviceChips() {
     return ValueListenableBuilder(
-      valueListenable: controller.fullscreen,
-      builder: (context, fullscreen, _) {
-        final height = fullscreen
-            ? MediaQuery.sizeOf(context).height * 0.72
-            : 420.0;
-        return SizedBox(
-          height: height,
-          child: ValueListenableBuilder(
-            valueListenable: shell.activeDeviceName,
-            builder: (context, deviceName, _) {
-              return Stack(
-                fit: StackFit.expand,
-                children: [
-                  // 真实画面：外部纹理直接上屏，不做逐帧 RGBA 拷贝。
-                  _buildSurface(),
-                  // 右上角：实测帧率 / 端到端延迟 / 丢帧
-                  Positioned(
-                    right: RdcTokens.spaceLg,
-                    top: RdcTokens.spaceLg,
-                    child: _buildStatsPill(),
-                  ),
-                  // 左上角：设备名 + 角色
-                  Positioned(
-                    left: RdcTokens.spaceLg,
-                    top: RdcTokens.spaceLg,
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: RdcTokens.background.withValues(alpha: 0.7),
-                            borderRadius:
-                                BorderRadius.circular(RdcTokens.radiusPill),
-                          ),
-                          child: Text(
-                            deviceName,
-                            style: const TextStyle(
-                              fontSize: RdcTokens.fontCaption,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: RdcTokens.spaceSm),
-                        ValueListenableBuilder(
-                          valueListenable: controller.canInjectInput,
-                          builder: (context, allowed, _) => RdcStatusPill(
-                            text: allowed
-                                ? AppStrings.inputAllowed
-                                : AppStrings.inputDenied,
-                            color: allowed
-                                ? RdcTokens.success
-                                : RdcTokens.textMuted,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // 底部悬浮工具条
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: RdcTokens.spaceLg,
-                    child: Center(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: RdcTokens.spaceMd,
-                          vertical: RdcTokens.spaceSm,
-                        ),
-                        decoration: BoxDecoration(
-                          color: RdcTokens.surface.withValues(alpha: 0.92),
-                          borderRadius:
-                              BorderRadius.circular(RdcTokens.radiusCard),
-                          border: Border.all(color: RdcTokens.border),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x66000000),
-                              blurRadius: 24,
-                              offset: Offset(0, 8),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            RdcButton(
-                              label: AppStrings.disconnect,
-                              icon: Icons.logout,
-                              onPressed: shell.disconnectToDevices,
-                            ),
-                            const SizedBox(width: RdcTokens.spaceSm),
-                            RdcButton(
-                              label: AppStrings.fullscreen,
-                              icon: Icons.fullscreen,
-                              onPressed: controller.toggleFullscreen,
-                            ),
-                            const SizedBox(width: RdcTokens.spaceSm),
-                            RdcButton(
-                              label: AppStrings.clipboard,
-                              icon: Icons.content_paste,
-                              onPressed: () => _pending(context),
-                            ),
-                            const SizedBox(width: RdcTokens.spaceSm),
-                            RdcButton(
-                              label: AppStrings.files,
-                              icon: Icons.folder_open,
-                              onPressed: () => _pending(context),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
+      valueListenable: shell.activeDeviceName,
+      builder: (context, deviceName, _) {
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: RdcTokens.background.withValues(alpha: 0.7),
+                borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
+              ),
+              child: Text(
+                deviceName,
+                style: const TextStyle(
+                  fontSize: RdcTokens.fontCaption,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(width: RdcTokens.spaceSm),
+            ValueListenableBuilder(
+              valueListenable: controller.canInjectInput,
+              builder: (context, allowed, _) => RdcStatusPill(
+                text: allowed
+                    ? AppStrings.inputAllowed
+                    : AppStrings.inputDenied,
+                color: allowed ? RdcTokens.success : RdcTokens.textMuted,
+              ),
+            ),
+          ],
         );
       },
+    );
+  }
+
+  // =====** 组件：工具条（两个方向复用同一组操作，仅布局不同） =====**
+
+  /// 工具条；[floating] 为真时是宽布局的顶部悬浮样式。
+  Widget _buildToolbar({required bool floating, required bool wide}) {
+    final actions = <Widget>[
+      RdcButton(
+        label: AppStrings.disconnect,
+        icon: Icons.logout,
+        onPressed: shell.disconnectToDevices,
+      ),
+      if (wide)
+        RdcButton(
+          label: AppStrings.resetView,
+          icon: Icons.center_focus_strong,
+          onPressed: _viewport.reset,
+        )
+      else
+        RdcButton(
+          label: AppStrings.fullscreen,
+          icon: Icons.fullscreen,
+          onPressed: controller.toggleFullscreen,
+        ),
+      RdcButton(
+        label: AppStrings.clipboard,
+        icon: Icons.content_paste,
+        onPressed: () => _pending(context),
+      ),
+      RdcButton(
+        label: AppStrings.files,
+        icon: Icons.folder_open,
+        onPressed: () => _pending(context),
+      ),
+    ];
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: RdcTokens.spaceMd,
+        vertical: floating ? RdcTokens.spaceSm : RdcTokens.spaceMd,
+      ),
+      decoration: BoxDecoration(
+        color: RdcTokens.surface.withValues(alpha: floating ? 0.92 : 1.0),
+        borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
+        border: Border.all(color: RdcTokens.border),
+        boxShadow: floating
+            ? const [
+                BoxShadow(
+                  color: Color(0x66000000),
+                  blurRadius: 24,
+                  offset: Offset(0, 8),
+                ),
+              ]
+            : null,
+      ),
+      child: Wrap(
+        spacing: RdcTokens.spaceSm,
+        runSpacing: RdcTokens.spaceSm,
+        alignment: WrapAlignment.center,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: actions,
+      ),
     );
   }
 
@@ -350,18 +433,107 @@ class _SessionPageState extends State<SessionPage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  // =====** 组件：两种方向布局 =====**
+
+  /// 宽布局：全出血画面 + 顶部悬浮工具条（3 秒淡出）+ 底部两侧信息胶囊。
+  Widget _buildWideLayout() {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(child: _buildSurface(true)),
+        Positioned(
+          top: RdcTokens.spaceMd,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
+            ignoring: !_toolbarVisible,
+            child: AnimatedOpacity(
+              opacity: _toolbarVisible ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 220),
+              child: Center(
+                child: _buildToolbar(floating: true, wide: true),
+              ),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: Padding(
+            padding: const EdgeInsets.all(RdcTokens.spaceLg),
+            child: Align(
+              alignment: Alignment.bottomLeft,
+              child: _buildDeviceChips(),
+            ),
+          ),
+        ),
+        Positioned.fill(
+          child: Padding(
+            padding: const EdgeInsets.all(RdcTokens.spaceLg),
+            child: Align(
+              alignment: Alignment.bottomRight,
+              child: _buildStatsPill(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// 窄布局（竖屏）：画面在上，统计与工具条在下，最后是会话信息。
+  Widget _buildNarrowLayout(BoxConstraints constraints) {
+    final ratio = _viewport.remoteSize.aspectRatio;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(RdcTokens.spacePage),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildVideoArea(context),
+          ValueListenableBuilder(
+            valueListenable: controller.fullscreen,
+            builder: (context, fullscreen, _) {
+              if (fullscreen) {
+                return SizedBox(
+                  height: constraints.maxHeight * 0.55,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
+                    child: _buildSurface(false),
+                  ),
+                );
+              }
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
+                child: AspectRatio(
+                  aspectRatio: ratio,
+                  child: _buildSurface(false),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: RdcTokens.spaceMd),
+          Row(
+            children: [
+              Expanded(child: _buildDeviceChips()),
+              const SizedBox(width: RdcTokens.spaceSm),
+              _buildStatsPill(),
+            ],
+          ),
+          const SizedBox(height: RdcTokens.spaceMd),
+          _buildToolbar(floating: false, wide: false),
           const SizedBox(height: RdcTokens.spaceLg),
           _buildInfo(),
         ],
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // 断点用约束几何，不用 Orientation（平板分屏时 Orientation 会撒谎）。
+        final wide = ViewportController.resolveWide(constraints.biggest);
+        return wide
+            ? _buildWideLayout()
+            : _buildNarrowLayout(constraints);
+      },
     );
   }
 }
