@@ -111,6 +111,54 @@ fn settings_path() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+/// 启动日志路径（与 C++ runner 写入的是同一个文件）。
+fn startup_log_path() -> PathBuf {
+    config_dir().join("logs").join("startup.log")
+}
+
+/// 追加一行启动日志。
+///
+/// 为什么不用 `tracing`：桌面应用里 tracing 没有文件订阅者，写出去不可见；
+/// 排障时唯一能看到的启动日志是 C++ runner 建的 `logs/startup.log`，这里沿用同格式。
+fn append_startup_log(line: &str) {
+    append_startup_log_to(&startup_log_path(), line);
+}
+
+/// 向指定日志文件追加一行；写失败一律静默，日志不得影响启动。
+fn append_startup_log_to(path: &std::path::Path, line: &str) {
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    else {
+        return;
+    };
+    let _ = writeln!(file, "[{}] {line}", local_time_stamp());
+}
+
+/// 本地时间戳（与 `AppendStartupLog` 的 `[年-月-日 时:分:秒]` 一致）。
+#[cfg(windows)]
+fn local_time_stamp() -> String {
+    let now = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        now.wYear, now.wMonth, now.wDay, now.wHour, now.wMinute, now.wSecond
+    )
+}
+
+/// 非 Windows 平台没有 startup.log 消费者，保留 epoch 秒便于定位。
+#[cfg(not(windows))]
+fn local_time_stamp() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0);
+    format!("unix {secs}")
+}
+
 // =====** 设备列表 DTO =====**
 
 /// 设备条目（跨 FFI 的可复制快照）。
@@ -390,6 +438,13 @@ fn from_settings_dto(dto: SettingsDto) -> AppSettings {
 /// 文件损坏或版本超前时返回错误文本。
 pub fn settings_load() -> Result<SettingsDto, String> {
     let path = settings_path();
+    // 启动清理：主文件完好时删掉上次异常退出遗留的 `settings.json.tmp` 并记一条日志。
+    if let Some(removed) = AppSettings::cleanup_stale_temp(&path) {
+        append_startup_log(&format!(
+            "settings_cleanup=stale_temp removed=\"{}\"（清理上次残留的临时文件）",
+            removed.display()
+        ));
+    }
     let settings = AppSettings::load(&path).map_err(|error| error.to_string())?;
     Ok(to_settings_dto(settings, path))
 }
@@ -1851,4 +1906,22 @@ pub fn device_set_public_key(
         .save(device_path())
         .map_err(|error| error.to_string())?;
     build_snapshot()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 启动清理日志落到指定路径，且沿用 `[时间戳] 内容` 格式。
+    #[test]
+    fn startup_log_line_has_timestamp_and_text() {
+        let dir = std::env::temp_dir().join(format!("rdc-bridge-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("logs").join("startup.log");
+        append_startup_log_to(&path, "settings_cleanup=stale_temp 测试行");
+        let text = std::fs::read_to_string(&path).expect("日志应已写入");
+        assert!(text.starts_with('['), "缺少时间戳前缀：{text}");
+        assert!(text.contains("] settings_cleanup=stale_temp 测试行"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

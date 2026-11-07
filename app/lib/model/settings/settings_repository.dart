@@ -76,12 +76,24 @@ class SettingsRepository {
       await dir.create(recursive: true);
       final file = File(filePath);
       final temp = File('${file.path}.tmp');
-      await temp.writeAsString(
-        const JsonEncoder.withIndent('  ').convert(settings.toJson()),
-        flush: true,
-      );
-      await temp.rename(file.path);
-      return true;
+      try {
+        await temp.writeAsString(
+          const JsonEncoder.withIndent('  ').convert(settings.toJson()),
+          flush: true,
+        );
+        await temp.rename(file.path);
+        return true;
+      } catch (_) {
+        // 写入或 rename 失败：删掉本次自己创建的临时文件，不留给下次启动时清理。
+        if (await temp.exists()) {
+          try {
+            await temp.delete();
+          } catch (_) {
+            // 清理失败不掩盖「保存失败」这个事实。
+          }
+        }
+        return false;
+      }
     } catch (_) {
       return false;
     }

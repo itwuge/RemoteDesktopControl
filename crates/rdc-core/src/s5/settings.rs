@@ -250,13 +250,53 @@ impl AppSettings {
         }
         let bytes = serde_json::to_vec_pretty(&value)?;
         let temp = temp_path(path);
-        {
-            let mut handle = std::fs::File::create(&temp)?;
-            handle.write_all(&bytes)?;
-            handle.sync_all()?;
+        // `create` 成功即代表这个临时文件归本次调用所有，后续任何失败都只删它。
+        let mut handle = std::fs::File::create(&temp)?;
+        let written = handle.write_all(&bytes).and_then(|()| handle.sync_all());
+        drop(handle);
+        if let Err(err) = written {
+            let _ = std::fs::remove_file(&temp);
+            return Err(err.into());
         }
-        std::fs::rename(&temp, path)?;
+        if let Err(err) = std::fs::rename(&temp, path) {
+            // 目标只读/被占用时 rename 失败：写了一半的临时文件不能留到下次启动。
+            let _ = std::fs::remove_file(&temp);
+            return Err(err.into());
+        }
         Ok(())
+    }
+
+    /// 清理上次异常退出遗留的临时文件（启动时调用一次）。
+    ///
+    /// 只在主文件存在且能按当前版本完整解析（视为「完好」）时删除 `*.tmp`；
+    /// 主文件缺失或损坏时保留临时文件，避免误删唯一可能可恢复的副本。
+    ///
+    /// # Arguments
+    /// * `path` - 主设置文件路径
+    ///
+    /// # Returns
+    /// 删除成功返回被删的临时文件路径；未删除时返回 `None`。
+    ///
+    /// # Errors
+    /// 不会失败；读不到主文件或删除失败一律按「不清理」处理。
+    pub fn cleanup_stale_temp(path: impl AsRef<Path>) -> Option<PathBuf> {
+        let path = path.as_ref();
+        let temp = temp_path(path);
+        if !temp.is_file() {
+            return None;
+        }
+        match std::fs::metadata(path) {
+            Ok(meta) if meta.is_file() && meta.len() > 0 => {}
+            _ => return None,
+        }
+        if Self::load(path).is_err() {
+            return None;
+        }
+        if std::fs::remove_file(&temp).is_err() {
+            return None;
+        }
+        tracing::warn!("清理上次残留的临时文件: {}", temp.display());
+        Some(temp)
     }
 }
 
@@ -308,6 +348,56 @@ mod tests {
         let loaded = AppSettings::load(&path).expect("加载");
         assert_eq!(loaded, changed);
         assert!(!dir.join("settings.json.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 写入失败时不得残留本次创建的临时文件。
+    ///
+    /// 构造方式：在目标文件位置放一个目录，使最后的 rename 必然失败，
+    /// 模拟只读/被占用导致保存失败的现实路径。
+    #[test]
+    fn save_failure_leaves_no_temp() {
+        let dir = temp_dir("save-fail");
+        let path = dir.join("settings.json");
+        std::fs::create_dir_all(&path).expect("用目录占住目标路径");
+        let error = AppSettings::default().save(&path).expect_err("rename 失败应报错");
+        assert!(matches!(error, SettingsError::Io(_)));
+        assert!(!dir.join("settings.json.tmp").exists(), "失败后临时文件必须清理");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 主文件完好时，启动清理删除上次遗留的临时文件。
+    #[test]
+    fn cleanup_stale_temp_when_main_intact() {
+        let dir = temp_dir("cleanup-intact");
+        let path = dir.join("settings.json");
+        AppSettings::default().save(&path).expect("保存主文件");
+        let temp = dir.join("settings.json.tmp");
+        std::fs::write(&temp, b"{half").expect("伪造残留临时文件");
+
+        let removed = AppSettings::cleanup_stale_temp(&path);
+        assert_eq!(removed.as_deref(), Some(temp.as_path()));
+        assert!(!temp.exists());
+        assert!(path.exists(), "主文件不能被误删");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 主文件损坏或缺失时保留临时文件，避免误删可恢复副本。
+    #[test]
+    fn cleanup_stale_temp_keeps_when_main_broken() {
+        let dir = temp_dir("cleanup-broken");
+        let path = dir.join("settings.json");
+        let temp = dir.join("settings.json.tmp");
+
+        // 主文件缺失：保留。
+        std::fs::write(&temp, b"{half").expect("伪造残留临时文件");
+        assert!(AppSettings::cleanup_stale_temp(&path).is_none());
+        assert!(temp.exists());
+
+        // 主文件损坏：同样保留。
+        std::fs::write(&path, b"{not json").expect("写入坏主文件");
+        assert!(AppSettings::cleanup_stale_temp(&path).is_none());
+        assert!(temp.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
