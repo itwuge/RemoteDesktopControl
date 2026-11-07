@@ -42,6 +42,7 @@ packaging/**/output/
 *.log
 logs/
 app/rdc-control-logs/
+rdc-control-logs/
 tmp/
 
 # --- 密钥/证书（绝不入库，CI 用 secrets 注入）---
