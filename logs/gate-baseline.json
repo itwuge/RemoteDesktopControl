@@ -1,14 +1,13 @@
 {
-    "generatedAt":  "2026-11-08T05:21:46+08:00",
+    "generatedAt":  "2026-11-08T07:29:34+08:00",
     "project":  "RemoteDesktopControl",
-    "total":  442,
+    "total":  441,
     "byRule":  {
                    "R-C-15":  1,
                    "R-C-2":  219,
                    "R-C-3":  166,
                    "R-L-1":  30,
                    "R-L-4":  4,
-                   "R-L-9":  1,
                    "R-N-1":  18,
                    "R-N-2":  1,
                    "R-N-5":  2
@@ -299,13 +298,13 @@
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-capture/src/platform/linux.rs",
-                        "line":  857,
+                        "line":  862,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
                         "rule":  "R-C-2",
                         "file":  "crates/rdc-capture/src/platform/linux.rs",
-                        "line":  1066,
+                        "line":  1071,
                         "message":  "discarded result with \u0027let _ =\u0027; log or propagate the error."
                     },
                     {
@@ -2533,12 +2532,6 @@
                         "file":  "crates/rdc-linux-e2e/Cargo.toml",
                         "line":  0,
                         "message":  "crate rdc-linux-e2e has no unified logging dependency."
-                    },
-                    {
-                        "rule":  "R-L-9",
-                        "file":  "crates/rdc-capture/src/platform/linux.rs",
-                        "line":  620,
-                        "message":  "error branch only logs; it must return or propagate the error."
                     },
                     {
                         "rule":  "R-N-1",
