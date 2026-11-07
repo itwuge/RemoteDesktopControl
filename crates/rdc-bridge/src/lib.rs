@@ -14,6 +14,8 @@
 pub mod api;
 #[cfg(windows)]
 mod control_service;
+#[cfg(target_os = "linux")]
+mod control_service_linux;
 mod clipboard_service;
 mod file_service;
 mod input_service;

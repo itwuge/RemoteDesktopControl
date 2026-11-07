@@ -371,6 +371,23 @@ class RustGateway {
     return _toControlPreviewInfo(await rust_api.controlStatus());
   }
 
+  /// 读取控制页最新一帧 RGBA 画面（Linux 降级通道；Windows 恒为 `null`）。
+  ///
+  /// 画面 FPS 由调用方控制；同尺寸逐帧转换开销与帧率成正比，建议 15~30Hz 轮询。
+  Future<ControlFrameInfo?> controlFrame() async {
+    _ensureInitialized();
+    final dto = await rust_api.controlFrame();
+    if (dto == null) return null;
+    return ControlFrameInfo(
+      frameId: dto.frameId.toInt(),
+      width: dto.width,
+      height: dto.height,
+      ptsUs: dto.ptsUs.toInt(),
+      latencyUs: dto.latencyUs.toInt(),
+      bytes: dto.bytes,
+    );
+  }
+
   /// 把共享纹理句柄注册为 Flutter 外部纹理。
   ///
   /// 返回：Flutter 纹理 ID；非 Windows 或注册失败时为 `null`。

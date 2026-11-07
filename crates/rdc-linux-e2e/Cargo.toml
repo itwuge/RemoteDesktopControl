@@ -1,0 +1,28 @@
+# ============================================================
+# rdc-linux-e2e · crate 清单
+#
+# 用途：S8-2 端到端链路演示（本地采集→软编→解码→上屏，以及最小被控服务）。
+#       仅为实测/演示程序，不进入生产路径；生产路径仍走 rdc-core 的会话编排。
+# 层级：crates 下的演示 crate，依赖 L3 采集/编解码/输入层。
+# 许可提示：软编后端在运行期调用系统 ffmpeg（libx264 为 GPL），
+#           本 crate 不链接、不打包 ffmpeg，发布包不应包含该二进制。
+# ============================================================
+
+[package]
+name = "rdc-linux-e2e"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC S8-2 Linux 端到端链路演示"
+
+[dependencies]
+rdc-capture = { workspace = true }
+rdc-codec = { workspace = true }
+rdc-input = { workspace = true }
+rdc-runtime = { workspace = true }
+
+# 演示程序自建窗口与上屏走 x11rb；libc 提供 CLOCK_MONOTONIC 纳秒时钟。
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { workspace = true }
+libc = { workspace = true }

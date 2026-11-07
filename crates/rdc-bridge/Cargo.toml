@@ -38,3 +38,7 @@ ffmpeg = ["rdc-decode/ffmpeg"]
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# 复用 S8-2 已验证的回环线协议与外部 ffmpeg 解码管道，避免桥接层复制一份实现。
+rdc-linux-e2e = { workspace = true }

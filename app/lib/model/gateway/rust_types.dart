@@ -251,6 +251,37 @@ class ControlPreviewInfo {
   final String? lastError;
 }
 
+/// 控制页最新一帧 RGBA 画面（S8-3：Linux 无外部纹理时的降级上屏通道）。
+class ControlFrameInfo {
+  /// 创建帧快照。
+  const ControlFrameInfo({
+    required this.frameId,
+    required this.width,
+    required this.height,
+    required this.ptsUs,
+    required this.latencyUs,
+    required this.bytes,
+  });
+
+  /// 帧序号（单调递增）。
+  final int frameId;
+
+  /// 宽。
+  final int width;
+
+  /// 高。
+  final int height;
+
+  /// 采集时间戳（微秒）。
+  final int ptsUs;
+
+  /// 端到端延迟（微秒）。
+  final int latencyUs;
+
+  /// RGBA8888 像素。
+  final Uint8List bytes;
+}
+
 /// 设置快照（FFI 边界值对象，由 SettingsRepository 转成 AppSettings）。
 class SettingsSnapshot {
   /// 创建设置快照。

@@ -84,7 +84,7 @@ pub fn create_encoder(kind: CodecKind) -> Result<Box<dyn VideoEncoder>, CodecErr
 
     #[cfg(target_os = "linux")]
     {
-        // S1 忽略 kind：stage3 将按 kind 选择 VAAPI 的 HEVC / H.264 / AV1。
+        // Linux 走外部 ffmpeg/libx264 软编；kind 由 configure 校验（当前仅 H.264）。
         let _ = kind;
         Ok(Box::new(linux::PlatformEncoder::new()))
     }
@@ -115,7 +115,12 @@ pub fn probe_encoders() -> ProbeReport {
         windows::probe_report()
     }
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::probe_report()
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     {
         ProbeReport::default()
     }

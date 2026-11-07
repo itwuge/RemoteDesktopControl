@@ -1869,7 +1869,7 @@ mod tests {
         // 2b) 篡改签名。
         let err = verify_grant(
             &valid.token,
-            &"AAAA",
+            "AAAA",
             &context(&trusted, &host_pub),
             T0 + 1_000,
             &mut ReplayGuard::new(),
@@ -2115,7 +2115,7 @@ mod tests {
         let untrusted = verify_kick(&signed, &[], T0).unwrap_err();
         assert_eq!(untrusted.code(), "owner_untrusted");
 
-        assert!(REVOCATION_PROPAGATION_MAX_MS >= 15 * 60_000);
+        const _: () = assert!(REVOCATION_PROPAGATION_MAX_MS >= 15 * 60_000);
         assert!(!REVOCATION_UI_TEXT.contains("立即生效"));
         assert!(REVOCATION_UI_TEXT.contains("15 分 90 秒"));
     }

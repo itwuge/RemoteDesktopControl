@@ -14,7 +14,7 @@
 //! - 采集会话有线程亲和性，采集源在管线线程内创建/启动/停止。
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{sync_channel, SyncSender, TryRecvError};
+use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -141,6 +141,21 @@ fn service_slot() -> &'static Mutex<Option<ServiceState>> {
 /// # Errors
 /// 编码器或解码器创建失败时返回错误文本，且不留下运行中的线程。
 pub fn start() -> Result<WallSnapshot, String> {
+    // Linux 分支：采集与编码已具备，但缩略流解码后端尚未接入（rdc-decode 无 Linux 实现）。
+    // 明确返回「不支持」，而不是启动线程后异步失败或返回假帧；接口与 DTO 保持不变。
+    #[cfg(not(windows))]
+    {
+        Err("屏幕墙缩略预览暂不支持当前平台：缩略流解码仅 Windows 已实现（接口保留）".to_owned())
+    }
+    #[cfg(windows)]
+    {
+        start_windows()
+    }
+}
+
+/// Windows 实现：启动缩略流采集/编码/解码线程。
+#[cfg(windows)]
+fn start_windows() -> Result<WallSnapshot, String> {
     {
         let slot = service_slot().lock().map_err(|error| error.to_string())?;
         if let Some(state) = slot.as_ref() {
@@ -363,11 +378,8 @@ fn run_pipeline(
         let tick_start = Instant::now();
         // 预览只要最新一帧：把通道里的积压读空，避免延迟随队列增长。
         let mut sample: Option<(Frame, u64)> = None;
-        loop {
-            match sampler.try_recv() {
-                Ok(next) => sample = Some(next),
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
-            }
+        while let Ok(next) = sampler.try_recv() {
+            sample = Some(next);
         }
         let Some((frame, pts_us)) = sample else {
             std::thread::sleep(TICK);
@@ -454,6 +466,8 @@ fn run_pipeline(
     // 退出前停采集并冲刷编码器，避免残留帧；解码器随线程释放。
     capture.stop();
     let _ = thumbnail.flush();
+    // 解码器只在 Windows 后端存在；其它平台无解码句柄可冲刷。
+    #[cfg(target_os = "windows")]
     let _ = decoder.flush();
     Ok(())
 }
@@ -485,6 +499,7 @@ fn frame_messages(frame: &WallFrame) -> Vec<WallMessage> {
 }
 
 /// 解码一帧并转为 RGBA 预览。
+#[cfg(target_os = "windows")]
 fn decode_frame(
     decoder: &mut DecoderHandle,
     frame: &WallFrame,
@@ -569,9 +584,13 @@ fn nv12_to_rgba_half(frame: &rdc_decode::DecodedFrame) -> (u32, u32, Vec<u8>) {
     (out_w, out_h, rgba)
 }
 
-/// 非 Windows 平台的占位转换（不会被执行，调用前已返回错误）。
+/// 非 Windows 平台的解码占位：屏幕墙预览依赖 Media Foundation，调用方按错误处理。
 #[cfg(not(target_os = "windows"))]
-fn nv12_to_rgba_half(_frame: &()) -> (u32, u32, Vec<u8>) {
-    (PREVIEW_WIDTH, PREVIEW_HEIGHT, Vec::new())
+fn decode_frame(
+    _decoder: &mut DecoderHandle,
+    _frame: &WallFrame,
+    _origin: Instant,
+) -> Result<Option<PreviewFrame>, String> {
+    Err("屏幕墙预览解码目前仅支持 Windows".to_owned())
 }
 

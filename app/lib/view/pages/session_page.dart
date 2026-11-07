@@ -1,10 +1,10 @@
-﻿// ============================================================
+// ============================================================
 // 页面用途：远程控制页（视频区 + 工具条；横竖屏两种布局）
 //
 // 层级：view/pages
 // 被谁组装：shell_page.dart
 // 数据来源：SessionController（角色权限来自 Rust；画面来自 Rust 管线注册的外部纹理）
-// 边界：视频必须走外部纹理，不允许逐帧转 Image；纹理未接通时显示明确说明
+// 边界：Windows 走外部纹理零拷贝；Linux 无外部纹理，按 RGBA 帧降级（同一 model/controller）
 // 布局：宽（横屏/宽屏）→ 全出血画面 + 顶部悬浮工具条（3 秒淡出）；
 //       窄（竖屏）→ 画面上、统计与工具条下的上下布局
 // 旋转：只经 ViewportController 重算渲染矩阵；不重建 textureId、不重启采集管线
@@ -25,6 +25,7 @@ import '../../core/theme/tokens.dart';
 import '../../model/gateway/rust_types.dart';
 import '../components/info_row.dart';
 import '../components/rdc_button.dart';
+import '../components/rgba_preview.dart';
 import '../components/session_transfer_dialogs.dart';
 
 /// 远程控制页。
@@ -66,6 +67,17 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 当前按下的鼠标键（`0` 无、`1` 左、`2` 右、`3` 中）；拖动时随移动下发。
   int _activeButton = 0;
+
+  /// 注入回声抑制窗口（毫秒）：XTest 把真实指针移到远端坐标后，系统会把这次
+  /// 移动作为 pointer move 回传进来；不忽略就会被当成新的用户移动再次下发，
+  /// 形成「本地→远端」放大反馈（本机回环实测指针会一路跑飞）。
+  static const int _echoWindowMs = 120;
+
+  /// 距最近一次下发输入的单调计时器。
+  final Stopwatch _injectClock = Stopwatch();
+
+  /// 最近一次「用户意图」的远端坐标；抬手必须用它，否则 press/release 落两处。
+  Offset? _lastRemotePoint;
 
   /// 会话控制器。
   SessionController get controller => widget.controller;
@@ -150,7 +162,7 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 手势：双指缩放围绕焦点、单指拖动平移；矩阵未同步时丢弃输入。
   void _handleScaleUpdate(ScaleUpdateDetails details) {
-    if (_viewport.matrixDirty) return;
+    if (_viewport.matrixDirty || _inEchoWindow) return;
     if (details.pointerCount > 1) {
       final factor = details.scale / _gestureScale;
       _gestureScale = details.scale;
@@ -161,6 +173,17 @@ class _SessionPageState extends State<SessionPage> {
   }
 
   // =====** 输入注入：指针与键盘 =====**
+
+  /// 是否处于注入回声窗口（窗口内的 pointer move 一律忽略，不下发也不平移）。
+  bool get _inEchoWindow =>
+      _injectClock.isRunning && _injectClock.elapsedMilliseconds < _echoWindowMs;
+
+  /// 记录一次下发，开启回声抑制窗口。
+  void _markInjected() {
+    _injectClock
+      ..reset()
+      ..start();
+  }
 
   /// 是否可以注入：有角色权限且画面未中断（断线时不允许再把事件打到被控端）。
   bool get _inputReady =>
@@ -206,6 +229,7 @@ class _SessionPageState extends State<SessionPage> {
     final point = _desktopPoint(event.localPosition);
     if (point == null) return;
     _activeButton = code;
+    _lastRemotePoint = point;
     controller.sendInputEvents([
       InputEventSpec.button(
         x: point.dx.toInt(),
@@ -214,13 +238,18 @@ class _SessionPageState extends State<SessionPage> {
         pressed: true,
       ),
     ]);
+    _markInjected();
   }
 
   /// 指针移动：无按键时是纯移动；按住时带上按键，交由合并器按拖动限频。
+  ///
+  /// 处于回声窗口的移动来自我们自己的注入（XTest 移动了真实指针），必须丢弃：
+  /// 否则会被当成新的用户移动再次下发，形成放大反馈。
   void _onPointerMove(PointerMoveEvent event) {
-    if (!_inputReady) return;
+    if (!_inputReady || _inEchoWindow) return;
     final point = _desktopPoint(event.localPosition);
     if (point == null) return;
+    _lastRemotePoint = point;
     final x = point.dx.toInt();
     final y = point.dy.toInt();
     if (_activeButton == 0) {
@@ -230,9 +259,13 @@ class _SessionPageState extends State<SessionPage> {
         InputEventSpec.button(x: x, y: y, button: _activeButton, pressed: true),
       ]);
     }
+    _markInjected();
   }
 
   /// 指针抬起/取消：先抬起按键，再冲刷挂起移动（末点不丢）。
+  ///
+  /// 抬手用 [_lastRemotePoint]（用户意图点），不用 `localPosition`：
+  /// 注入已把真实指针挪走，按回传位置抬起会 press/release 落两处。
   void _onPointerRelease(Offset local) {
     if (!_inputReady) return;
     final code = _activeButton;
@@ -241,7 +274,8 @@ class _SessionPageState extends State<SessionPage> {
       controller.flushInputEvents();
       return;
     }
-    final point = _desktopPoint(local, clamp: true);
+    final point = _lastRemotePoint ?? _desktopPoint(local, clamp: true);
+    _lastRemotePoint = null;
     if (point == null) {
       controller.flushInputEvents();
       return;
@@ -254,6 +288,7 @@ class _SessionPageState extends State<SessionPage> {
         pressed: false,
       ),
     ]);
+    _markInjected();
     controller.flushInputEvents();
   }
 
@@ -272,6 +307,7 @@ class _SessionPageState extends State<SessionPage> {
     }
     if (dx == 0 && dy == 0) return;
     controller.sendInputEvents([InputEventSpec.wheel(deltaX: dx, deltaY: dy)]);
+    _markInjected();
     controller.flushInputEvents();
   }
 
@@ -327,31 +363,47 @@ class _SessionPageState extends State<SessionPage> {
                 child: ValueListenableBuilder<int?>(
                   valueListenable: controller.textureId,
                   builder: (context, textureId, _) {
-                    if (textureId == null) return _buildPlaceholder();
-                    return ListenableBuilder(
-                      listenable: _viewport,
-                      builder: (context, _) {
-                        // 显示矩形完全由 ViewportController 的同一矩阵推出；
-                        // 用定位矩形而不是 Transform，避免外部纹身在变换下漏绘。
-                        final rect = _viewport.displayRect;
-                        return ClipRect(
-                          child: ColoredBox(
-                            color: Colors.black,
-                            child: Stack(
-                              children: [
-                                Positioned(
-                                  left: rect.left,
-                                  top: rect.top,
-                                  width: rect.width,
-                                  height: rect.height,
-                                  child: Texture(
-                                    textureId: textureId,
-                                    filterQuality: FilterQuality.low,
-                                  ),
+                    return ValueListenableBuilder<ControlFrameInfo?>(
+                      valueListenable: controller.frame,
+                      builder: (context, frame, _) {
+                        if (textureId == null && frame == null) {
+                          return _buildPlaceholder();
+                        }
+                        return ListenableBuilder(
+                          listenable: _viewport,
+                          builder: (context, _) {
+                            // 显示矩形完全由 ViewportController 的同一矩阵推出；
+                            // 用定位矩形而不是 Transform，避免外部纹身在变换下漏绘。
+                            final rect = _viewport.displayRect;
+                            return ClipRect(
+                              child: ColoredBox(
+                                color: Colors.black,
+                                child: Stack(
+                                  children: [
+                                    Positioned(
+                                      left: rect.left,
+                                      top: rect.top,
+                                      width: rect.width,
+                                      height: rect.height,
+                                      // Windows：外部纹理零拷贝上屏；
+                                      // Linux：RGBA 帧降级通道（逐帧转换，见 SessionController）。
+                                      child: textureId != null
+                                          ? Texture(
+                                              textureId: textureId,
+                                              filterQuality: FilterQuality.low,
+                                            )
+                                          : RdcRgbaPreview(
+                                              bytes: frame!.bytes,
+                                              width: frame.width,
+                                              height: frame.height,
+                                              fit: BoxFit.fill,
+                                            ),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                          ),
+                              ),
+                            );
+                          },
                         );
                       },
                     );
@@ -419,7 +471,9 @@ class _SessionPageState extends State<SessionPage> {
     return ValueListenableBuilder<String?>(
       valueListenable: controller.previewError,
       builder: (context, error, _) {
-        if (error == null || controller.textureId.value == null) {
+        if (error == null ||
+            (controller.textureId.value == null &&
+                controller.frame.value == null)) {
           return const SizedBox.shrink();
         }
         return Positioned(

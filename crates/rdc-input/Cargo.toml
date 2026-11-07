@@ -25,3 +25,12 @@ tracing = { workspace = true }
 # 平台 API 只允许出现在 src/platform/*.rs；Windows 注入后端使用 SendInput。
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = ["Win32_UI_Input_KeyboardAndMouse"] }
+
+# Linux 注入后端：x11rb 走 XTest 扩展，libc 提供 uinput ioctl 与 input_event 结构。
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { workspace = true, features = ["xtest"] }
+libc = { workspace = true }
+
+# 注入探针示例（examples/xtest_probe.rs）需要日志订阅器；库本身只用 tracing 门面。
+[dev-dependencies]
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

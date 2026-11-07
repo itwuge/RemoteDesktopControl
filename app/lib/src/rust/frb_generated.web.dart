@@ -38,6 +38,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool dco_decode_bool(dynamic raw);
 
   @protected
+  ControlFrameDto dco_decode_box_autoadd_control_frame_dto(dynamic raw);
+
+  @protected
   SettingsDto dco_decode_box_autoadd_settings_dto(dynamic raw);
 
   @protected
@@ -45,6 +48,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ClipboardStatusDto dco_decode_clipboard_status_dto(dynamic raw);
+
+  @protected
+  ControlFrameDto dco_decode_control_frame_dto(dynamic raw);
 
   @protected
   ControlStatusDto dco_decode_control_status_dto(dynamic raw);
@@ -104,6 +110,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? dco_decode_opt_String(dynamic raw);
 
   @protected
+  ControlFrameDto? dco_decode_opt_box_autoadd_control_frame_dto(dynamic raw);
+
+  @protected
   WallPreviewDto? dco_decode_opt_box_autoadd_wall_preview_dto(dynamic raw);
 
   @protected
@@ -161,6 +170,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   bool sse_decode_bool(SseDeserializer deserializer);
 
   @protected
+  ControlFrameDto sse_decode_box_autoadd_control_frame_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   SettingsDto sse_decode_box_autoadd_settings_dto(SseDeserializer deserializer);
 
   @protected
@@ -172,6 +186,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ClipboardStatusDto sse_decode_clipboard_status_dto(
     SseDeserializer deserializer,
   );
+
+  @protected
+  ControlFrameDto sse_decode_control_frame_dto(SseDeserializer deserializer);
 
   @protected
   ControlStatusDto sse_decode_control_status_dto(SseDeserializer deserializer);
@@ -239,6 +256,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   String? sse_decode_opt_String(SseDeserializer deserializer);
 
   @protected
+  ControlFrameDto? sse_decode_opt_box_autoadd_control_frame_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   WallPreviewDto? sse_decode_opt_box_autoadd_wall_preview_dto(
     SseDeserializer deserializer,
   );
@@ -302,6 +324,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_encode_bool(bool self, SseSerializer serializer);
 
   @protected
+  void sse_encode_box_autoadd_control_frame_dto(
+    ControlFrameDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_box_autoadd_settings_dto(
     SettingsDto self,
     SseSerializer serializer,
@@ -316,6 +344,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_clipboard_status_dto(
     ClipboardStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_control_frame_dto(
+    ControlFrameDto self,
     SseSerializer serializer,
   );
 
@@ -399,6 +433,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_opt_String(String? self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_opt_box_autoadd_control_frame_dto(
+    ControlFrameDto? self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_opt_box_autoadd_wall_preview_dto(

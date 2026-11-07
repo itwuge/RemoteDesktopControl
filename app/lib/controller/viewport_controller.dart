@@ -63,11 +63,12 @@ class ViewportController extends ChangeNotifier {
     final rect = displayRect;
     final sx = rect.width / _remote.width;
     final sy = rect.height / _remote.height;
+    // `Matrix4` 构造参数是列主序（storage[i] == 第 i 个实参），平移在 12/13 位。
     return Matrix4(
-      sx, 0, 0, rect.left,
-      0, sy, 0, rect.top,
+      sx, 0, 0, 0,
+      0, sy, 0, 0,
       0, 0, 1, 0,
-      0, 0, 0, 1,
+      rect.left, rect.top, 0, 1,
     );
   }
 
@@ -194,13 +195,17 @@ class ViewportController extends ChangeNotifier {
   }
 
   /// 重算唯一矩阵：归一化坐标 → 本地像素。
+  ///
+  /// `Matrix4` 构造参数是列主序：平移必须落在 storage[12]/[13]。
+  /// 曾把 `rect.left/top` 写进第 4/8 位，导致 letterbox 的横向偏移丢失
+  /// （画面画在 `displayRect`，点击却按无偏移的矩阵换算，横向必错位）。
   void _refreshMatrix() {
     final rect = displayRect;
     _matrix = Matrix4(
-      rect.width, 0, 0, rect.left,
-      0, rect.height, 0, rect.top,
+      rect.width, 0, 0, 0,
+      0, rect.height, 0, 0,
       0, 0, 1, 0,
-      0, 0, 0, 1,
+      rect.left, rect.top, 0, 1,
     );
   }
 }

@@ -47,6 +47,12 @@ if(RDC_CARGO_EXECUTABLE)
     COMMENT "复制 librdc_bridge.so 到 bundle 目录"
     VERBATIM
   )
+
+  # 关键：必须把库装进 bundle 根目录（与可执行文件同目录），否则 Dart 侧候选项
+  # 只查可执行文件同目录，装载会失败。
+  # 注意：顶层 install 会先清空 bundle（cmake_install.cmake 第 47 行），本规则在其后执行。
+  install(FILES "${RDC_REPO_ROOT}/target/release/librdc_bridge.so"
+    DESTINATION "${CMAKE_BINARY_DIR}/bundle")
 else()
   message(WARNING "未找到 cargo，跳过 Rust 桥接库构建")
 endif()

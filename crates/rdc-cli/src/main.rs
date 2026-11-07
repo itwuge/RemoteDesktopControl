@@ -12,10 +12,14 @@ use std::time::Duration;
 // =====** 模块声明 =====**
 
 mod demo;
+// S3a（10s 1080p60 采集+MFT 编码+MP4 回读）与 S4 输入/按键演示依赖 Media Foundation
+// 与 Win32 光标/低级键盘钩子，属于 Windows 专属验证路径；其它平台在下方给出明确提示。
+#[cfg(target_os = "windows")]
 mod s3a;
 mod s3b;
 mod s3b3;
 mod s3b4;
+#[cfg(target_os = "windows")]
 mod s4demo;
 mod s5_5;
 mod walldemo;
@@ -42,10 +46,46 @@ async fn main() -> ExitCode {
         Some("s3b") => run_s3b(&mut args),
         Some("s3b3") => run_s3b3(&mut args),
         Some("s3b4") => run_s3b4(&mut args),
-        Some("demo-input") => run_s4_demo("demo-input", 60, s4demo::run_input()).await,
-        Some("demo-keys") => run_s4_demo("demo-keys", 60, s4demo::run_keys()).await,
-        Some("demo-clipboard") => run_s4_demo("demo-clipboard", 60, s4demo::run_clipboard()).await,
-        Some("demo-file") => run_s4_demo("demo-file", 120, s4demo::run_file()).await,
+        Some("demo-input") => {
+            #[cfg(target_os = "windows")]
+            {
+                run_s4_demo("demo-input", 60, s4demo::run_input()).await
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                unsupported_demo("demo-input")
+            }
+        }
+        Some("demo-keys") => {
+            #[cfg(target_os = "windows")]
+            {
+                run_s4_demo("demo-keys", 60, s4demo::run_keys()).await
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                unsupported_demo("demo-keys")
+            }
+        }
+        Some("demo-clipboard") => {
+            #[cfg(target_os = "windows")]
+            {
+                run_s4_demo("demo-clipboard", 60, s4demo::run_clipboard()).await
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                unsupported_demo("demo-clipboard")
+            }
+        }
+        Some("demo-file") => {
+            #[cfg(target_os = "windows")]
+            {
+                run_s4_demo("demo-file", 120, s4demo::run_file()).await
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                unsupported_demo("demo-file")
+            }
+        }
         Some("demo-wall") => run_s4_demo("demo-wall", 90, walldemo::run()).await,
         Some("s5-5") => run_s5_5(),
         Some(other) => {
@@ -109,6 +149,7 @@ fn run_selftest() -> ExitCode {
 ///
 /// # Errors
 /// 不返回错误；通过退出码与 stderr 表达。
+#[cfg(target_os = "windows")]
 fn run_s3a(fixture: bool) -> ExitCode {
     match s3a::run(fixture) {
         Ok(()) => ExitCode::SUCCESS,
@@ -117,6 +158,29 @@ fn run_s3a(fixture: bool) -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// 非 Windows 平台的 S3a 占位：编码路径依赖 Media Foundation，明确失败而非伪造通过。
+#[cfg(not(target_os = "windows"))]
+fn run_s3a(_fixture: bool) -> ExitCode {
+    eprintln!("S3a 实测（MFT 硬件编码 + MP4 回读）目前仅支持 Windows");
+    ExitCode::FAILURE
+}
+
+/// 非 Windows 平台的 S4 演示占位：演示断言依赖 Win32 光标/键盘钩子。
+///
+/// # Arguments
+/// * `name` - 演示名。
+///
+/// # Returns
+/// 固定返回 FAILURE。
+///
+/// # Errors
+/// 不会失败。
+#[cfg(not(target_os = "windows"))]
+fn unsupported_demo(name: &str) -> ExitCode {
+    eprintln!("{name} 演示（Win32 光标/键盘钩子探针）目前仅支持 Windows");
+    ExitCode::FAILURE
 }
 
 /// S3b-4 端到端实测：本机两进程 UDP 回环，画内时间码回读求玻璃到玻璃延迟。

@@ -12,8 +12,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'session_service.dart';
 
-// These functions are ignored because they are not marked as `pub`: `append_audit`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `template_of`, `to_control_status`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `append_audit`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `template_of`, `to_control_status_linux`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// 返回 Rust 核心版本号。
 ///
@@ -260,6 +260,19 @@ Future<ControlStatusDto> controlStop() =>
 /// 内部锁异常时返回错误文本。
 Future<ControlStatusDto> controlStatus() =>
     RustLib.instance.api.crateApiControlStatus();
+
+/// 控制页最新一帧 RGBA 画面（S8-3 Linux 降级上屏通道）。
+///
+/// Windows 走外部纹理，不使用本接口，恒返回 `None`。
+/// Linux 上 `control_start` 成功后由解码线程更新，Dart 侧按 15~30Hz 轮询。
+///
+/// # Returns
+/// 已有解码帧返回 `Some`；尚未出首帧或未启动返回 `None`。
+///
+/// # Errors
+/// 内部锁异常或平台未实现时返回错误文本。
+Future<ControlFrameDto?> controlFrame() =>
+    RustLib.instance.api.crateApiControlFrame();
 
 /// 启动本机回环输入通道（与 `control_start` 配对调用）。
 ///
@@ -709,7 +722,63 @@ class AuditEntryDto {
           outcome == other.outcome;
 }
 
+/// 一帧 RGBA 画面。
+///
+/// `bytes` 为 RGBA8888，长度必须为 `width * height * 4`。
+class ControlFrameDto {
+  /// 帧序号（单调递增，Dart 侧据此跳过重复帧）。
+  final BigInt frameId;
+
+  /// 宽（像素）。
+  final int width;
+
+  /// 高（像素）。
+  final int height;
+
+  /// 采集时间戳（微秒，单调时钟）。
+  final BigInt ptsUs;
+
+  /// 端到端延迟（微秒）。
+  final BigInt latencyUs;
+
+  /// RGBA8888 像素。
+  final Uint8List bytes;
+
+  const ControlFrameDto({
+    required this.frameId,
+    required this.width,
+    required this.height,
+    required this.ptsUs,
+    required this.latencyUs,
+    required this.bytes,
+  });
+
+  @override
+  int get hashCode =>
+      frameId.hashCode ^
+      width.hashCode ^
+      height.hashCode ^
+      ptsUs.hashCode ^
+      latencyUs.hashCode ^
+      bytes.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ControlFrameDto &&
+          runtimeType == other.runtimeType &&
+          frameId == other.frameId &&
+          width == other.width &&
+          height == other.height &&
+          ptsUs == other.ptsUs &&
+          latencyUs == other.latencyUs &&
+          bytes == other.bytes;
+}
+
 /// 控制页预览状态。
+///
+/// 非 Windows 平台（Linux/macOS）的 `control_start`/`control_stop`/`control_status` 分支
+/// 使用 `Default` 表达「预览不可用」的空状态，因此这里显式派生 `Default`。
 class ControlStatusDto {
   /// 是否运行。
   final bool running;
@@ -809,6 +878,9 @@ class ControlStatusDto {
     required this.eventB,
     this.lastError,
   });
+
+  static Future<ControlStatusDto> default_() =>
+      RustLib.instance.api.crateApiControlStatusDtoDefault();
 
   @override
   int get hashCode =>

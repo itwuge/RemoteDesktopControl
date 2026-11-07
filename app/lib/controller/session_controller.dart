@@ -45,6 +45,11 @@ class SessionController {
   /// 控制页实测指标（fps / 延迟 / 丢帧）。
   final ValueNotifier<ControlPreviewInfo?> preview = ValueNotifier(null);
 
+  /// 最新一帧 RGBA 画面（Linux 降级通道）。
+  ///
+  /// Windows 外部纹理路径下恒为 `null`，由 `Texture` 直接消费共享句柄。
+  final ValueNotifier<ControlFrameInfo?> frame = ValueNotifier(null);
+
   /// 画面启动失败原因。
   final ValueNotifier<String?> previewError = ValueNotifier(null);
 
@@ -67,6 +72,15 @@ class SessionController {
 
   /// 状态轮询定时器。
   Timer? _statusTimer;
+
+  /// RGBA 帧轮询定时器（仅 Linux 降级通道启用）。
+  Timer? _frameTimer;
+
+  /// 是否有一次帧请求在途（避免慢帧叠加成队列）。
+  bool _frameInflight = false;
+
+  /// 已显示的帧序号（同帧不重复解码）。
+  int _lastFrameId = 0;
 
   /// 是否正在启动（防止重复进入）。
   bool _starting = false;
@@ -100,28 +114,39 @@ class SessionController {
   ///
   /// 返回：无返回值；成功后 [textureId] 非空，指标每秒刷新。
   Future<void> startPreview() async {
-    if (_starting || textureId.value != null) return;
+    if (_starting || textureId.value != null || frame.value != null) return;
     _starting = true;
     previewError.value = null;
     try {
       final info = await gateway.startControlPreview();
       final id = await gateway.registerControlTexture(info);
       preview.value = info;
-      if (id == null) {
+      // Linux 无外部纹理，Rust 端以 `rgba-frame` 标明走降级通道。
+      final rgbaFallback = id == null && info.texturePath == 'rgba-frame';
+      RdcLogger.log(
+        'SessionController',
+        '画面通道 textureId=$id path=${info.texturePath} '
+            '${info.width}x${info.height} backend=${info.backend}',
+      );
+      if (id != null) {
+        textureId.value = id;
+      } else if (rgbaFallback) {
+        _lastFrameId = 0;
+        _startFramePolling();
+      } else {
         previewError.value = '外部纹理注册失败（非 Windows 或 runner 未挂载通道）';
         await gateway.stopControlPreview();
-      } else {
-        textureId.value = id;
-        // 画面接通后建立会话链路：bye 握手与资源清理都挂在会话生命周期上。
-        await _startSession();
-        // 画面接通后才启动输入通道：没有画面就没有可靠的坐标映射。
-        await _startInput(info);
-        _statusTimer?.cancel();
-        _statusTimer = Timer.periodic(
-          const Duration(seconds: 1),
-          (_) => _refreshStatus(),
-        );
+        return;
       }
+      // 画面接通后建立会话链路：bye 握手与资源清理都挂在会话生命周期上。
+      await _startSession();
+      // 画面接通后才启动输入通道：没有画面就没有可靠的坐标映射。
+      await _startInput(info);
+      _statusTimer?.cancel();
+      _statusTimer = Timer.periodic(
+        const Duration(seconds: 1),
+        (_) => _refreshStatus(),
+      );
     } catch (error, stackTrace) {
       previewError.value = '$error';
       RdcLogger.log(
@@ -136,10 +161,57 @@ class SessionController {
     }
   }
 
+  /// 启动 RGBA 帧轮询（约 30Hz，按需丢弃重复帧）。
+  ///
+  /// 降级说明：Linux 无外部纹理，逐帧 `decodeImageFromPixels` 的 CPU 成本与帧率成正比，
+  /// 软件渲染下实际帧率由 Rust 解码端决定，这里不做插帧。
+  void _startFramePolling() {
+    _frameTimer?.cancel();
+    _frameInflight = false;
+    _frameTimer = Timer.periodic(
+      const Duration(milliseconds: 33),
+      (_) => unawaited(_pollFrame()),
+    );
+  }
+
+  /// 拉取最新一帧；沿用上一帧直到出现新帧号。
+  Future<void> _pollFrame() async {
+    if (_frameInflight) return;
+    _frameInflight = true;
+    try {
+      final next = await gateway.controlFrame();
+      if (next == null || next.frameId <= _lastFrameId) return;
+      final first = _lastFrameId == 0;
+      _lastFrameId = next.frameId;
+      frame.value = next;
+      if (first) {
+        RdcLogger.log(
+          'SessionController',
+          '首帧 #${next.frameId} ${next.width}x${next.height} '
+              '${next.bytes.length}B 延迟 ${next.latencyUs}us',
+        );
+      }
+    } catch (error) {
+      RdcLogger.log('SessionController', '读取 RGBA 帧失败: $error');
+    } finally {
+      _frameInflight = false;
+    }
+  }
+
+  /// 停止 RGBA 帧轮询并清空当前帧。
+  void _stopFramePolling() {
+    _frameTimer?.cancel();
+    _frameTimer = null;
+    _frameInflight = false;
+    _lastFrameId = 0;
+    frame.value = null;
+  }
+
   /// 停止画面管线：先注销纹理，再停止输入与 Rust（避免句柄提前释放）。
   Future<void> stopPreview() async {
     _statusTimer?.cancel();
     _statusTimer = null;
+    _stopFramePolling();
     try {
       await gateway.unregisterControlTexture();
     } catch (error) {
@@ -179,6 +251,7 @@ class SessionController {
   Future<SessionTeardownInfo?> endSession({String reason = '用户断开'}) async {
     _statusTimer?.cancel();
     _statusTimer = null;
+    _stopFramePolling();
     // 顺序要求：输入先排空、纹理先注销，Rust 才停采集与解码。
     await _stopInput();
     try {
@@ -335,6 +408,8 @@ class SessionController {
   void dispose() {
     _statusTimer?.cancel();
     _statusTimer = null;
+    _frameTimer?.cancel();
+    _frameTimer = null;
     // 只做资源回收，不再写通知器（通知器随后即被销毁）。
     unawaited(_teardown());
     role.dispose();
@@ -344,6 +419,7 @@ class SessionController {
     errorMessage.dispose();
     textureId.dispose();
     preview.dispose();
+    frame.dispose();
     previewError.dispose();
     inputStats.dispose();
     inputError.dispose();
