@@ -165,6 +165,8 @@ class ControlPreviewInfo {
     required this.encodedFrames,
     required this.decodedFrames,
     required this.droppedFrames,
+    required this.encodedBytes,
+    required this.bitrateKbps,
     required this.latencyLastUs,
     required this.latencyP50Us,
     required this.latencyP99Us,
@@ -214,6 +216,12 @@ class ControlPreviewInfo {
 
   /// 采集丢帧数。
   final int droppedFrames;
+
+  /// 编码输出累计字节数。
+  final int encodedBytes;
+
+  /// 实测码率（千比特/秒，1 秒窗口）。
+  final int bitrateKbps;
 
   /// 最近端到端延迟（微秒）。
   final int latencyLastUs;

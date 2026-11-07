@@ -445,6 +445,8 @@ let mut var_capturedFrames = <u64>::sse_decode(deserializer);
 let mut var_encodedFrames = <u64>::sse_decode(deserializer);
 let mut var_decodedFrames = <u64>::sse_decode(deserializer);
 let mut var_droppedFrames = <u64>::sse_decode(deserializer);
+let mut var_encodedBytes = <u64>::sse_decode(deserializer);
+let mut var_bitrateKbps = <u64>::sse_decode(deserializer);
 let mut var_latencyLastUs = <u64>::sse_decode(deserializer);
 let mut var_latencyP50Us = <u64>::sse_decode(deserializer);
 let mut var_latencyP99Us = <u64>::sse_decode(deserializer);
@@ -454,7 +456,7 @@ let mut var_shareHandleB = <i64>::sse_decode(deserializer);
 let mut var_eventA = <i64>::sse_decode(deserializer);
 let mut var_eventB = <i64>::sse_decode(deserializer);
 let mut var_lastError = <Option<String>>::sse_decode(deserializer);
-return crate::api::ControlStatusDto{running: var_running, backend: var_backend, encoder: var_encoder, decoder: var_decoder, texture_path: var_texturePath, decode_path: var_decodePath, width: var_width, height: var_height, fps: var_fps, captured_frames: var_capturedFrames, encoded_frames: var_encodedFrames, decoded_frames: var_decodedFrames, dropped_frames: var_droppedFrames, latency_last_us: var_latencyLastUs, latency_p50_us: var_latencyP50Us, latency_p99_us: var_latencyP99Us, readback_count: var_readbackCount, share_handle_a: var_shareHandleA, share_handle_b: var_shareHandleB, event_a: var_eventA, event_b: var_eventB, last_error: var_lastError};}
+return crate::api::ControlStatusDto{running: var_running, backend: var_backend, encoder: var_encoder, decoder: var_decoder, texture_path: var_texturePath, decode_path: var_decodePath, width: var_width, height: var_height, fps: var_fps, captured_frames: var_capturedFrames, encoded_frames: var_encodedFrames, decoded_frames: var_decodedFrames, dropped_frames: var_droppedFrames, encoded_bytes: var_encodedBytes, bitrate_kbps: var_bitrateKbps, latency_last_us: var_latencyLastUs, latency_p50_us: var_latencyP50Us, latency_p99_us: var_latencyP99Us, readback_count: var_readbackCount, share_handle_a: var_shareHandleA, share_handle_b: var_shareHandleB, event_a: var_eventA, event_b: var_eventB, last_error: var_lastError};}
                 }
                 
                 impl SseDecode for crate::api::DeviceDto {
@@ -833,6 +835,8 @@ self.captured_frames.into_into_dart().into_dart(),
 self.encoded_frames.into_into_dart().into_dart(),
 self.decoded_frames.into_into_dart().into_dart(),
 self.dropped_frames.into_into_dart().into_dart(),
+self.encoded_bytes.into_into_dart().into_dart(),
+self.bitrate_kbps.into_into_dart().into_dart(),
 self.latency_last_us.into_into_dart().into_dart(),
 self.latency_p50_us.into_into_dart().into_dart(),
 self.latency_p99_us.into_into_dart().into_dart(),
@@ -1159,6 +1163,8 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::WallStatusDto> for crate::api
 <u64>::sse_encode(self.encoded_frames, serializer);
 <u64>::sse_encode(self.decoded_frames, serializer);
 <u64>::sse_encode(self.dropped_frames, serializer);
+<u64>::sse_encode(self.encoded_bytes, serializer);
+<u64>::sse_encode(self.bitrate_kbps, serializer);
 <u64>::sse_encode(self.latency_last_us, serializer);
 <u64>::sse_encode(self.latency_p50_us, serializer);
 <u64>::sse_encode(self.latency_p99_us, serializer);

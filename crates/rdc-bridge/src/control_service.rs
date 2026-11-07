@@ -93,6 +93,10 @@ pub struct ControlSnapshot {
     pub decoded_frames: u64,
     /// 采集通道丢帧数。
     pub dropped_frames: u64,
+    /// 编码输出累计字节数（真实编码包大小累加）。
+    pub encoded_bytes: u64,
+    /// 实测码率（千比特/秒，1 秒窗口）。
+    pub bitrate_kbps: u64,
     /// 最近端到端延迟（微秒，画内时间码回读）。
     pub latency_last_us: u64,
     /// 端到端延迟 p50（微秒）。
@@ -124,6 +128,8 @@ struct Stats {
     displayed: AtomicU64,
     dropped: Arc<AtomicU64>,
     fps_milli: AtomicU64,
+    encoded_bytes: AtomicU64,
+    bitrate_kbps: AtomicU64,
     latency_last_us: AtomicU64,
     latency_p50_us: AtomicU64,
     latency_p99_us: AtomicU64,
@@ -336,6 +342,8 @@ fn build_snapshot(stats: &Stats, running: bool, width: u32, height: u32, running
         encoded_frames: stats.encoded.load(Ordering::Relaxed),
         decoded_frames: stats.decoded.load(Ordering::Relaxed),
         dropped_frames: stats.dropped.load(Ordering::Relaxed),
+        encoded_bytes: stats.encoded_bytes.load(Ordering::Relaxed),
+        bitrate_kbps: stats.bitrate_kbps.load(Ordering::Relaxed),
         latency_last_us: stats.latency_last_us.load(Ordering::Relaxed),
         latency_p50_us: stats.latency_p50_us.load(Ordering::Relaxed),
         latency_p99_us: stats.latency_p99_us.load(Ordering::Relaxed),
@@ -534,6 +542,7 @@ fn run_pipeline(
     let start = Instant::now();
     let mut index = 0usize;
     let mut displayed_window = 0u64;
+    let mut bytes_window = 0u64;
     let mut window_start = Instant::now();
     let mut last_readback = Instant::now() - Duration::from_millis(READBACK_INTERVAL_MS);
     let mut latency_samples: Vec<u64> = Vec::with_capacity(64);
@@ -588,6 +597,11 @@ fn run_pipeline(
         // 取编码输出并喂给解码器。
         while let Some(packet) = encoder.poll_packet() {
             stats.encoded.fetch_add(1, Ordering::Relaxed);
+            let packet_bytes = packet.data.len() as u64;
+            stats
+                .encoded_bytes
+                .fetch_add(packet_bytes, Ordering::Relaxed);
+            bytes_window += packet_bytes;
             if let Some(capture_ms) = pending_packet_ms.pop_front() {
                 let now_ms = start.elapsed().as_millis() as u64 % 1_000_000;
                 let diff = now_ms.wrapping_sub(capture_ms as u64) % 1_000_000;
@@ -655,6 +669,9 @@ fn run_pipeline(
             let millis = window_start.elapsed().as_millis().max(1) as u64;
             let fps_milli = displayed_window * 1_000_000 / millis;
             stats.fps_milli.store(fps_milli, Ordering::Relaxed);
+            // bits/ms 即 kbit/s：窗口内编码字节数 × 8 ÷ 窗口毫秒数。
+            let kbps = bytes_window * 8 / millis;
+            stats.bitrate_kbps.store(kbps, Ordering::Relaxed);
             if let Some(file) = log_file.as_mut() {
                 use std::io::Write;
                 let _ = writeln!(
@@ -675,6 +692,7 @@ fn run_pipeline(
                 );
             }
             displayed_window = 0;
+            bytes_window = 0;
             window_start = Instant::now();
         }
 

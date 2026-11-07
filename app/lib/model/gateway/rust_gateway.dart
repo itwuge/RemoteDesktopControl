@@ -412,6 +412,8 @@ class RustGateway {
       encodedFrames: dto.encodedFrames.toInt(),
       decodedFrames: dto.decodedFrames.toInt(),
       droppedFrames: dto.droppedFrames.toInt(),
+      encodedBytes: dto.encodedBytes.toInt(),
+      bitrateKbps: dto.bitrateKbps.toInt(),
       latencyLastUs: dto.latencyLastUs.toInt(),
       latencyP50Us: dto.latencyP50Us.toInt(),
       latencyP99Us: dto.latencyP99Us.toInt(),

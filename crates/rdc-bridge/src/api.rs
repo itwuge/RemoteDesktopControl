@@ -620,6 +620,10 @@ pub struct ControlStatusDto {
     pub decoded_frames: u64,
     /// 采集丢帧数。
     pub dropped_frames: u64,
+    /// 编码输出累计字节数。
+    pub encoded_bytes: u64,
+    /// 实测码率（千比特/秒）。
+    pub bitrate_kbps: u64,
     /// 最近端到端延迟（微秒）。
     pub latency_last_us: u64,
     /// 延迟 p50（微秒）。
@@ -711,6 +715,8 @@ fn to_control_status(snapshot: crate::control_service::ControlSnapshot) -> Contr
         encoded_frames: snapshot.encoded_frames,
         decoded_frames: snapshot.decoded_frames,
         dropped_frames: snapshot.dropped_frames,
+        encoded_bytes: snapshot.encoded_bytes,
+        bitrate_kbps: snapshot.bitrate_kbps,
         latency_last_us: snapshot.latency_last_us,
         latency_p50_us: snapshot.latency_p50_us,
         latency_p99_us: snapshot.latency_p99_us,

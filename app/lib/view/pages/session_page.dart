@@ -1,4 +1,4 @@
-// ============================================================
+﻿// ============================================================
 // 页面用途：远程控制页（视频区 + 工具条；横竖屏两种布局）
 //
 // 层级：view/pages
@@ -162,6 +162,10 @@ class _SessionPageState extends State<SessionPage> {
 
   // =====** 输入注入：指针与键盘 =====**
 
+  /// 是否可以注入：有角色权限且画面未中断（断线时不允许再把事件打到被控端）。
+  bool get _inputReady =>
+      controller.canInjectInput.value && controller.previewError.value == null;
+
   /// 本地像素 → 被控端桌面物理像素（唯一坐标入口，走 ViewportController 矩阵）。
   ///
   /// [local] 为画面区内的本地坐标；[clamp] 为真时把越界点钳到画面边缘
@@ -195,7 +199,7 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 指针按下：请求键盘焦点并下发按键按下事件。
   void _onPointerDown(PointerDownEvent event) {
-    if (!controller.canInjectInput.value) return;
+    if (!_inputReady) return;
     _focusNode.requestFocus();
     final code = _buttonCode(event.buttons);
     if (code == 0) return;
@@ -214,7 +218,7 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 指针移动：无按键时是纯移动；按住时带上按键，交由合并器按拖动限频。
   void _onPointerMove(PointerMoveEvent event) {
-    if (!controller.canInjectInput.value) return;
+    if (!_inputReady) return;
     final point = _desktopPoint(event.localPosition);
     if (point == null) return;
     final x = point.dx.toInt();
@@ -230,7 +234,7 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 指针抬起/取消：先抬起按键，再冲刷挂起移动（末点不丢）。
   void _onPointerRelease(Offset local) {
-    if (!controller.canInjectInput.value) return;
+    if (!_inputReady) return;
     final code = _activeButton;
     _activeButton = 0;
     if (code == 0) {
@@ -255,7 +259,7 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 滚轮：Flutter 的像素增量换算为刻度（100 px ≈ 1 格）；方向与被控端一致。
   void _onPointerSignal(PointerSignalEvent event) {
-    if (!controller.canInjectInput.value) return;
+    if (!_inputReady) return;
     if (event is! PointerScrollEvent) return;
     if (_desktopPoint(event.localPosition) == null) return;
     var dx = (event.scrollDelta.dx / 100).round();
@@ -273,7 +277,7 @@ class _SessionPageState extends State<SessionPage> {
 
   /// 键盘：物理键 → 扫描码，按下/抬起原序下发；修饰位随事件携带。
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    if (!controller.canInjectInput.value) return KeyEventResult.ignored;
+    if (!_inputReady) return KeyEventResult.ignored;
     final scanCode = scanCodeFor(event.physicalKey);
     if (scanCode == null) return KeyEventResult.ignored;
     final bool? pressed;
@@ -311,45 +315,51 @@ class _SessionPageState extends State<SessionPage> {
           onPointerUp: (event) => _onPointerRelease(event.localPosition),
           onPointerCancel: (event) => _onPointerRelease(event.localPosition),
           onPointerSignal: _onPointerSignal,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => _onSurfaceTap(wide),
-            onDoubleTap: _viewport.reset,
-            onScaleStart: (_) => _gestureScale = 1.0,
-            onScaleUpdate: _handleScaleUpdate,
-            child: ValueListenableBuilder<int?>(
-              valueListenable: controller.textureId,
-              builder: (context, textureId, _) {
-                if (textureId == null) return _buildPlaceholder();
-                return ListenableBuilder(
-                  listenable: _viewport,
-                  builder: (context, _) {
-                    // 显示矩形完全由 ViewportController 的同一矩阵推出；
-                    // 用定位矩形而不是 Transform，避免外部纹身在变换下漏绘。
-                    final rect = _viewport.displayRect;
-                    return ClipRect(
-                      child: ColoredBox(
-                        color: Colors.black,
-                        child: Stack(
-                          children: [
-                            Positioned(
-                              left: rect.left,
-                              top: rect.top,
-                              width: rect.width,
-                              height: rect.height,
-                              child: Texture(
-                                textureId: textureId,
-                                filterQuality: FilterQuality.low,
-                              ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _onSurfaceTap(wide),
+                onDoubleTap: _viewport.reset,
+                onScaleStart: (_) => _gestureScale = 1.0,
+                onScaleUpdate: _handleScaleUpdate,
+                child: ValueListenableBuilder<int?>(
+                  valueListenable: controller.textureId,
+                  builder: (context, textureId, _) {
+                    if (textureId == null) return _buildPlaceholder();
+                    return ListenableBuilder(
+                      listenable: _viewport,
+                      builder: (context, _) {
+                        // 显示矩形完全由 ViewportController 的同一矩阵推出；
+                        // 用定位矩形而不是 Transform，避免外部纹身在变换下漏绘。
+                        final rect = _viewport.displayRect;
+                        return ClipRect(
+                          child: ColoredBox(
+                            color: Colors.black,
+                            child: Stack(
+                              children: [
+                                Positioned(
+                                  left: rect.left,
+                                  top: rect.top,
+                                  width: rect.width,
+                                  height: rect.height,
+                                  child: Texture(
+                                    textureId: textureId,
+                                    filterQuality: FilterQuality.low,
+                                  ),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
-                      ),
+                          ),
+                        );
+                      },
                     );
                   },
-                );
-              },
-            ),
+                ),
+              ),
+              _buildDisconnectBanner(),
+            ],
           ),
         );
       },
@@ -387,7 +397,73 @@ class _SessionPageState extends State<SessionPage> {
                     color: RdcTokens.textMuted,
                   ),
                 ),
+                if (error != null) ...[
+                  const SizedBox(height: RdcTokens.spaceLg),
+                  RdcButton(
+                    label: AppStrings.reconnect,
+                    icon: Icons.refresh,
+                    primary: true,
+                    onPressed: _reconnect,
+                  ),
+                ],
               ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 画面仍有纹理但解码中断时的横幅 + 重连入口（不静默卡成黑屏）。
+  Widget _buildDisconnectBanner() {
+    return ValueListenableBuilder<String?>(
+      valueListenable: controller.previewError,
+      builder: (context, error, _) {
+        if (error == null || controller.textureId.value == null) {
+          return const SizedBox.shrink();
+        }
+        return Positioned(
+          left: RdcTokens.spaceLg,
+          right: RdcTokens.spaceLg,
+          bottom: RdcTokens.spaceLg + 44,
+          child: Center(
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: RdcTokens.spaceMd,
+                vertical: RdcTokens.spaceSm,
+              ),
+              decoration: BoxDecoration(
+                color: RdcTokens.surface.withValues(alpha: 0.94),
+                borderRadius: BorderRadius.circular(RdcTokens.radiusCard),
+                border: Border.all(color: RdcTokens.danger),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.link_off,
+                    size: 16,
+                    color: RdcTokens.danger,
+                  ),
+                  const SizedBox(width: RdcTokens.spaceSm),
+                  Flexible(
+                    child: Text(
+                      '${AppStrings.sessionDisconnected}$error',
+                      style: const TextStyle(
+                        fontSize: RdcTokens.fontCaption,
+                        color: RdcTokens.textPrimary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: RdcTokens.spaceSm),
+                  RdcButton(
+                    label: AppStrings.reconnect,
+                    icon: Icons.refresh,
+                    compact: true,
+                    onPressed: _reconnect,
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -397,13 +473,17 @@ class _SessionPageState extends State<SessionPage> {
 
   // =====** 组件：指标与设备标识 =====**
 
-  /// 画面上的实时指标（fps / 端到端延迟 / 丢帧）。
+  /// 画面上的连接质量角标（fps / 端到端延迟 / 码率 / 丢帧），全部来自 Rust 真实统计。
   Widget _buildStatsPill() {
     return ValueListenableBuilder<ControlPreviewInfo?>(
       valueListenable: controller.preview,
       builder: (context, info, _) {
         if (info == null || !info.running) return const SizedBox.shrink();
         final latencyMs = info.latencyLastUs / 1000.0;
+        final kbps = info.bitrateKbps;
+        final bitrate = kbps >= 1000
+            ? '${(kbps / 1000).toStringAsFixed(1)} Mbps'
+            : '$kbps kbps';
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
@@ -412,7 +492,8 @@ class _SessionPageState extends State<SessionPage> {
           ),
           child: Text(
             '${info.fps.toStringAsFixed(1)} fps · '
-            '${latencyMs.toStringAsFixed(0)} ms · 丢 ${info.droppedFrames}',
+            '${latencyMs.toStringAsFixed(0)} ms · '
+            '$bitrate · 丢 ${info.droppedFrames}',
             style: const TextStyle(
               fontSize: RdcTokens.fontCaption,
               color: RdcTokens.textPrimary,
@@ -459,6 +540,12 @@ class _SessionPageState extends State<SessionPage> {
         );
       },
     );
+  }
+
+  /// 重连：先停掉残留管线，再重新启动采集与外部纹理。
+  Future<void> _reconnect() async {
+    await controller.stopPreview();
+    await controller.startPreview();
   }
 
   /// 断开：先走 bye 收尾（报告写进提示），再返回设备列表。

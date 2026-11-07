@@ -1321,8 +1321,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   ControlStatusDto dco_decode_control_status_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 22)
-      throw Exception('unexpected arr length: expect 22 but see ${arr.length}');
+    if (arr.length != 24)
+      throw Exception('unexpected arr length: expect 24 but see ${arr.length}');
     return ControlStatusDto(
       running: dco_decode_bool(arr[0]),
       backend: dco_decode_String(arr[1]),
@@ -1337,15 +1337,17 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       encodedFrames: dco_decode_u_64(arr[10]),
       decodedFrames: dco_decode_u_64(arr[11]),
       droppedFrames: dco_decode_u_64(arr[12]),
-      latencyLastUs: dco_decode_u_64(arr[13]),
-      latencyP50Us: dco_decode_u_64(arr[14]),
-      latencyP99Us: dco_decode_u_64(arr[15]),
-      readbackCount: dco_decode_u_64(arr[16]),
-      shareHandleA: dco_decode_i_64(arr[17]),
-      shareHandleB: dco_decode_i_64(arr[18]),
-      eventA: dco_decode_i_64(arr[19]),
-      eventB: dco_decode_i_64(arr[20]),
-      lastError: dco_decode_opt_String(arr[21]),
+      encodedBytes: dco_decode_u_64(arr[13]),
+      bitrateKbps: dco_decode_u_64(arr[14]),
+      latencyLastUs: dco_decode_u_64(arr[15]),
+      latencyP50Us: dco_decode_u_64(arr[16]),
+      latencyP99Us: dco_decode_u_64(arr[17]),
+      readbackCount: dco_decode_u_64(arr[18]),
+      shareHandleA: dco_decode_i_64(arr[19]),
+      shareHandleB: dco_decode_i_64(arr[20]),
+      eventA: dco_decode_i_64(arr[21]),
+      eventB: dco_decode_i_64(arr[22]),
+      lastError: dco_decode_opt_String(arr[23]),
     );
   }
 
@@ -1746,6 +1748,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_encodedFrames = sse_decode_u_64(deserializer);
     var var_decodedFrames = sse_decode_u_64(deserializer);
     var var_droppedFrames = sse_decode_u_64(deserializer);
+    var var_encodedBytes = sse_decode_u_64(deserializer);
+    var var_bitrateKbps = sse_decode_u_64(deserializer);
     var var_latencyLastUs = sse_decode_u_64(deserializer);
     var var_latencyP50Us = sse_decode_u_64(deserializer);
     var var_latencyP99Us = sse_decode_u_64(deserializer);
@@ -1769,6 +1773,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       encodedFrames: var_encodedFrames,
       decodedFrames: var_decodedFrames,
       droppedFrames: var_droppedFrames,
+      encodedBytes: var_encodedBytes,
+      bitrateKbps: var_bitrateKbps,
       latencyLastUs: var_latencyLastUs,
       latencyP50Us: var_latencyP50Us,
       latencyP99Us: var_latencyP99Us,
@@ -2280,6 +2286,8 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_u_64(self.encodedFrames, serializer);
     sse_encode_u_64(self.decodedFrames, serializer);
     sse_encode_u_64(self.droppedFrames, serializer);
+    sse_encode_u_64(self.encodedBytes, serializer);
+    sse_encode_u_64(self.bitrateKbps, serializer);
     sse_encode_u_64(self.latencyLastUs, serializer);
     sse_encode_u_64(self.latencyP50Us, serializer);
     sse_encode_u_64(self.latencyP99Us, serializer);

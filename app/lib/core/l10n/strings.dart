@@ -236,6 +236,12 @@ class AppStrings {
   /// 断开。
   static const disconnect = '断开';
 
+  /// 重连（画面中断后的恢复入口）。
+  static const reconnect = '重连';
+
+  /// 画面连接中断提示前缀。
+  static const sessionDisconnected = '画面连接中断：';
+
   /// 全屏。
   static const fullscreen = '全屏';
 

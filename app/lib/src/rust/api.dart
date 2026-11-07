@@ -503,6 +503,12 @@ class ControlStatusDto {
   /// 采集丢帧数。
   final BigInt droppedFrames;
 
+  /// 编码输出累计字节数。
+  final BigInt encodedBytes;
+
+  /// 实测码率（千比特/秒）。
+  final BigInt bitrateKbps;
+
   /// 最近端到端延迟（微秒）。
   final BigInt latencyLastUs;
 
@@ -544,6 +550,8 @@ class ControlStatusDto {
     required this.encodedFrames,
     required this.decodedFrames,
     required this.droppedFrames,
+    required this.encodedBytes,
+    required this.bitrateKbps,
     required this.latencyLastUs,
     required this.latencyP50Us,
     required this.latencyP99Us,
@@ -570,6 +578,8 @@ class ControlStatusDto {
       encodedFrames.hashCode ^
       decodedFrames.hashCode ^
       droppedFrames.hashCode ^
+      encodedBytes.hashCode ^
+      bitrateKbps.hashCode ^
       latencyLastUs.hashCode ^
       latencyP50Us.hashCode ^
       latencyP99Us.hashCode ^
@@ -598,6 +608,8 @@ class ControlStatusDto {
           encodedFrames == other.encodedFrames &&
           decodedFrames == other.decodedFrames &&
           droppedFrames == other.droppedFrames &&
+          encodedBytes == other.encodedBytes &&
+          bitrateKbps == other.bitrateKbps &&
           latencyLastUs == other.latencyLastUs &&
           latencyP50Us == other.latencyP50Us &&
           latencyP99Us == other.latencyP99Us &&
