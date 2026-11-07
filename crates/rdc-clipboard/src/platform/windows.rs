@@ -58,7 +58,7 @@ impl PlatformClipboard {
     }
 
     /// 读取当前剪贴板文本（未打开失败时返回错误）。
-    fn read_text() -> Result<Option<String>, ClipboardError> {
+    fn read_platform_text() -> Result<Option<String>, ClipboardError> {
         unsafe {
             OpenClipboard(None).map_err(platform_error)?;
             let result = (|| {
@@ -131,13 +131,17 @@ impl Clipboard for PlatformClipboard {
         if self.own_seq == Some(seq) {
             return Ok(None); // 本次变化是我们自己写入引起的
         }
-        let Some(text) = Self::read_text()? else {
+        let Some(text) = Self::read_platform_text()? else {
             return Ok(None);
         };
         if text.is_empty() {
             return Ok(None);
         }
         Ok(Some(text::to_network(&text).into_owned()))
+    }
+
+    fn read_text(&mut self) -> Result<Option<String>, ClipboardError> {
+        Ok(Self::read_platform_text()?.map(|text| text::to_network(&text).into_owned()))
     }
 
     fn write_text(&mut self, text: &str) -> Result<(), ClipboardError> {

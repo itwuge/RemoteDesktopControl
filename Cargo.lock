@@ -1130,6 +1130,7 @@ dependencies = [
  "rdc-connect",
  "rdc-core",
  "rdc-decode",
+ "rdc-input",
  "rdc-protocol",
  "rdc-runtime",
  "rdc-security",
@@ -1183,8 +1184,10 @@ name = "rdc-core"
 version = "0.1.0"
 dependencies = [
  "rdc-capture",
+ "rdc-clipboard",
  "rdc-codec",
  "rdc-connect",
+ "rdc-filetransfer",
  "rdc-input",
  "rdc-protocol",
  "rdc-runtime",

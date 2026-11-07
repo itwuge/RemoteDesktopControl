@@ -36,6 +36,19 @@ pub trait Clipboard: Send {
     /// 平台无实现时返回 [`ClipboardError::Unsupported`]。
     fn poll_text(&mut self) -> Result<Option<String>, ClipboardError>;
 
+    /// 直接读取当前剪贴板文本（不更新轮询基线）。
+    ///
+    /// 用途：演示/诊断需要“写完之后立刻回读”，而 [`Self::poll_text`] 按设计会
+    /// 把自写变化当作回环返回 `None`。本方法不参与回环判定。
+    ///
+    /// # Returns
+    /// 当前剪贴板文本（LF 归一化）；剪贴板为空时返回 `None`。
+    ///
+    /// # Errors
+    /// 系统剪贴板被占用或读取失败时返回 [`ClipboardError::Platform`]；
+    /// 平台无实现时返回 [`ClipboardError::Unsupported`]。
+    fn read_text(&mut self) -> Result<Option<String>, ClipboardError>;
+
     /// 把 LF 文本写入本机剪贴板（实现内部按平台换行转换）。
     ///
     /// # Arguments
@@ -89,6 +102,10 @@ impl Clipboard for UnsupportedClipboard {
     }
 
     fn write_text(&mut self, _text: &str) -> Result<(), ClipboardError> {
+        Err(ClipboardError::Unsupported)
+    }
+
+    fn read_text(&mut self) -> Result<Option<String>, ClipboardError> {
         Err(ClipboardError::Unsupported)
     }
 }

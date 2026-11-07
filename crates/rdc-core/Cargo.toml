@@ -23,6 +23,8 @@ rdc-transport = { workspace = true }
 rdc-capture = { workspace = true }
 rdc-codec = { workspace = true }
 rdc-input = { workspace = true }
+rdc-clipboard = { workspace = true }
+rdc-filetransfer = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

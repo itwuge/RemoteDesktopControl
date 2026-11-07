@@ -5,6 +5,7 @@
 //!       `host`/`connect`/`bench` 后续阶段使用。
 //! 调用方：开发者、CI、打包产物的用户自助诊断（docs/08 §5 产物附加要求）
 
+use std::error::Error;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -15,6 +16,7 @@ mod s3a;
 mod s3b;
 mod s3b3;
 mod s3b4;
+mod s4demo;
 
 // =====** 入口 =====**
 
@@ -38,10 +40,11 @@ async fn main() -> ExitCode {
         Some("s3b") => run_s3b(&mut args),
         Some("s3b3") => run_s3b3(&mut args),
         Some("s3b4") => run_s3b4(&mut args),
+        Some("demo-input") => run_s4_demo("demo-input", 60, s4demo::run_input()).await,
         Some(other) => {
             eprintln!("未知子命令: {other}");
             eprintln!(
-                "可用: doctor | selftest | demo | s3a [--fixture] | s3b [--frames N] | \
+                "可用: doctor | selftest | demo | demo-input | s3a [--fixture] | s3b [--frames N] | \
                  s3b3 [--instances K] [--frames N] [--bitrate B] | s3b4 [host|ctrl] [--secs S]"
             );
             ExitCode::FAILURE
@@ -78,7 +81,11 @@ fn run_doctor() -> ExitCode {
 /// # Errors
 /// 不会失败。
 fn run_selftest() -> ExitCode {
-    println!("core={} platform={}", rdc_core::core_version(), rdc_core::platform_name());
+    println!(
+        "core={} platform={}",
+        rdc_core::core_version(),
+        rdc_core::platform_name()
+    );
     println!("protocol={}", rdc_protocol::version_string());
     ExitCode::SUCCESS
 }
@@ -179,6 +186,35 @@ async fn run_demo() -> ExitCode {
         }
         Err(_) => {
             eprintln!("Demo 失败: 超过 30 s 未完成（可能是某一步阻塞）");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// S4 演示统一入口：带总超时，超时按失败处理。
+///
+/// # Arguments
+/// * `name` - 演示名（用于日志）
+/// * `timeout_secs` - 总超时秒数
+/// * `task` - 演示 future
+///
+/// # Returns
+/// 演示成功返回 SUCCESS，失败或超时返回 FAILURE。
+///
+/// # Errors
+/// 不返回错误；通过退出码与 stderr 表达。
+async fn run_s4_demo<F>(name: &str, timeout_secs: u64, task: F) -> ExitCode
+where
+    F: std::future::Future<Output = Result<(), Box<dyn Error + Send + Sync>>>,
+{
+    match tokio::time::timeout(Duration::from_secs(timeout_secs), task).await {
+        Ok(Ok(())) => ExitCode::SUCCESS,
+        Ok(Err(err)) => {
+            eprintln!("{name} 失败: {err}");
+            ExitCode::FAILURE
+        }
+        Err(_) => {
+            eprintln!("{name} 失败: 超过 {timeout_secs} s 未完成");
             ExitCode::FAILURE
         }
     }

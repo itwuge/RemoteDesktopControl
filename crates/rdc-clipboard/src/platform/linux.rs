@@ -33,4 +33,8 @@ impl Clipboard for PlatformClipboard {
     fn write_text(&mut self, _text: &str) -> Result<(), ClipboardError> {
         Err(ClipboardError::Unsupported)
     }
+
+    fn read_text(&mut self) -> Result<Option<String>, ClipboardError> {
+        Err(ClipboardError::Unsupported)
+    }
 }
