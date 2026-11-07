@@ -326,6 +326,56 @@ std::string DescribePrimaryAdapter() {
   return std::string();
 }
 
+DisplayOutputState DetectDisplayOutputs() {
+  DisplayOutputState state;
+  for (DWORD index = 0;; ++index) {
+    DISPLAY_DEVICEW device{};
+    device.cb = static_cast<DWORD>(sizeof(device));
+    if (!::EnumDisplayDevicesW(nullptr, index, &device, 0)) {
+      break;
+    }
+    const DWORD flags = device.StateFlags;
+    if ((flags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) == 0) {
+      continue;
+    }
+    if (flags & DISPLAY_DEVICE_MIRRORING_DRIVER) {
+      continue;
+    }
+    ++state.count;
+    const std::wstring name(device.DeviceString);
+    const std::wstring id(device.DeviceID);
+    // 间接显示驱动（ToDesk/向日葵/Parsec/IddCx）通常挂在 ROOT\ 下，或是
+    // 名字里带 Virtual/虚拟。两者任一成立即归类为「虚拟输出」。
+    const bool root_device = id.rfind(L"ROOT\\", 0) == 0;
+    const bool virtual_name =
+        name.find(L"Virtual") != std::wstring::npos ||
+        name.find(L"ToDesk") != std::wstring::npos ||
+        name.find(L"Sunlogin") != std::wstring::npos ||
+        name.find(L"Parsec") != std::wstring::npos ||
+        name.find(L"RDP") != std::wstring::npos ||
+        name.find(L"虚拟") != std::wstring::npos;
+    if (root_device || virtual_name) {
+      state.has_virtual = true;
+    } else {
+      state.has_physical = true;
+    }
+  }
+  return state;
+}
+
+std::string DescribeDisplayOutputsCode(const DisplayOutputState& state) {
+  const char* sources = "none";
+  if (state.has_physical && state.has_virtual) {
+    sources = "virtual,physical";
+  } else if (state.has_virtual) {
+    sources = "virtual";
+  } else if (state.has_physical) {
+    sources = "physical";
+  }
+  return std::string(state.count == 0 ? "none" : "active") +
+         " count=" + std::to_string(state.count) + " sources=" + sources;
+}
+
 bool IsRemoteSession() {
   return ::GetSystemMetrics(SM_REMOTESESSION) != 0;
 }

@@ -17,16 +17,18 @@ namespace rdc_fallback {
 // 面向用户的稳定错误码，与 docs/19 的错误码表一一对应。
 constexpr char kRenderErrorCode[] = "RDR-001";
 
-// 设置诊断上下文：渲染后端名、给用户看的中文原因、第几次尝试。
-void SetContext(const std::string& backend, const std::wstring& cause,
-                int attempt_index);
+// 设置诊断上下文：渲染后端名、机器可检索的原因码（no_display_output /
+// render_not_visible / init_failed）、给用户看的中文原因、第几次尝试。
+void SetContext(const std::string& backend, const std::string& cause_code,
+                const std::wstring& cause_text, int attempt_index);
 
 // 注册「用兼容渲染重试」的真实动作。返回 true 表示已发起重新初始化，
 // 保底窗口保持可见直到首帧到达或再次失败；返回 false 表示本次重试失败。
 void SetRetryHandler(std::function<bool()> handler);
 
 // 显示保底窗口。必须在已有消息循环的线程上调用。
-// parent 不为空时先把它隐藏，避免用户看到背后的纯白主窗口。
+// parent 不为空时作为 owner：保底窗口浮在主窗口之上，但主窗口保持可见
+// （任务栏可调起，避免出现「程序像没启动」的观感）。
 bool Show(HWND parent);
 
 // 保底窗口当前是否可见。

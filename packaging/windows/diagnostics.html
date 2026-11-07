@@ -57,28 +57,37 @@
         <td><span class="code">RDR-001</span></td>
         <td>渲染初始化失败</td>
         <td>
-          进程启动后 3 秒内没有完成首帧呈现。具体分三种：
+          进程启动后 3 秒内没有完成首帧呈现。按实际根因分四种，<strong>第一条最常见</strong>：
           <ul>
-            <li><code>no_frame</code>：3 秒内没有收到首帧；</li>
-            <li><code>blank</code>：收到了首帧，但画面是全白或纯色；</li>
-            <li><code>init_failed</code>：Flutter 渲染控制器没有创建成功。</li>
+            <li><code>no_display_output</code>：<strong>本机没有活跃显示输出</strong>——显示器关闭、进入睡眠、线缆未连接，且没有虚拟显示器。此时桌面不再产生新画面，渲染与采集都拿不到内容；</li>
+            <li><code>render_not_visible</code>：有显示输出，但 3 秒内渲染通道没有产出可见画面；</li>
+            <li><code>init_failed</code>：Flutter 渲染控制器没有创建成功；</li>
+            <li><code>forced_for_test</code>：仅用于抓屏验收，设置 <code>RDC_FORCE_FALLBACK=1</code> 时触发。</li>
           </ul>
+          <code>no_display_output</code> 与 <code>render_not_visible</code> 共用 RDR-001，
+          但原因码分开记录，日志里可直接检索。
         </td>
-        <td>主窗口不显示或只有一片白，软件仍在运行，保底窗口接管显示。</td>
+        <td>主窗口保持可见（可能只有一片白），软件仍在运行；保底窗口叠加在主窗口之上接管显示。</td>
       </tr>
     </tbody>
   </table>
   <p class="meta">错误码是稳定编号，用于检索与反馈；诊断文本里的触发条件只写中文原因，不出现英文异常名或 HRESULT 原值。</p>
 
-  <h2>二、看到 RDR-001 时，按这三步处理</h2>
+  <h2>二、看到 RDR-001 时，按这四步处理</h2>
   <div class="card">
-    <strong>被控端显示器请保持开启。</strong>
-    显示器关闭、拔掉线缆或进入睡眠时，被控端会采集不到画面而黑屏。这不是渲染错误，
-    但用户通常想不到。本版本不提供虚拟屏，请让被控端显示器保持开启。
+    <strong>第一步最常见：确认被控端有活跃显示输出。</strong>
+    显示器关闭、拔掉线缆或进入睡眠时，系统没有活跃显示输出，桌面不再产生新画面：
+    主界面会白屏，远控画面会黑屏。ToDesk、向日葵都把它列为常见原因，但用户通常想不到。
+    本版本不提供虚拟屏。
   </div>
   <ol>
     <li>
-      先点保底窗口里的<strong>「用兼容渲染重试」</strong>。它会关闭 Impeller、改用
+      确认被控端显示器处于开启、已连接状态。可执行动作：打开显示器；没有显示器时接一个
+      <strong>HDMI 假负载（dummy plug）</strong>；或启用<strong>虚拟显示器</strong>
+      （例如远程工具自带的虚拟屏）。
+    </li>
+    <li>
+      点保底窗口里的<strong>「用兼容渲染重试」</strong>。它会关闭 Impeller、改用
       Skia（ANGLE / D3D11）并在当前进程内重新初始化渲染，不需要重装、不需要重启电脑。
       成功后设置页的「渲染模式」会显示<strong>当前渲染：兼容模式</strong>。
     </li>
@@ -110,7 +119,8 @@
   <ul>
     <li>白屏不等于软件崩溃：进程仍在运行、日志仍在写入，保底窗口就是为此准备的。</li>
     <li>保底窗口由 Win32 原生控件绘制，不经过 Flutter；主界面白屏时它仍然可以显示和截图。</li>
-    <li>「被控端黑屏」是显示器状态问题，不是 RDR-001；不要把两者混为一个原因。</li>
+    <li>「被控端黑屏」先查显示输出状态：RDR-001 的 <code>no_display_output</code> 就是这一条；
+        排除显示输出后，才按 <code>render_not_visible</code> 继续排查。</li>
     <li>远程工具（ToDesk、向日葵等）自身捕获失败也会表现为黑屏，可用本机截图交叉验证。</li>
   </ul>
 

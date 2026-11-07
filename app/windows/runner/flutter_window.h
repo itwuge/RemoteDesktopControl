@@ -37,7 +37,9 @@ class FlutterWindow : public Win32Window {
   void EvaluateRenderState();
 
   // 显示 RDR-001 保底窗口（不依赖 Flutter）。
-  void ShowRenderFallback(const wchar_t* cause);
+  // |cause_code| 是机器可检索的原因码（RDR-001 的细分），|cause_text| 给人看。
+  void ShowRenderFallback(const std::string& cause_code,
+                          const wchar_t* cause_text);
 
   // 「用兼容渲染重试」：进程内销毁并按 Skia 后端重新初始化 Flutter。
   bool RetryWithCompatRenderer();

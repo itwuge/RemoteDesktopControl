@@ -86,8 +86,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (!window.Create(L"RDC 远程桌面", origin, size)) {
     AppendStartupLog("window_create=FAILED code=RDR-001");
     // 连主窗口都没建起来：保底窗口仍然必须可用，这是最后的显示通道。
-    rdc_fallback::SetContext("unknown", L"主窗口创建失败（Win32 窗口没有建起来）。",
-                             1);
+    rdc_fallback::SetContext("unknown", "init_failed",
+                             L"主窗口创建失败（Win32 窗口没有建起来）。", 1);
     rdc_fallback::Show(nullptr);
     const int result = RunMessageLoop();
     ::CoUninitialize();

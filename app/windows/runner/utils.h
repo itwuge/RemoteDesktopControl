@@ -24,6 +24,21 @@ void AppendStartupLog(const std::string& line);
 // Returns the primary display adapter description (diagnostics only).
 std::string DescribePrimaryAdapter();
 
+// 活跃显示输出（接在桌面上的输出）检测结果。
+// count==0 即 RDR-001 的 no_display_output：显示器关闭/未连接/无虚拟屏。
+struct DisplayOutputState {
+  int count = 0;
+  bool has_physical = false;
+  bool has_virtual = false;
+};
+
+// 枚举接在桌面上的显示输出。只读系统状态，失败时按 count=0 返回。
+DisplayOutputState DetectDisplayOutputs();
+
+// 返回写入 startup.log 的一行代码，例如
+// "active count=1 sources=virtual" 或 "none count=0 sources=none"。
+std::string DescribeDisplayOutputsCode(const DisplayOutputState& state);
+
 // True when the process is running inside a remote desktop session.
 bool IsRemoteSession();
 

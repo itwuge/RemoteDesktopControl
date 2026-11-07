@@ -38,11 +38,12 @@ constexpr UINT kMessageExecuteRetry = WM_APP + 1;
 
 // 客户端尺寸按 96 DPI 设计；窗口不可缩放，布局全部用固定坐标。
 constexpr int kClientWidth = 860;
-constexpr int kClientHeight = 490;
+constexpr int kClientHeight = 530;
 
 HWND g_window = nullptr;
 HWND g_hidden_parent = nullptr;
 std::wstring g_cause = L"3 秒内主窗口没有产出首帧";
+std::string g_cause_code = "render_not_visible";
 std::string g_backend = "skia";
 int g_attempt = 1;
 bool g_retrying = false;
@@ -54,20 +55,47 @@ HFONT g_font_small = nullptr;
 
 const wchar_t* kHeadingText = L"程序界面无法显示（RDR-001）";
 const wchar_t* kLine1Text =
-  L"界面渲染初始化失败，主窗口没能显示出来。";
+  L"界面没能正常显示：可能是渲染初始化失败，也可能是被控端没有可用的显示输出。";
 const wchar_t* kLine2Text =
-  L"这不是你的操作问题，也不是网络问题。可以按下面三步处理。";
+  L"这不是你的操作问题，也不是网络问题。按下面四步处理。";
 const wchar_t* kStepsText =
-  L"1. 先点「用兼容渲染重试」：切换渲染方式后重新初始化，不需要重装、不需要重启电脑。\r\n"
-  L"2. 更新或回滚显卡驱动后重启：设备管理器 → 显示适配器 → 右键显卡 → 更新驱动程序；"
+  L"1. 先确认被控端显示器处于开启、已连接状态：显示器关闭、进入睡眠或线缆未接时，"
+  L"系统没有活跃显示输出，主界面会白屏、远控画面会黑屏。"
+  L"可执行动作：打开显示器；没有显示器时接一个 HDMI 假负载（dummy plug）；"
+  L"或启用虚拟显示器（例如远程工具自带的虚拟屏）。\r\n"
+  L"2. 点「用兼容渲染重试」：切换渲染方式后重新初始化，不需要重装、不需要重启电脑。\r\n"
+  L"3. 更新或回滚显卡驱动后重启：设备管理器 → 显示适配器 → 右键显卡 → 更新驱动程序；"
   L"若刚更新过驱动才出现此问题，请回滚到上一版本驱动。\r\n"
-  L"3. 点「复制诊断」把内容发给我们，或点「打开日志目录」自己查看日志。";
+  L"4. 点「复制诊断」把内容发给我们，或点「打开日志目录」自己查看日志。";
 const wchar_t* kDisplayHintText =
-  L"被控端显示器请保持开启：显示器关闭或进入睡眠会导致黑屏，本版本不提供虚拟屏。";
+  L"常见坑：被控端显示器关闭或线缆拔出时，ToDesk、向日葵和本软件都会表现为黑屏。";
+
+// cause=no_display_output 专用文案：本机一个活跃显示输出都没有。
+// 三个可执行动作按用户实际能做的前后顺序排列，且不写「已自动修复」。
+const wchar_t* kNoOutputLine1Text =
+  L"本机没有可用的显示输出：系统检测不到已连接的显示器或虚拟显示器。";
+const wchar_t* kNoOutputLine2Text =
+  L"这会导致主界面白屏、远控画面黑屏。请先恢复显示输出，再按下面四步处理。";
+const wchar_t* kNoOutputStepsText =
+  L"1. 接一个显示器：物理显示器，或没有显示器时接 HDMI 假负载（dummy plug）；"
+  L"系统检测到输出后重新打开本软件。\r\n"
+  L"2. 启用虚拟显示器：如果你在用 ToDesk、向日葵等远程工具，开启它的"
+  L"虚拟屏 / 虚拟显示器后再试。\r\n"
+  L"3. 点「用兼容渲染重试」：显示输出恢复后用它重新初始化渲染，"
+  L"不需要重装、不需要重启电脑。\r\n"
+  L"4. 仍不行时点「复制诊断」发给我们，或点「打开日志目录」查看 display_output 行。";
+const wchar_t* kNoOutputHintText =
+  L"检测结果已写入 startup.log 的 display_output 行（count / sources）。";
+
+// 当前要显示的文案：Show() 按 cause_code 选择，WM_CREATE 里按此布局。
+const wchar_t* g_line1_text = kLine1Text;
+const wchar_t* g_line2_text = kLine2Text;
+const wchar_t* g_steps_text = kStepsText;
+const wchar_t* g_hint_text = kDisplayHintText;
 const wchar_t* kFooterText =
   L"诊断信息只包含版本、显卡和错误记录，不包含密码、配对码或你的屏幕内容。";
 const wchar_t* kGuideLinkText =
-  L"<a href=\"guide\">查看诊断说明（RDR-001 的触发条件与三步排查）</a>";
+  L"<a href=\"guide\">查看诊断说明（RDR-001 的触发条件与四步排查）</a>";
 
 std::wstring WideFromUtf8(const std::string& text) {
   if (text.empty()) {
@@ -145,10 +173,13 @@ std::deque<std::wstring> LastLogLines(size_t count) {
   return lines;
 }
 
-void RememberHiddenParent(HWND parent) {
+// 主窗口必须始终可见：它同时是任务栏入口和「软件还在运行」的唯一凭证。
+// 以前这里会把主窗口 SW_HIDE，只剩一个顶层级保底窗口；一旦保底窗口被别的
+// 窗口盖住，观感就等于「程序没启动」。现在只记录父窗口，不隐藏。
+void EnsureParentVisible(HWND parent) {
   g_hidden_parent = parent;
-  if (parent != nullptr && ::IsWindowVisible(parent)) {
-    ::ShowWindow(parent, SW_HIDE);
+  if (parent != nullptr && !::IsWindowVisible(parent)) {
+    ::ShowWindow(parent, SW_SHOWNOACTIVATE);
   }
 }
 
@@ -321,25 +352,25 @@ void ExecuteRetry(HWND window) {
 void LayoutControls(HWND window) {
   const HINSTANCE instance = ::GetModuleHandleW(nullptr);
   CreateLabel(window, kIdHeading, kHeadingText, 32, 20, 796, 34, false);
-  CreateLabel(window, kIdLine1, kLine1Text, 32, 62, 796, 24, false);
-  CreateLabel(window, kIdLine2, kLine2Text, 32, 90, 796, 24, false);
+  CreateLabel(window, kIdLine1, g_line1_text, 32, 62, 796, 24, false);
+  CreateLabel(window, kIdLine2, g_line2_text, 32, 90, 796, 24, false);
   CreateLabel(window, kIdCause, g_cause.c_str(), 32, 120, 796, 20, true);
-  CreateLabel(window, kIdSteps, kStepsText, 32, 148, 796, 150, true);
-  CreateLabel(window, kIdDisplayHint, kDisplayHintText, 32, 302, 796, 24,
+  CreateLabel(window, kIdSteps, g_steps_text, 32, 146, 796, 216, true);
+  CreateLabel(window, kIdDisplayHint, g_hint_text, 32, 368, 796, 20,
               false);
-  CreateLabel(window, kIdStatus, L"", 32, 330, 796, 20, true);
-  CreateLabel(window, kIdFooter, kFooterText, 32, 420, 796, 20, true);
+  CreateLabel(window, kIdStatus, L"", 32, 392, 796, 20, true);
+  CreateLabel(window, kIdFooter, kFooterText, 32, 474, 796, 20, true);
 
   const DWORD button_style = WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON;
   ::CreateWindowExW(0, L"BUTTON", L"用兼容渲染重试", button_style | BS_DEFPUSHBUTTON,
-                    32, 360, 200, 42, window,
+                    32, 420, 200, 42, window,
                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdRetry)),
                     instance, nullptr);
-  ::CreateWindowExW(0, L"BUTTON", L"复制诊断", button_style, 244, 360, 150, 42,
+  ::CreateWindowExW(0, L"BUTTON", L"复制诊断", button_style, 244, 420, 150, 42,
                     window,
                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdCopy)),
                     instance, nullptr);
-  ::CreateWindowExW(0, L"BUTTON", L"打开日志目录", button_style, 406, 360,
+  ::CreateWindowExW(0, L"BUTTON", L"打开日志目录", button_style, 406, 420,
                     170, 42, window,
                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdOpenLogs)),
                     instance, nullptr);
@@ -347,12 +378,12 @@ void LayoutControls(HWND window) {
   // SysLink 属于原生 comctl 控件；创建失败时退化为普通文字，功能不受影响。
   HWND link = ::CreateWindowExW(
       0, L"SysLink", kGuideLinkText, WS_CHILD | WS_VISIBLE | WS_TABSTOP, 32,
-      446, 500, 22, window,
+      500, 500, 22, window,
       reinterpret_cast<HMENU>(static_cast<INT_PTR>(kIdGuide)), instance,
       nullptr);
   if (link == nullptr) {
     CreateLabel(window, kIdGuide, L"诊断说明：安装目录下的「诊断说明.html」",
-                32, 446, 500, 22, false);
+                32, 500, 500, 22, false);
   }
 
   ApplyFonts(window);
@@ -494,13 +525,16 @@ void CreateFonts() {
 
 }  // namespace
 
-void SetContext(const std::string& backend, const std::wstring& cause,
-                int attempt_index) {
+void SetContext(const std::string& backend, const std::string& cause_code,
+                const std::wstring& cause_text, int attempt_index) {
   if (!backend.empty()) {
     g_backend = backend;
   }
-  if (!cause.empty()) {
-    g_cause = cause;
+  if (!cause_code.empty()) {
+    g_cause_code = cause_code;
+  }
+  if (!cause_text.empty()) {
+    g_cause = cause_text;
   }
   if (attempt_index > 0) {
     g_attempt = attempt_index;
@@ -514,7 +548,7 @@ void SetRetryHandler(std::function<bool()> handler) {
 bool Show(HWND parent) {
   if (g_window != nullptr) {
     UpdateStatusText(L"");
-    RememberHiddenParent(parent);
+    EnsureParentVisible(parent);
     ::ShowWindow(g_window, SW_SHOW);
     ::BringWindowToTop(g_window);
     ::SetForegroundWindow(g_window);
@@ -531,21 +565,47 @@ bool Show(HWND parent) {
 
   RECT work_area{};
   ::SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0);
+  // 以主窗口为参照居中，让提示看起来是「叠加在主窗口上」而不是另起一个程序。
+  RECT anchor = work_area;
+  if (parent != nullptr && ::IsWindowVisible(parent)) {
+    ::GetWindowRect(parent, &anchor);
+  }
   RECT window_rect{0, 0, kClientWidth, kClientHeight};
   const DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
   ::AdjustWindowRect(&window_rect, style, FALSE);
   const int width = window_rect.right - window_rect.left;
   const int height = window_rect.bottom - window_rect.top;
-  const int x = work_area.left + ((work_area.right - work_area.left) - width) / 2;
-  const int y = work_area.top + ((work_area.bottom - work_area.top) - height) / 2;
+  int x = anchor.left + ((anchor.right - anchor.left) - width) / 2;
+  int y = anchor.top + ((anchor.bottom - anchor.top) - height) / 2;
+  if (x < work_area.left) {
+    x = work_area.left;
+  }
+  if (y < work_area.top) {
+    y = work_area.top;
+  }
+  if (x + width > work_area.right) {
+    x = work_area.right - width;
+  }
+  if (y + height > work_area.bottom) {
+    y = work_area.bottom - height;
+  }
 
+  // 按 cause 选择文案：no_display_output 用专用版本（三个可执行动作）。
+  const bool no_output = g_cause_code == "no_display_output";
+  g_line1_text = no_output ? kNoOutputLine1Text : kLine1Text;
+  g_line2_text = no_output ? kNoOutputLine2Text : kLine2Text;
+  g_steps_text = no_output ? kNoOutputStepsText : kStepsText;
+  g_hint_text = no_output ? kNoOutputHintText : kDisplayHintText;
+
+  // 传 parent 作为 owner：保底窗口始终浮在主窗口之上，主窗口从任务栏被调起时
+  // 会连同它一起到前台；同时主窗口保持可见，不会出现「像没启动」的观感。
   g_window = ::CreateWindowExW(0, kWindowClass, L"程序界面无法显示（RDR-001）",
-                               style, x, y, width, height, nullptr, nullptr,
+                               style, x, y, width, height, parent, nullptr,
                                ::GetModuleHandleW(nullptr), nullptr);
   if (g_window == nullptr) {
     return false;
   }
-  RememberHiddenParent(parent);
+  EnsureParentVisible(parent);
   ::ShowWindow(g_window, SW_SHOW);
   ::UpdateWindow(g_window);
   ::SetForegroundWindow(g_window);
@@ -583,7 +643,11 @@ std::wstring BuildDiagnosticsTextWide() {
   std::wstringstream out;
   out << L"RDC 渲染故障诊断\r\n";
   out << L"错误码: " << kRenderErrorCode << L" 渲染初始化失败\r\n";
+  out << L"原因码: " << WideFromUtf8(g_cause_code) << L"\r\n";
   out << L"触发条件: " << g_cause << L"\r\n";
+  out << L"显示输出: "
+      << WideFromUtf8(DescribeDisplayOutputsCode(DetectDisplayOutputs()))
+      << L"\r\n";
   out << L"时间: " << Timestamp() << L"\r\n";
   out << L"版本: " << ReadAppVersion() << L"\r\n";
   out << L"平台: " << WideFromUtf8(DescribeWindowsVersion()) << L"\r\n";

@@ -138,6 +138,9 @@ bool FlutterWindow::OnCreate() {
   AppendStartupLog("client_area=" +
                    std::to_string(frame.right - frame.left) + "x" +
                    std::to_string(frame.bottom - frame.top));
+  // 先记录输出状态再初始化渲染：白屏/黑帧的根因判定都依赖这一行。
+  AppendStartupLog("display_output=" +
+                   DescribeDisplayOutputsCode(DetectDisplayOutputs()));
   AppendStartupLog("render.init_start backend=" + renderer_backend_ +
                    " attempt=1");
 
@@ -147,8 +150,8 @@ bool FlutterWindow::OnCreate() {
       frame.right - frame.left, frame.bottom - frame.top, project_);
   // Ensure that basic setup of the controller was successful.
   if (!flutter_controller_->engine() || !flutter_controller_->view()) {
-    AppendStartupLog("render.init_failed code=RDR-001 cause=init_failed");
-    ShowRenderFallback(L"渲染后端初始化失败：Flutter 渲染控制器没有创建成功。");
+    ShowRenderFallback("init_failed",
+                       L"渲染后端初始化失败：Flutter 渲染控制器没有创建成功。");
     return true;  // 保底窗口接管显示，进程继续存活。
   }
   RegisterPlugins(flutter_controller_->engine());
@@ -163,6 +166,20 @@ bool FlutterWindow::OnCreate() {
   // window is shown. It is a no-op if the first frame hasn't completed yet.
   flutter_controller_->ForceRedraw();
   ::SetTimer(GetHandle(), kRenderWatchTimer, 1000, nullptr);
+
+  // 抓屏验收用：RDC_FORCE_FALLBACK=1 时立即走一次失败路径。
+  // 正常启动不设置该变量，行为不变；这样可以验证保底窗口而不必关闭显示器。
+  wchar_t forced[16]{};
+  if (::GetEnvironmentVariableW(L"RDC_FORCE_FALLBACK", forced, 16) != 0) {
+    if (std::wstring(forced) == L"no_output") {
+      ShowRenderFallback(
+          "no_display_output",
+          L"启动 3 秒内没有完成首帧，且检测不到活跃显示输出。");
+    } else if (forced[0] == L'1') {
+      ShowRenderFallback("forced_for_test",
+                         L"（测试）强制触发保底窗口，用于抓屏验证。");
+    }
+  }
 
   return true;
 }
@@ -226,7 +243,17 @@ void FlutterWindow::EvaluateRenderState() {
       return;
     }
     if (MillisecondsSince(watch_start_) >= 3000) {
-      ShowRenderFallback(L"3 秒内主窗口没有完成首帧呈现。");
+      // 根因细分：没有活跃显示输出 ≠ 渲染通道没出帧。两者共用 RDR-001，
+      // 但 cause 分开写，避免把「显示器没接」混成「渲染坏了」。
+      const DisplayOutputState outputs = DetectDisplayOutputs();
+      if (outputs.count == 0) {
+        ShowRenderFallback(
+            "no_display_output",
+            L"启动 3 秒内没有完成首帧，且检测不到活跃显示输出。");
+      } else {
+        ShowRenderFallback("render_not_visible",
+                           L"3 秒内主窗口没有完成首帧呈现。");
+      }
     }
     return;
   }
@@ -257,7 +284,9 @@ void FlutterWindow::EvaluateRenderState() {
       recovering_ = false;
     } else {
       AppendStartupLog("render_check=blank code=RDR-001");
-      ShowRenderFallback(L"主窗口已产出首帧，但画面没有呈现界面（全白或纯色）。");
+      ShowRenderFallback(
+          "render_not_visible",
+          L"主窗口已产出首帧，但画面没有呈现界面（全白或纯色）。");
     }
     return;
   }
@@ -269,15 +298,22 @@ void FlutterWindow::EvaluateRenderState() {
   }
 }
 
-void FlutterWindow::ShowRenderFallback(const wchar_t* cause) {
+void FlutterWindow::ShowRenderFallback(const std::string& cause_code,
+                                       const wchar_t* cause_text) {
   if (fallback_shown_) {
     return;
   }
   fallback_shown_ = true;
-  AppendStartupLog("render.init_failed code=RDR-001 cause=render_not_visible "
-                   "elapsed_ms=" +
+  // cause 分开写：no_display_output（没有活跃显示输出）与 render_not_visible
+  // （有输出但渲染没出画面）不是一回事，日志里必须可区分。
+  AppendStartupLog("render.init_failed code=RDR-001 cause=" + cause_code +
+                   " elapsed_ms=" +
                    std::to_string(MillisecondsSince(watch_start_)));
-  rdc_fallback::SetContext(renderer_backend_, cause, attempt_);
+  // 首帧没到时主窗口默认还没 Show（Flutter 模板只在首帧回调里 Show）。
+  // 这里先把主窗口显示出来，保证任务栏有入口、用户能看到「程序在运行」；
+  // 保底窗口作为它的 owner 叠在上层，不需要隐藏主窗口。
+  ::ShowWindow(GetHandle(), SW_SHOWNOACTIVATE);
+  rdc_fallback::SetContext(renderer_backend_, cause_code, cause_text, attempt_);
   rdc_fallback::SetRetryHandler([this]() { return RetryWithCompatRenderer(); });
   rdc_fallback::Show(GetHandle());
 }
