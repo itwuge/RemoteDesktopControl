@@ -777,6 +777,12 @@ fn run_pipeline(
     let mut pending_decode: std::collections::VecDeque<FrameTiming> =
         std::collections::VecDeque::with_capacity(4);
     let mut enc_latency_us: u64 = 0;
+    // 已提交但尚未取回包的帧数（CPU/纹理两条入队路径共用）。
+    // S7-7 块 1：取包循环用它判断「本轮该等的包是否都到了」。
+    let mut submitted_outstanding: usize = 0;
+    // 取包等待上限：AMF 固有出包 9.2ms p99 10.7（S7-6），留余量后 25ms；
+    // 超过即视为编码器失速，退回「先干别的、下一轮再取」，不无限阻塞。
+    const POLL_DEADLINE_MS: u64 = 25;
     // 纹理直出路径下延迟归还的帧（租约保护：编码器可能异步持有纹理）。
     let mut held_gpu_frames: std::collections::VecDeque<Frame> =
         std::collections::VecDeque::with_capacity(4);
@@ -791,12 +797,16 @@ fn run_pipeline(
             break;
         }
         // 等采集帧：事件驱动（无帧就阻塞），不做轮询，避免定时器粒度吃掉吞吐。
+        let t_rx = Instant::now();
         let frame_opt = match rx.recv_timeout(Duration::from_millis(100)) {
             Ok(frame) => Some(frame),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
             // 采集线程已退出（源停止时发送端被丢弃）。
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         };
+        // S7-7 块 2 归因：区分「等采集帧」与「主循环忙」，否则 rx_queue 会把两者混在一起。
+        let rx_wait_us = t_rx.elapsed().as_micros() as u64;
+        let t_busy = Instant::now();
         if let Some(frame) = frame_opt {
             // 用带标签块代替早退 `continue`：本轮仍必须继续排空出包。
             'frame: {
@@ -845,6 +855,7 @@ fn run_pipeline(
                         stats.set_error(format!("编码入队失败（纹理）: {error}"));
                         break 'frame;
                     }
+                    submitted_outstanding += 1;
                     // 租约延迟 3 帧归还：AMF 可能在 SubmitInput 返回后仍持有纹理直到出包。
                     held_gpu_frames.push_back(bgra);
                     if held_gpu_frames.len() > 3 {
@@ -868,6 +879,7 @@ fn run_pipeline(
                         stats.set_error(format!("编码入队失败: {error}"));
                         break 'frame;
                     }
+                    submitted_outstanding += 1;
                     // push 段 = 颜色交换 + 时间码 + 提交。
                     pending_submit.push_back(FrameTiming {
                         push_us,
@@ -877,12 +889,17 @@ fn run_pipeline(
                     // 32 帧仍未出包说明编码器失速，清空避免时间戳错位放大误差。
                     if pending_submit.len() > 32 {
                         pending_submit.clear();
+                        submitted_outstanding = 0;
                     }
                 }
             }
         }
 
         // 取编码输出并喂给解码器。
+        // S7-7 块 1：节奏从「每帧只 poll 一次」改为「poll 到本轮已提交的帧全部出包，或到截止时间」。
+        // 依据 S7-6 appsim：每帧只 poll 一次 → enc_wait 16.838ms；poll 到拿到包 → 8.984ms。
+        // 差的 7.4ms 不是编码器固有，而是「提交后立刻放弃、等下一帧到达才再取」的白等。
+        let poll_deadline = Instant::now() + Duration::from_millis(POLL_DEADLINE_MS);
         let mut poll_us: u64 = 0;
         let mut decode_us: u64 = 0;
         let mut present_us: u64 = 0;
@@ -902,11 +919,19 @@ fn run_pipeline(
             });
             let Some(out) = out else {
                 poll_us += poll_one;
-                break;
+                // 该等的包都到了（没有未取回的提交）→ 收工，回到采集侧。
+                if submitted_outstanding == 0 || Instant::now() >= poll_deadline {
+                    break;
+                }
+                // 包还没好：让出 CPU 后继续取，而不是把这一帧的包留到下一次采集事件。
+                std::thread::yield_now();
+                continue;
             };
             poll_us += out.poll_us;
+            submitted_outstanding = submitted_outstanding.saturating_sub(1);
             if pending_submit.len() > 32 {
                 pending_submit.clear();
+                submitted_outstanding = 0;
             }
             let packet = out.packet;
             stats.encoded.fetch_add(1, Ordering::Relaxed);
@@ -993,12 +1018,13 @@ fn run_pipeline(
                             let residual_us = pipeline_us.saturating_sub(sum);
                             let _ = writeln!(
                                 file,
-                                "{trace_seq},{},{pipeline_us},{},{},{},{},{decode_us},{present_one_us},{residual_us},{drops_delta}",
+                                "{trace_seq},{},{pipeline_us},{},{},{},{},{decode_us},{present_one_us},{residual_us},{drops_delta},{rx_wait_us},{}",
                                 start.elapsed().as_millis(),
                                 t.capture_us,
                                 t.rx_queue_us,
                                 t.push_us,
                                 t.enc_wait_us,
+                                t_busy.elapsed().as_micros() as u64,
                             );
                             trace_seq += 1;
                         }
@@ -1551,7 +1577,7 @@ fn open_frame_trace() -> Option<std::fs::File> {
     let mut file = std::fs::File::create(dir.join("frames-detail.csv")).ok()?;
     let _ = writeln!(
         file,
-        "seq,t_ms,pipeline_us,capture_us,rx_queue_us,push_us,enc_wait_us,decode_us,present_us,residual_us,drops_delta"
+        "seq,t_ms,pipeline_us,capture_us,rx_queue_us,push_us,enc_wait_us,decode_us,present_us,residual_us,drops_delta,rx_wait_us,busy_us"
     );
     Some(file)
 }

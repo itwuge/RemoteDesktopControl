@@ -257,8 +257,10 @@ bool AmfEncoder::open(int width, int height, int fps, int bitrate_bps, int codec
             comp->SetProperty(AMF_VIDEO_ENCODER_FRAMERATE, rate);
             // 本机 H.264 驱动上 InputQueueSize / OutputMode 均不支持（S7-6 读回 rc=4），
             // 不再设空属性；「排队深度=1」由提交节奏保证。
-            // QueryOutput 事件等待上限（ms）：不忙等，也不把「暂无输出」当错误。
-            comp->SetProperty(AMF_VIDEO_ENCODER_QUERY_TIMEOUT, static_cast<amf_int64>(5));
+            // QueryOutput 等待上限 = 1ms：S7-7 实测 qt=0 忙等会把 CPU 拉到 200%、
+            // 采集线程被抢占（rx_queue 42ms）；qt=1/2/5 在 spike 里 enc_wait 都是 ~9.04ms，
+            // 所以用 1ms 让出 CPU，由调用方循环取包直到拿到（control_service.rs）。
+            comp->SetProperty(AMF_VIDEO_ENCODER_QUERY_TIMEOUT, static_cast<amf_int64>(1));
         } else {
             comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_USAGE, usage);
             comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_LOWLATENCY_MODE, true);
@@ -280,7 +282,7 @@ bool AmfEncoder::open(int width, int height, int fps, int bitrate_bps, int codec
             comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_INPUT_QUEUE_SIZE, static_cast<amf_int64>(1));
             comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_OUTPUT_MODE,
                               static_cast<amf_int64>(AMF_VIDEO_ENCODER_HEVC_OUTPUT_MODE_FRAME));
-            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_QUERY_TIMEOUT, static_cast<amf_int64>(5));
+            comp->SetProperty(AMF_VIDEO_ENCODER_HEVC_QUERY_TIMEOUT, static_cast<amf_int64>(1));
         }
     };
     auto build = [&](amf_int64 usage) -> AMF_RESULT {
