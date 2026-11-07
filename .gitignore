@@ -40,7 +40,10 @@ packaging/**/output/
 
 # --- 日志与运行期数据 ---
 *.log
-logs/
+logs/*
+# 门禁基线是治理依据，必须入库；只放行基线文件，其余日志仍不入库。
+!logs/gate-baseline*.json
+!logs/gate-baseline*.txt
 app/rdc-control-logs/
 rdc-control-logs/
 tmp/

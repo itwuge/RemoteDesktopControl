@@ -1,0 +1,455 @@
+﻿[gate] config: C:\Users\Administrator\Desktop\RemoteDesktopControl\gate.config.json
+[gate] R-T-4: changeRecordGlobs is empty; rule not configured (manual-only in this project).
+[gate] R-D-9: baseline version not found; skipped.
+dist/RDC-0.1.0-windows-portable.zip: R-C-14 artifact filename version 0.1.0 != reference 0.1.1
+dist/RDC-0.1.0-windows-x64-setup.exe: R-C-14 artifact filename version 0.1.0 != reference 0.1.1
+C:/Users/Administrator/Desktop/RemoteDesktopControl/target: R-C-15 build target is on system drive C:\; set CARGO_TARGET_DIR to another drive.
+crates/rdc-bridge/src/api.rs:1271: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-bridge/src/api.rs:1323: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-bridge/src/api.rs:1328: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-bridge/src/api.rs:1406: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-bridge/src/clipboard_service.rs:220: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-bridge/src/clipboard_service.rs:238: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-bridge/src/clipboard_service.rs:271: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-bridge/src/control_service.rs:180: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-bridge/src/control_service.rs:326: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:343: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:347: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:355: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:407: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:682: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1314: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1330: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1364: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1419: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1427: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1432: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1433: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1688: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1848: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1854: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1878: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service.rs:1899: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service_linux.rs:216: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service_linux.rs:249: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service_linux.rs:258: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service_linux.rs:304: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service_linux.rs:305: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service_linux.rs:529: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service_linux.rs:544: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/control_service_linux.rs:552: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/file_service.rs:132: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/input_service.rs:400: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/input_service.rs:407: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/input_service.rs:418: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/session_service.rs:203: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-bridge/src/session_service.rs:506: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/wall_service.rs:177: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/wall_service.rs:231: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/wall_service.rs:296: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/wall_service.rs:468: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-bridge/src/wall_service.rs:471: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/linux.rs:372: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/linux.rs:857: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/linux.rs:1066: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/windows.rs:364: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/windows.rs:1157: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/windows.rs:1451: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-capture/src/platform/windows.rs:1560: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/windows.rs:1564: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/windows.rs:1622: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/windows.rs:1623: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/windows.rs:1646: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/windows.rs:1798: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/windows.rs:1808: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-capture/src/platform/windows.rs:1817: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:145: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:158: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:175: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:299: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:392: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:473: R-C-2 '.ok();' drops the Err branch; use match/propagate.
+crates/rdc-cli/src/s3a.rs:478: R-C-2 '.ok();' drops the Err branch; use match/propagate.
+crates/rdc-cli/src/s3a.rs:593: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:1045: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:1046: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:1082: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:1129: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:1159: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:1170: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3a.rs:1171: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b.rs:60: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b.rs:374: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b3.rs:81: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b3.rs:365: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b3.rs:523: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b4.rs:83: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b4.rs:217: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b4.rs:218: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b4.rs:246: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b4.rs:471: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b4.rs:654: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s3b4.rs:999: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s4demo.rs:140: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s4demo.rs:503: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s4demo.rs:507: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s4demo.rs:514: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s4demo.rs:517: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s4demo.rs:531: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s4demo.rs:533: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s4demo.rs:908: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s4demo.rs:1094: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/s4demo.rs:1104: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/walldemo.rs:467: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/walldemo.rs:542: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/walldemo.rs:935: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/walldemo.rs:984: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/walldemo.rs:985: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/walldemo.rs:994: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/walldemo.rs:1007: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/walldemo.rs:1016: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/walldemo.rs:1036: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-cli/src/walldemo.rs:1049: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-clipboard/src/platform/windows.rs:81: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-clipboard/src/platform/windows.rs:84: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-clipboard/src/platform/windows.rs:98: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-clipboard/src/platform/windows.rs:102: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-clipboard/src/platform/windows.rs:105: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-clipboard/src/platform/windows.rs:115: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-clipboard/src/platform/windows.rs:117: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/mux.rs:140: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/linux.rs:163: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/linux.rs:167: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/linux.rs:176: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/linux.rs:177: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/linux.rs:185: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/linux.rs:199: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/linux.rs:561: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/linux.rs:627: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/linux.rs:628: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/mod.rs:43: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/mod.rs:81: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/mod.rs:88: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/mod.rs:95: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows.rs:174: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/amf.rs:158: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:279: R-C-2 '.ok();' drops the Err branch; use match/propagate.
+crates/rdc-codec/src/platform/windows/mf.rs:329: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-codec/src/platform/windows/mf.rs:330: R-C-2 '.ok();' drops the Err branch; use match/propagate.
+crates/rdc-codec/src/platform/windows/mf.rs:355: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:523: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:540: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:543: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:544: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:617: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:719: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:739: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:885: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:889: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:895: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:900: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:935: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-codec/src/platform/windows/mf.rs:1055: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-connect/src/quic.rs:76: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-connect/src/quic.rs:112: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-connect/src/session.rs:202: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-connect/src/signal_client.rs:104: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-connect/src/signal_client.rs:166: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-core/src/s5/devices.rs:442: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-core/src/s5/devices.rs:462: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-core/src/s5/devices.rs:496: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-core/src/s5/grant.rs:2293: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-core/src/s5/settings.rs:304: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-core/src/s5/settings.rs:324: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:140: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:439: R-C-2 '.ok();' drops the Err branch; use match/propagate.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:449: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:451: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:824: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:828: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:839: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:846: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:955: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:961: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:1056: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:1058: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:1061: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/present.rs:252: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/present.rs:278: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/present.rs:420: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/present.rs:590: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/present.rs:729: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-decode/src/video_decoder.rs:36: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-filetransfer/src/digest.rs:82: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-filetransfer/src/receiver.rs:243: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-filetransfer/src/receiver.rs:269: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-filetransfer/src/receiver.rs:270: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-input/src/platform/linux.rs:306: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-input/src/platform/linux.rs:800: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:222: R-C-2 '.ok();' drops the Err branch; use match/propagate.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:354: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:359: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:380: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:210: R-C-2 '.ok();' drops the Err branch; use match/propagate.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:289: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:301: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:307: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:312: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:171: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:172: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:184: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:185: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:197: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:198: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:199: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/decoder.rs:210: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/decoder.rs:211: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/decoder.rs:219: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/decoder.rs:278: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/decoder.rs:281: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/decoder.rs:283: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/display.rs:202: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/display.rs:250: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/display.rs:251: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-linux-e2e/src/display.rs:252: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-runtime/src/pool.rs:222: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-signal/src/server.rs:135: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-signal/src/server.rs:435: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-signal/src/server.rs:577: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-signal/src/server.rs:610: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-signal/src/server.rs:672: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-signal/src/server.rs:681: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-signal/src/server.rs:728: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-signal/src/server.rs:779: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-signal/src/server.rs:962: R-C-2 discarded result with 'let _ ='; log or propagate the error.
+crates/rdc-transport/src/fec.rs:244: R-C-2 unwrap_or_default() in IO/codec/network path hides failure.
+crates/rdc-bridge/src/api.rs:160: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:179: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:185: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:210: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:213: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:240: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:246: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:265: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:267: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:389: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:406: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:407: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1248: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/api.rs:1253: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1256: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1258: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1259: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1276: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1281: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1291: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1297: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1299: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1300: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1402: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1405: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1484: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/api.rs:1516: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1585: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1630: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1679: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1701: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1750: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1754: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1756: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1799: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1803: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1838: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/api.rs:1843: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/api.rs:1848: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/clipboard_service.rs:76: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/clipboard_service.rs:101: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/clipboard_service.rs:138: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/clipboard_service.rs:186: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/clipboard_service.rs:201: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/clipboard_service.rs:214: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service.rs:319: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service.rs:400: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service.rs:422: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service.rs:1524: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service.rs:1618: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service_linux.rs:209: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service_linux.rs:262: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service_linux.rs:297: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service_linux.rs:310: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service_linux.rs:328: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service_linux.rs:337: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service_linux.rs:351: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service_linux.rs:360: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service_linux.rs:412: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service_linux.rs:651: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/input_service.rs:203: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/input_service.rs:298: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/input_service.rs:313: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/input_service.rs:348: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/session_service.rs:143: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:147: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:148: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:151: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:153: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:154: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:155: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:181: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:199: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:202: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:270: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:296: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/session_service.rs:326: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/wall_service.rs:160: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/wall_service.rs:165: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/wall_service.rs:173: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/wall_service.rs:213: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/wall_service.rs:225: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/wall_service.rs:252: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/wall_service.rs:258: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/wall_service.rs:271: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-bridge/src/wall_service.rs:278: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-capture/src/platform/windows.rs:1093: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-cli/src/s4demo.rs:266: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-cli/src/s5_5.rs:269: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-cli/src/walldemo.rs:200: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-cli/src/walldemo.rs:790: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-cli/src/walldemo.rs:836: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-cli/src/walldemo.rs:851: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-cli/src/walldemo.rs:1031: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-clipboard/src/wire.rs:129: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-clipboard/src/wire.rs:141: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-codec/src/platform/linux.rs:695: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-codec/src/platform/windows.rs:617: R-C-3 error.to_string() loses platform code/source.
+crates/rdc-connect/src/session.rs:341: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-core/src/s4/message.rs:336: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-core/src/s4/message.rs:344: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-core/src/s5/grant.rs:570: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-core/src/s5/grant.rs:1244: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-core/src/s5/passwordless.rs:245: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-core/src/s5/wall.rs:345: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-core/src/s5/wall.rs:357: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-core/src/s5/wall.rs:897: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-input/src/platform/linux.rs:269: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-input/src/platform/linux.rs:618: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-input/src/platform/linux.rs:645: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-input/src/wire.rs:191: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:55: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:56: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:61: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:67: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:69: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:70: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:71: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:49: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:50: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:52: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:55: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:58: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:291: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:316: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_loop.rs:49: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_loop.rs:50: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_loop.rs:52: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_loop.rs:55: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_loop.rs:58: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_loop.rs:61: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_loop.rs:63: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_loop.rs:64: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_loop.rs:322: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_loop.rs:358: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:46: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:47: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:48: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:49: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:50: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:51: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-linux-e2e/src/decoder.rs:138: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-protocol/src/challenge.rs:106: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/aead.rs:157: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/aead.rs:160: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/aead.rs:164: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/aead.rs:167: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/aead.rs:198: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/aead.rs:201: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/aead.rs:205: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/aead.rs:208: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/handshake.rs:421: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/handshake.rs:456: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/handshake.rs:633: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/handshake.rs:638: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/keys.rs:62: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/keys.rs:67: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/keys.rs:100: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/keys.rs:252: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/keys.rs:295: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/keys.rs:296: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/keys.rs:300: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-security/src/pake.rs:213: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-signal/src/server.rs:796: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-signal/src/server.rs:804: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-signal/src/server.rs:808: R-C-3 map_err(|_| ...) discards the original error.
+crates/rdc-bridge/src/control_service.rs:1218: R-C-5 streaming VecDeque field has no declared capacity.
+crates/rdc-cli/src/s3b4.rs:525: R-C-5 streaming VecDeque field has no declared capacity.
+crates/rdc-codec/src/platform/windows.rs:72: R-C-5 streaming VecDeque field has no declared capacity.
+crates/rdc-codec/src/platform/windows.rs:94: R-C-5 streaming VecDeque field without capacity limit.
+crates/rdc-codec/src/platform/windows/amf.rs:60: R-C-5 streaming VecDeque field has no declared capacity.
+crates/rdc-codec/src/platform/windows/amf.rs:97: R-C-5 streaming VecDeque field without capacity limit.
+crates/rdc-signal/src/server.rs:408: R-C-5 unbounded channel/queue has no capacity limit.
+crates/rdc-bridge/src/control_service.rs:711: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-bridge/src/control_service.rs:726: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-bridge/src/control_service.rs:729: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-bridge/src/control_service.rs:761: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-bridge/src/control_service.rs:1827: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-capture/src/platform/windows.rs:610: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-codec/src/platform/windows.rs:305: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-codec/src/platform/windows.rs:677: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-codec/src/platform/windows/mf.rs:294: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-codec/src/platform/windows/mf.rs:496: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-codec/src/platform/windows/mf.rs:633: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-codec/src/platform/windows/mf.rs:666: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-decode/shim/ffdec.c:149: R-L-1 fprintf bypasses the unified logging layer.
+crates/rdc-decode/shim/ffdec.c:184: R-L-1 fprintf bypasses the unified logging layer.
+crates/rdc-decode/shim/ffdec.c:200: R-L-1 fprintf bypasses the unified logging layer.
+crates/rdc-decode/shim/ffdec.c:202: R-L-1 fprintf bypasses the unified logging layer.
+crates/rdc-decode/shim/ffdec.c:250: R-L-1 fprintf bypasses the unified logging layer.
+crates/rdc-decode/shim/ffdec.c:252: R-L-1 fprintf bypasses the unified logging layer.
+crates/rdc-decode/shim/ffdec.c:254: R-L-1 fprintf bypasses the unified logging layer.
+crates/rdc-decode/shim/ffdec.c:335: R-L-1 fprintf bypasses the unified logging layer.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:413: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:462: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:466: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:516: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-decode/src/platform/windows/mf_decoder.rs:676: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-decode/src/video_decoder.rs:224: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-decode/src/video_decoder.rs:230: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-linux-e2e/src/lib.rs:37: R-L-1 eprintln! bypasses the unified logging layer.
+crates/rdc-relay/src/main.rs:28: R-L-1 println! bypasses the unified logging layer.
+crates/rdc-signal/src/main.rs:33: R-L-1 println! bypasses the unified logging layer.
+crates/rdc-bridge/Cargo.toml: R-L-4 crate rdc-bridge has no unified logging dependency.
+crates/rdc-decode/Cargo.toml: R-L-4 crate rdc-decode has no unified logging dependency.
+crates/rdc-filetransfer/Cargo.toml: R-L-4 crate rdc-filetransfer has no unified logging dependency.
+crates/rdc-linux-e2e/Cargo.toml: R-L-4 crate rdc-linux-e2e has no unified logging dependency.
+crates/rdc-capture/src/platform/linux.rs:620: R-L-9 error branch only logs; it must return or propagate the error.
+app/linux/runner/main.cc:1: R-N-1 missing file header comment block (first 25 lines).
+app/linux/runner/my_application.cc:1: R-N-1 missing file header comment block (first 25 lines).
+app/linux/runner/my_application.h:1: R-N-1 missing file header comment block (first 25 lines).
+app/windows/runner/flutter_window.cpp:1: R-N-1 missing file header comment block (first 25 lines).
+app/windows/runner/flutter_window.h:1: R-N-1 missing file header comment block (first 25 lines).
+app/windows/runner/main.cpp:1: R-N-1 missing file header comment block (first 25 lines).
+app/windows/runner/resource.h:1: R-N-1 missing file header comment block (first 25 lines).
+app/windows/runner/utils.h:1: R-N-1 missing file header comment block (first 25 lines).
+app/windows/runner/win32_window.cpp:1: R-N-1 missing file header comment block (first 25 lines).
+app/windows/runner/win32_window.h:1: R-N-1 missing file header comment block (first 25 lines).
+crates/rdc-bridge/examples/linux_api_check.rs:1: R-N-1 missing file header comment block (first 25 lines).
+crates/rdc-bridge/examples/loop_probe.rs:1: R-N-1 missing file header comment block (first 25 lines).
+crates/rdc-codec/shim/amf_enc.cpp:1: R-N-1 missing file header comment block (first 25 lines).
+crates/rdc-codec/shim/amf_spike.cpp:1: R-N-1 missing file header comment block (first 25 lines).
+crates/rdc-decode/shim/ffdec.c:1: R-N-1 missing file header comment block (first 25 lines).
+crates/rdc-linux-e2e/src/bin/s8_2_client.rs:1: R-N-1 missing file header comment block (first 25 lines).
+crates/rdc-linux-e2e/src/bin/s8_2_host.rs:1: R-N-1 missing file header comment block (first 25 lines).
+crates/rdc-linux-e2e/src/bin/s8_2_target.rs:1: R-N-1 missing file header comment block (first 25 lines).
+crates/rdc-connect/src/session.rs:221: R-N-2 public fn establish has no doc comment.
+app/lib/controller/session_controller.dart:1: R-N-5 file has 458 lines but no controller/model section marker.
+app/lib/model/gateway/rust_types.dart:1: R-N-5 file has 1049 lines but no controller/model section marker.
+gate: 451 violations (R-C-14=2 R-C-15=1 R-C-2=219 R-C-3=166 R-C-5=7 R-L-1=30 R-L-4=4 R-L-9=1 R-N-1=18 R-N-2=1 R-N-5=2), exempted 8586

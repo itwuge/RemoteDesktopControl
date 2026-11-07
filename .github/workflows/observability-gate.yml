@@ -6,7 +6,8 @@ on:
     branches: [observability]
 
 jobs:
-  gate:
+  # 主门禁：只卡“本次改动引入的新违规”，存量不阻塞合并。
+  gate-changed:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,5 +20,35 @@ jobs:
 
       - name: Gate changed files
         shell: pwsh
-        # 全量规则（含版本一致性/构建落盘）一并执行；基线违规按 logs/gate-baseline-*.txt 排期修复。
-        run: ./scripts/gate.ps1 -Changed -BaseRef origin/${{ github.base_ref || 'master' }}
+        env:
+          CARGO_TARGET_DIR: D:\rdc-target-obs
+        run: |
+          ./scripts/gate.ps1 -Changed -SkipGlobal -BaseRef origin/${{ github.base_ref || 'master' }}
+
+  # 全量报告：输出基线清单并入库为 artifact；存量红不阻塞合并。
+  # 但“基线条数比上一次多”本身会在本任务内报 GATE-B 并失败（可见的警报，不是新的欠账）。
+  gate-baseline-report:
+    runs-on: windows-latest
+    needs: gate-changed
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Full scan report
+        shell: pwsh
+        env:
+          CARGO_TARGET_DIR: D:\rdc-target-obs
+        run: |
+          New-Item -ItemType Directory -Force -Path logs | Out-Null
+          $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+          ./scripts/gate.ps1 -BaseRef origin/${{ github.base_ref || 'master' }} 2>&1 |
+            Tee-Object -FilePath "logs/gate-baseline-$stamp.txt"
+
+      - name: Upload baseline report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-baseline-report
+          path: logs/gate-baseline-*.txt

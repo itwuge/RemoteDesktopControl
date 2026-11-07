@@ -22,7 +22,8 @@
     "team_shared_file": "R-T-8",
     "command_version_bump": "R-D-9",
     "command_smoke_record": "R-D-9",
-    "command_milestone": "R-T-5"
+    "command_milestone": "R-T-5",
+    "baseline_growth": "GATE-B"
   },
 
   "scan": {
@@ -94,12 +95,17 @@
       "app/windows/runner/**/*.cpp",
       "app/windows/runner/**/*.h"
     ],
-    "changeRecordGlobs": []
+    "changeRecordGlobs": ["docs/20-变更记录.md"]
   },
 
   "command": {
     "smokeRecordGlobs": ["logs/s6/smoke/**"],
     "requireSmokeOnBuild": true
+  },
+
+  "baseline": {
+    "allowedCount": 451,
+    "file": "logs/gate-baseline.json"
   },
 
   "version": {

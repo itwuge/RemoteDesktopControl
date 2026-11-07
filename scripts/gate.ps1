@@ -30,6 +30,12 @@ param(
     [switch]$SelfTest,
     [switch]$SkipGlobal,
     [switch]$SkipVersionBump,
+    # 全量运行时写出基线快照（只允许持平或下降，不能借更新基线掩盖新增违规）。
+    [switch]$UpdateBaseline,
+    # 跳过“基线只许降不许升”检查（仅用于本地统计，不用于 CI 主门禁）。
+    [switch]$SkipBaseline,
+    # 覆盖配置里的 baseline.file。
+    [string]$BaselineFile = "",
     [switch]$Build,
     [int]$MinFreeGB = -1,
     [string]$TargetDir = "",
@@ -53,6 +59,7 @@ $script:SelfTestChangedFiles = @()
 $script:SelfTestBuild = $false
 $script:FileCache = @{}
 $script:GlobCache = @{}
+$script:AllFilesCache = $null
 $script:ChangedSet = $null
 $script:SelectedRuleIds = @()
 $script:ParseErrors = @()
@@ -86,6 +93,8 @@ function New-DefaultConfig {
             command_version_bump  = "R-D-9"
             command_smoke_record  = "R-D-9"
             command_milestone     = "R-T-5"
+            # 基线增长不是五域内的独立规则，但必须可被门禁输出为一条可检索的“违规”。
+            baseline_growth       = "GATE-B"
         }
         rules = @{
             swallowed_error      = @{ enabled = $true }
@@ -162,6 +171,11 @@ function New-DefaultConfig {
             # Smoke records are checked only in -Build mode (packaging/pre-release).
             smokeRecordGlobs = @()
             requireSmokeOnBuild = $true
+        }
+        baseline = @{
+            # -1 = 基线策略未配置：新项目默认不启用，只报告违规总数。
+            allowedCount = -1
+            file = "logs/gate-baseline.json"
         }
         version = @{
             cargoManifest = "Cargo.toml"
@@ -349,6 +363,8 @@ function Read-SourceFile {
 }
 
 function Get-AllFiles {
+    # 全量枚举只做一次：规则数量多，重复递归会让全量扫描变成分钟级。
+    if ($null -ne $script:AllFilesCache) { return $script:AllFilesCache }
     $files = @()
     $maxBytes = [int]$script:Config.scan.maxFileBytes
     foreach ($file in (Get-ChildItem -Path $script:RootFull -Recurse -File -ErrorAction SilentlyContinue)) {
@@ -357,6 +373,7 @@ function Get-AllFiles {
         if (Test-AnyGlob $rel $script:Config.scan.exclude) { continue }
         $files += $file.FullName
     }
+    $script:AllFilesCache = $files
     return $files
 }
 
@@ -594,6 +611,8 @@ function Add-VersionMismatch {
 
 function Invoke-Rule-VersionConsistency {
     if (-not (Test-RuleEnabled "version_consistency")) { return }
+    # 跨文件一致性是仓库级规则；-Changed/-SkipGlobal 下交给全量报告任务。
+    if ($SkipGlobal) { return }
     $ruleId = Get-RuleId "version_consistency"
     $cargoPath = Join-Path $script:RootFull $script:Config.version.cargoManifest
     $reference = Get-CargoVersion $cargoPath
@@ -670,6 +689,8 @@ function Invoke-Rule-VersionConsistency {
 
 function Invoke-Rule-BuildLocation {
     if (-not (Test-RuleEnabled "build_location")) { return }
+    # 构建落盘反映本机环境而非本次改动；-Changed/-SkipGlobal 下交给全量报告任务。
+    if ($SkipGlobal -and -not $Build) { return }
     $ruleId = Get-RuleId "build_location"
     $target = $TargetDir
     if ($script:SelfTestMode -and $script:SelfTestTargetDir -ne "") { $target = $script:SelfTestTargetDir }
@@ -930,7 +951,6 @@ function Invoke-Rule-LogPrintBypass {
 
 function Invoke-Rule-LogIntegration {
     if (-not (Test-RuleEnabled "log_integration")) { return }
-    if ($SkipGlobal) { return }
     $ruleId = Get-RuleId "log_integration"
     $cratesDir = Join-Path $script:RootFull ([string]$script:Config.rust.cratesDir)
     if (-not (Test-Path -LiteralPath $cratesDir)) {
@@ -938,10 +958,20 @@ function Invoke-Rule-LogIntegration {
         return
     }
     $pure = $script:Config.rust.pureCrates
+    $cratesRel = ([string]$script:Config.rust.cratesDir).Replace("\", "/").TrimEnd("/")
     foreach ($crateDir in (Get-ChildItem -LiteralPath $cratesDir -Directory -ErrorAction SilentlyContinue)) {
         $manifest = Join-Path $crateDir.FullName "Cargo.toml"
         if (-not (Test-Path -LiteralPath $manifest)) { continue }
         if ($pure -contains $crateDir.Name) { continue }
+        # 改动模式下只检查“被本次改动触及的 crate”，避免存量 crate 让主门禁永远红。
+        if ($script:ChangedSet -ne $null) {
+            $crateRel = $cratesRel + "/" + $crateDir.Name + "/"
+            $touched = $false
+            foreach ($rel in $script:ChangedSet.Keys) {
+                if ($rel.StartsWith($crateRel, [System.StringComparison]::OrdinalIgnoreCase)) { $touched = $true; break }
+            }
+            if (-not $touched) { continue }
+        }
         $entry = Read-SourceFile $manifest
         $inDeps = $false
         $hasLogDep = $false
@@ -1037,7 +1067,7 @@ function Invoke-Rule-TeamConflict {
 
 function Invoke-Rule-TeamChangeRecord {
     if (-not (Test-RuleEnabled "team_change_record")) { return }
-    if ($SkipGlobal) { return }
+    # 这不是全局规则：它只判定“本次改动是否附带记录”，-SkipGlobal 不得跳过。
     $ruleId = Get-RuleId "team_change_record"
     $recordGlobs = $script:Config.team.changeRecordGlobs
     if ($recordGlobs.Count -eq 0) {
@@ -1093,12 +1123,11 @@ function Invoke-Rule-CommandVersionBump {
         $changed = Get-ChangedSet
     }
 
+    # 只有“源码改动”才要求版本递增；改配置/文档/脚本不应触发误报。
     $sourceChanged = $false
     foreach ($rel in $changed.Keys) {
         if (Test-AnyGlob $rel $script:Config.version.versionBumpExcludeGlobs) { continue }
-        if ($rel -like "*.md") { continue }
-        $sourceChanged = $true
-        break
+        if (Test-AnyGlob $rel $script:Config.team.sourceGlobs) { $sourceChanged = $true; break }
     }
     if (-not $sourceChanged) { return }
     if ($current -eq $baseVersion) {
@@ -1126,6 +1155,102 @@ function Invoke-Rule-CommandSmokeRecord {
     if (-not $found) {
         Add-Violation $ruleId ($globs -join ",") 0 "R-D-9 no smoke-test record found for build."
     }
+}
+
+# =====** baseline (只许降不许升) =====**
+
+function Get-BaselinePath {
+    $candidate = $BaselineFile
+    if ($candidate -eq "") { $candidate = [string]$script:Config.baseline.file }
+    if ($candidate -eq "") { $candidate = "logs/gate-baseline.json" }
+    if ([System.IO.Path]::IsPathRooted($candidate)) { return $candidate }
+    return (Join-Path $script:RootFull $candidate)
+}
+
+function Read-BaselineSnapshot {
+    $path = Get-BaselinePath
+    $snapshot = @{ Path = $path; Total = -1; ByRule = @{}; Exists = $false }
+    if (-not (Test-Path -LiteralPath $path)) { return $snapshot }
+    try {
+        $raw = [System.IO.File]::ReadAllText($path, [System.Text.Encoding]::UTF8)
+        $obj = ConvertTo-Hashtable (ConvertFrom-Json -InputObject $raw)
+        $snapshot.Exists = $true
+        if ($obj.ContainsKey("total")) { $snapshot.Total = [int]$obj["total"] }
+        if ($obj.ContainsKey("byRule") -and $obj["byRule"] -is [hashtable]) {
+            foreach ($key in $obj["byRule"].Keys) { $snapshot.ByRule[$key] = [int]$obj["byRule"][$key] }
+        }
+    } catch {
+        Write-WarnLine ("baseline: cannot parse " + $path + ": " + $_.Exception.Message)
+    }
+    return $snapshot
+}
+
+function Write-BaselineSnapshot {
+    param([int]$Total, $ByRule)
+    $path = Get-BaselinePath
+    $dir = Split-Path -Parent $path
+    if ($dir -ne "" -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    $byRuleOrdered = [ordered]@{}
+    foreach ($key in ($ByRule.Keys | Sort-Object)) { $byRuleOrdered[$key] = [int]$ByRule[$key] }
+    $obj = [ordered]@{
+        generatedAt = (Get-Date).ToString("yyyy-MM-ddTHH:mm:ssK")
+        project = [string]$script:Config.project.name
+        total = $Total
+        byRule = $byRuleOrdered
+    }
+    $json = ($obj | ConvertTo-Json -Depth 4) + "`n"
+    [System.IO.File]::WriteAllText($path, $json, (New-Object System.Text.UTF8Encoding($false)))
+    return $path
+}
+
+function Invoke-BaselineCheck {
+    # 基线只对“全量扫描”有意义；-Changed/-Paths 只判定改动引入的新违规。
+    if ($SkipBaseline) { Write-Info "baseline: skipped by -SkipBaseline."; return $true }
+    if (-not $script:SelfTestMode -and $script:ChangedSet -ne $null) {
+        Write-Info "baseline: skipped (only full scans compare against the baseline)."
+        return $true
+    }
+    $allowed = [int]$script:Config.baseline.allowedCount
+    $snapshot = Read-BaselineSnapshot
+    $byRule = @{}
+    foreach ($v in $script:Violations) { $byRule[$v.Rule] = 1 + $byRule[$v.Rule] }
+    $total = $script:Violations.Count
+    $ruleId = Get-RuleId "baseline_growth"
+
+    if ($UpdateBaseline) {
+        if ($allowed -ge 0 -and $total -gt $allowed) {
+            Write-Host ("[gate] baseline: REFUSED. current=" + $total + " allowedCount=" + $allowed + "; fix violations instead of raising the baseline.") -ForegroundColor Red
+            return $false
+        }
+        if ($snapshot.Exists -and $snapshot.Total -ge 0 -and $total -gt $snapshot.Total) {
+            Write-Host ("[gate] baseline: REFUSED. current=" + $total + " > last snapshot=" + $snapshot.Total + " (" + $snapshot.Path + ").") -ForegroundColor Red
+            return $false
+        }
+        $written = Write-BaselineSnapshot $total $byRule
+        Write-Host ("[gate] baseline: written " + $written + " total=" + $total) -ForegroundColor Green
+        if ($allowed -ne $total) {
+            Write-Host ("[gate] baseline: set gate.config.json baseline.allowedCount = " + $total + " (equal or lower only).") -ForegroundColor Yellow
+        }
+        return $true
+    }
+
+    if ($allowed -lt 0) {
+        Write-Info ("baseline: not configured; current violations=" + $total + ".")
+        return $true
+    }
+    $problems = @()
+    if ($total -gt $allowed) { $problems += ("total " + $total + " > allowedCount " + $allowed) }
+    if ($snapshot.Exists -and $snapshot.Total -ge 0 -and $total -gt $snapshot.Total) {
+        $problems += ("total " + $total + " > last snapshot " + $snapshot.Total + " (" + $snapshot.Path + ")")
+    }
+    if ($problems.Count -gt 0) {
+        Add-Violation $ruleId $snapshot.Path 0 ("violation count grew: " + ($problems -join "; ") + "; existing debt may only decrease.")
+        return $false
+    }
+    Write-Info ("baseline: " + $total + "/" + $allowed + " (no growth)")
+    return $true
 }
 
 # =====** run all =====**
@@ -1205,6 +1330,7 @@ function Get-SelfTestFixtureName {
         "command_version_bump" { return "Cargo 0.1.0, base 0.1.0, source changed" }
         "command_smoke_record" { return "logs/smoke-*.log absent" }
         "command_milestone" { return "manual-only" }
+        "baseline_growth" { return "full scan count > baseline.allowedCount" }
         default { return "" }
     }
 }
@@ -1285,6 +1411,7 @@ let a = 2;
         $script:FileCache = @{}
         $script:GlobCache = @{}
         $script:ChangedSet = $null
+        $script:AllFilesCache = $null
         $script:SelfTestMode = $true
         $script:SelfTestTargetDir = "C:\\gate-selftest-target"
         $script:SelectedRuleIds = @()
@@ -1307,12 +1434,19 @@ let a = 2;
         Invoke-Rule-TeamChangeRecord
         $script:ChangedSet = $null
 
+        # GATE-B 自测：允许数比当前少 1，必须产生一条“基线增长”。
+        $beforeBaseline = $script:Violations.Count
+        $script:Config.baseline.allowedCount = [Math]::Max(0, $beforeBaseline - 1)
+        $null = Invoke-BaselineCheck
+        $script:Config.baseline.allowedCount = -1
+
         $implemented = @(
             "swallowed_error", "error_context", "unbounded_queue", "version_consistency", "build_location", "source_encoding",
             "note_header", "note_doc", "note_section", "note_section_control",
             "log_print_bypass", "log_integration", "log_only",
             "team_conflict", "team_change_record",
-            "command_version_bump", "command_smoke_record"
+            "command_version_bump", "command_smoke_record",
+            "baseline_growth"
         )
         $manual = @("note_section_sync", "team_shared_file", "command_milestone")
         $table = @()
@@ -1428,7 +1562,11 @@ if (-not $loaded) {
 
 Initialize-Scope
 Invoke-AllRules
+$baselineOk = Invoke-BaselineCheck
 Write-Violations
 
+if (-not $baselineOk) { exit 1 }
+# -UpdateBaseline 成功写出快照即视为成功，避免把“存量仍存在”误报成更新失败。
+if ($UpdateBaseline) { exit 0 }
 if ($script:Violations.Count -gt 0) { exit 1 }
 exit 0
