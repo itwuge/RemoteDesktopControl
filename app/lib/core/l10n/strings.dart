@@ -260,6 +260,52 @@ class AppStrings {
   /// 只读提示。
   static const inputDenied = '只读，不可注入输入';
 
+  // =====** 账号（S5-3） =====**
+
+  /// 账号分组标题。
+  static const accountSection = '账号';
+
+  /// 未登录可用说明（页面必须明写）。
+  static const accountNote =
+      '账号只用于同账号设备发现；未登录也能使用全部功能，账号服务未部署时显示「未连接」，不影响其他页面。';
+
+  /// 未登录。
+  static const accountSignedOut = '未登录';
+
+  /// 已登录前缀。
+  static const accountSignedIn = '已登录';
+
+  /// 服务探测中。
+  static const accountServiceProbing = '检测中';
+
+  /// 服务可用。
+  static const accountServiceOnline = '连接正常';
+
+  /// 服务未部署/不可达。
+  static const accountServiceOffline = '未连接';
+
+  /// 登录按钮。
+  static const accountLogin = '登录';
+
+  /// 登出按钮。
+  static const accountLogout = '登出';
+
+  /// 重新探测按钮。
+  static const accountRetry = '重试';
+
+  /// 同账号设备发现。
+  static const accountDiscovery = '同账号设备发现';
+
+  /// 未登录时设备发现不可用的说明。
+  static const accountDiscoveryHint = '登录后可开启；未登录时保持关闭。';
+
+  /// 登录弹窗说明。
+  static const accountLoginBody =
+      '账号服务尚未接入：这里只在本地记录登录态，不会联网校验，也不影响现有功能。';
+
+  /// 账号输入提示。
+  static const accountEmailLabel = '账号（邮箱）';
+
   // =====** 设置页（S5-2） =====**
 
   /// 网络与中继分组。

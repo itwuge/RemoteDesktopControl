@@ -9,11 +9,13 @@
 
 import 'package:flutter/material.dart';
 
+import '../../controller/account_controller.dart';
 import '../../controller/permission_controller.dart';
 import '../../controller/settings_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/utils/formatters.dart';
+import '../../model/account/account_model.dart';
 import '../components/fields.dart';
 import '../components/info_row.dart';
 import '../components/rdc_button.dart';
@@ -29,6 +31,7 @@ class SettingsPage extends StatefulWidget {
     super.key,
     required this.controller,
     required this.permission,
+    required this.account,
   });
 
   /// 设置控制器。
@@ -36,6 +39,9 @@ class SettingsPage extends StatefulWidget {
 
   /// 权限页控制器。
   final PermissionController permission;
+
+  /// 账号控制器（本地登录态 + 服务探测）。
+  final AccountController account;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -54,6 +60,9 @@ class _SettingsPageState extends State<SettingsPage> {
     );
     widget.controller.settings.addListener(_syncRelayAddress);
     widget.controller.load();
+    // 本地账号状态与账号服务可用性独立探测：服务缺失只显示「未连接」。
+    widget.account.load();
+    widget.account.refreshService();
   }
 
   /// 设置从磁盘加载后同步地址文本。
@@ -419,6 +428,154 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  // =====** 组件：账号 =====**
+
+  /// 账号分组：本地登录态 + 账号服务可用性 + 同账号设备发现。
+  Widget _buildAccountSection() {
+    return ValueListenableBuilder<AccountState>(
+      valueListenable: widget.account.state,
+      builder: (context, account, _) {
+        return ValueListenableBuilder<AccountServiceState>(
+          valueListenable: widget.account.service,
+          builder: (context, service, _) {
+            final online = service == AccountServiceState.online;
+            return RdcSectionCard(
+              title: AppStrings.accountSection,
+              trailing: RdcStatusPill(
+                text: switch (service) {
+                  AccountServiceState.online => AppStrings.accountServiceOnline,
+                  AccountServiceState.offline => AppStrings.accountServiceOffline,
+                  AccountServiceState.unknown => AppStrings.accountServiceProbing,
+                },
+                color: online ? RdcTokens.success : RdcTokens.textMuted,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          account.signedIn
+                              ? '${AppStrings.accountSignedIn}：${account.email}'
+                              : AppStrings.accountSignedOut,
+                          style: TextStyle(
+                            fontSize: RdcTokens.fontBody,
+                            color: RdcTokens.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      RdcStateButton(
+                        label: AppStrings.accountRetry,
+                        icon: Icons.refresh,
+                        active: false,
+                        onPressed: widget.account.refreshService,
+                      ),
+                      const SizedBox(width: RdcTokens.spaceSm),
+                      RdcStateButton(
+                        label: account.signedIn
+                            ? AppStrings.accountLogout
+                            : AppStrings.accountLogin,
+                        icon: account.signedIn ? Icons.logout : Icons.login,
+                        active: account.signedIn,
+                        onPressed: account.signedIn
+                            ? widget.account.signOut
+                            : _openLogin,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: RdcTokens.spaceMd),
+                  Text(
+                    AppStrings.accountNote,
+                    style: TextStyle(
+                      fontSize: RdcTokens.fontCaption,
+                      color: RdcTokens.textMuted,
+                    ),
+                  ),
+                  const SizedBox(height: RdcTokens.spaceLg),
+                  Row(
+                    children: [
+                      RdcStateButton(
+                        label: AppStrings.accountDiscovery,
+                        icon: Icons.devices_other,
+                        active: account.discoveryEnabled,
+                        onPressed: account.signedIn
+                            ? () => widget.account.setDiscoveryEnabled(
+                                  !account.discoveryEnabled,
+                                )
+                            : null,
+                      ),
+                      const SizedBox(width: RdcTokens.spaceMd),
+                      Expanded(
+                        child: Text(
+                          account.signedIn
+                              ? (account.discoveryEnabled ? '已开启' : '已关闭')
+                              : AppStrings.accountDiscoveryHint,
+                          style: TextStyle(
+                            fontSize: RdcTokens.fontCaption,
+                            color: RdcTokens.textMuted,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// 打开本地登录弹窗（账号服务未接入，只记录本地状态）。
+  Future<void> _openLogin() async {
+    final controller = TextEditingController();
+    final email = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        content: SizedBox(
+          width: 380,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                AppStrings.accountLoginBody,
+                style: TextStyle(
+                  fontSize: RdcTokens.fontCaption,
+                  color: RdcTokens.textMuted,
+                ),
+              ),
+              const SizedBox(height: RdcTokens.spaceLg),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: AppStrings.accountEmailLabel,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text(AppStrings.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text(AppStrings.confirm),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (email == null) return;
+    await widget.account.signIn(email);
+  }
+
   // =====** 组件：页面骨架 =====**
 
   @override
@@ -431,6 +588,8 @@ class _SettingsPageState extends State<SettingsPage> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              _buildAccountSection(),
+              const SizedBox(height: RdcTokens.spaceLg),
               _buildNetworkSection(settings.allowRelay),
               const SizedBox(height: RdcTokens.spaceLg),
               _buildEncodingSection(

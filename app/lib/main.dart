@@ -10,6 +10,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'controller/account_controller.dart';
 import 'controller/device_controller.dart';
 import 'controller/permission_controller.dart';
 import 'controller/session_controller.dart';
@@ -17,6 +18,7 @@ import 'controller/settings_controller.dart';
 import 'controller/shell_controller.dart';
 import 'controller/wall_controller.dart';
 import 'core/utils/logger.dart';
+import 'model/account/account_repository.dart';
 import 'model/gateway/rust_gateway.dart';
 import 'model/settings/settings_repository.dart';
 import 'view/pages/permission_page.dart';
@@ -58,6 +60,11 @@ Future<void> main() async {
     gateway: gateway,
   );
 
+  // 账号页：本地登录态持久化 + 账号服务可用性探测（服务未部署只显示「未连接」）。
+  final accountController = AccountController(
+    repository: AccountRepository(),
+  );
+
   // 首屏所需的最小数据：顶部状态与设备列表；失败由各控制器自己记录错误。
   await shellController.loadStatus();
   if (bridgeInitError != null) {
@@ -77,6 +84,7 @@ Future<void> main() async {
     sessionController: sessionController,
     settingsController: settingsController,
     permissionController: permissionController,
+    accountController: accountController,
     showPermissionPage: Platform.environment['RDC_START_PAGE'] == 'permission',
   ));
 }
@@ -107,6 +115,7 @@ class RdcApp extends StatelessWidget {
     required this.sessionController,
     required this.settingsController,
     required this.permissionController,
+    required this.accountController,
     this.showPermissionPage = false,
   });
 
@@ -128,6 +137,9 @@ class RdcApp extends StatelessWidget {
   /// 远程访问权限控制器。
   final PermissionController permissionController;
 
+  /// 账号控制器（本地登录态 + 账号服务探测）。
+  final AccountController accountController;
+
   /// 是否直接把权限页作为首屏（仅本地截图验证时由环境变量打开）。
   final bool showPermissionPage;
 
@@ -146,6 +158,7 @@ class RdcApp extends StatelessWidget {
               session: sessionController,
               settings: settingsController,
               permission: permissionController,
+              account: accountController,
             ),
     );
   }

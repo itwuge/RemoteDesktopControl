@@ -10,6 +10,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../../controller/account_controller.dart';
 import '../../controller/device_controller.dart';
 import '../../controller/permission_controller.dart';
 import '../../controller/session_controller.dart';
@@ -37,6 +38,7 @@ class ShellPage extends StatefulWidget {
     required this.session,
     required this.settings,
     required this.permission,
+    required this.account,
   });
 
   /// 壳控制器。
@@ -56,6 +58,9 @@ class ShellPage extends StatefulWidget {
 
   /// 远程访问权限控制器（设置页「管理」入口跳转用）。
   final PermissionController permission;
+
+  /// 账号控制器（设置页账号分组用）。
+  final AccountController account;
 
   @override
   State<ShellPage> createState() => _ShellPageState();
@@ -259,6 +264,7 @@ class _ShellPageState extends State<ShellPage> {
           ShellTab.settings => SettingsPage(
               controller: widget.settings,
               permission: widget.permission,
+              account: widget.account,
             ),
           _ => SessionPage(
               controller: widget.session,
