@@ -1196,6 +1196,7 @@ dependencies = [
  "rdc-security",
  "rdc-transport",
  "serde",
+ "serde_json",
  "thiserror",
  "tokio",
  "tracing",

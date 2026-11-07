@@ -14,6 +14,7 @@ pub mod doctor;
 pub mod error;
 pub mod policy;
 pub mod s4;
+pub mod s5;
 pub mod session;
 pub mod stats;
 
