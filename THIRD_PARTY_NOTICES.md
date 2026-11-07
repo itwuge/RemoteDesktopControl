@@ -65,3 +65,29 @@ Media Foundation 解码（回退路径）。
 
 以上各组件的完整许可文本随其上游发行物提供（crates.io / pub.dev / 各自项目仓库）。
 如需离线归档，请以 `Cargo.lock`、`app/pubspec.lock` 的版本号从上游获取对应文本。
+
+## AMD AMF SDK（rdc-amf.dll）
+
+- 组件：`crates/rdc-codec/shim/`（C++ 薄 shim），编译产物 `rdc-amf.dll`。
+- 源码许可：AMD Advanced Media Framework SDK，MIT License，
+  Copyright (c) 2018 Advanced Micro Devices, Inc. All rights reserved.
+- 分发方式：本仓库不分发 AMF 头文件；运行期 `amfrt64.dll` 由显卡驱动安装提供，
+  通过 `LoadLibrary("amfrt64.dll")` + `AMFInit` 动态加载，不随安装包分发。
+- 未引入 x264 / x265 / GPL 组件。
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+and associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

@@ -6,6 +6,7 @@
 
 // =====** 模块声明 =====**
 
+pub mod backend;
 pub mod decoder;
 pub mod encoder;
 pub mod error;
