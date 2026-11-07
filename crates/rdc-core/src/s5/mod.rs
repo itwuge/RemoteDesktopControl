@@ -6,3 +6,4 @@
 
 pub mod devices;
 pub mod multi;
+pub mod wall;
