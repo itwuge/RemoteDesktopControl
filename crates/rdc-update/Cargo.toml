@@ -1,0 +1,44 @@
+# ============================================================
+# rdc-update · crate 清单
+#
+# 用途：软件自更新（GitHub Releases 取版本、Ed25519 清单验签、SHA256 校验、
+#       升级备份与失败回滚），并产出 `rdc-updater` 命令行供 Flutter 调用。
+# 层级：L2 能力层（不依赖任何 UI，可被 CLI/桥接/测试复用）。
+# 纪律：任何网络下载都必须先校验再执行；没有签名与哈希双校验的包一律丢弃。
+# ============================================================
+
+[package]
+name = "rdc-update"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 软件自更新：发布清单验签、下载校验、升级与回滚"
+
+[dependencies]
+rdc-security = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+base64 = { workspace = true }
+semver = { workspace = true }
+ureq = { workspace = true }
+tracing = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+# 仅 Windows 需要提权启动安装器与等待进程退出。
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_System_Threading",
+] }
+
+[[bin]]
+name = "rdc-updater"
+path = "src/main.rs"
+
+[dev-dependencies]
+# 集成测试需要直接构造签名与清单 JSON。
+rdc-security = { workspace = true }
+serde_json = { workspace = true }

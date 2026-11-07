@@ -1,0 +1,172 @@
+# ============================================================
+# 工作流用途：Windows 发布构建（Rust + Flutter + AMF + NSIS + 自更新清单）
+#
+# 层级：CI（发布线，与 ci.yml 的日常 CI 分开）
+# 调用方：推送 v* 标签、手动 workflow_dispatch
+#
+# 版本固定口径：
+#   - Rust：RUST_VERSION（精确到补丁号），不使用 @stable 浮动；
+#   - Flutter：FLUTTER_VERSION（精确到补丁号）；
+#   - MSVC：固定 windows-2022 运行器镜像（VS2022 v143 工具集），构建时会打印实际版本；
+#   - 业务版本：唯一真源是根 Cargo.toml 的 workspace.package.version，
+#     标签必须与它一致，否则直接失败（不产出「名不副实」的 Release）。
+#
+# 凭据：
+#   - 发布 Release 用内置 GITHUB_TOKEN（permissions.contents=write）；
+#   - 自更新清单签名用 Secret RDC_RELEASE_SEED_B64（缺失即失败，不产出无法验签的包）。
+# ============================================================
+name: Release Windows
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "更新说明（写入 update-manifest.json）"
+        required: false
+        default: ""
+      publish:
+        description: "是否创建 GitHub Release（false 只产出 Actions 产物）"
+        type: boolean
+        required: false
+        default: true
+
+env:
+  RUST_VERSION: "1.99.1"
+  FLUTTER_VERSION: "3.47.9"
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # =====** Windows 发布构建 =====**
+  release-windows:
+    name: Windows release
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 固定 Rust 工具链
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-windows-${{ env.RUST_VERSION }}
+
+      - name: 固定 Flutter 版本
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: 记录 MSVC 实际版本
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (Test-Path $vswhere) {
+            & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion
+          }
+          rustc --version
+          cargo --version
+          flutter --version
+
+      - name: 安装 NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      # AMF 原生 shim 需要 AMD AMF SDK 头文件与 MinGW g++，二者都不便随仓库分发。
+      # 缺失时明确跳过（安装包仍可在 MFT 软件编码下工作），不让流水线假装成功。
+      - name: 构建 AMF 原生层（可选）
+        shell: pwsh
+        run: |
+          $amfInclude = if ($env:AMF_INCLUDE) { $env:AMF_INCLUDE } else { "C:\dev\amf-include" }
+          $gxx = if ($env:AMF_GXX) { $env:AMF_GXX } else { "C:\msys64\mingw64\bin\g++.exe" }
+          if (-not (Test-Path (Join-Path $amfInclude "core\Factory.h")) -or -not (Test-Path $gxx)) {
+            Write-Warning "未找到 AMF 头文件（$amfInclude）或 g++（$gxx）：跳过 rdc-amf.dll，本次包只支持 MFT 编码。"
+            exit 0
+          }
+          ./crates/rdc-codec/shim/build_amf.ps1 -AmfInclude $amfInclude -Gxx $gxx
+
+      - name: 读取唯一版本号并与标签对齐
+        shell: pwsh
+        run: |
+          $content = Get-Content ./Cargo.toml -Raw
+          $version = [regex]::Match($content, '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
+          if (-not $version) { throw "无法从 Cargo.toml 读取 workspace.package.version" }
+          Write-Host "版本：$version"
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $tagVersion = $env:GITHUB_REF_NAME -replace "^v", ""
+            if ($tagVersion -ne $version) {
+              throw "标签版本（$tagVersion）与 Cargo.toml 版本（$version）不一致：请先升版本再打标签"
+            }
+          }
+          "RDC_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: 构建与 NSIS 打包
+        shell: pwsh
+        run: ./packaging/windows/build_installer.ps1 -Version "$env:RDC_VERSION"
+
+      - name: 生成并签名自更新清单
+        shell: pwsh
+        env:
+          RDC_RELEASE_SEED_B64: ${{ secrets.RDC_RELEASE_SEED_B64 }}
+          INPUT_NOTES: ${{ github.event.inputs.notes }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RDC_RELEASE_SEED_B64)) {
+            throw "缺少 Secret RDC_RELEASE_SEED_B64：拒绝产出无法验签的更新清单"
+          }
+          $installer = "dist\RDC-$env:RDC_VERSION-windows-x64-setup.exe"
+          $url = "https://github.com/$env:GITHUB_REPOSITORY/releases/download/v$env:RDC_VERSION/RDC-$env:RDC_VERSION-windows-x64-setup.exe"
+          $notes = if ($env:INPUT_NOTES) { $env:INPUT_NOTES } else { "RDC $env:RDC_VERSION" }
+          ./packaging/windows/make_update_manifest.ps1 `
+            -InstallerPath $installer `
+            -Version "$env:RDC_VERSION" `
+            -Url $url `
+            -Notes $notes
+
+      - name: 汇总校验和
+        shell: pwsh
+        run: |
+          Get-ChildItem dist -File | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          } | Set-Content dist\SHA256SUMS.txt -Encoding ASCII
+          Get-Content dist\SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rdc-windows-release-${{ env.RDC_VERSION }}
+          path: dist/*
+
+      - name: 创建 GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "v$env:RDC_VERSION"
+          $assets = @(
+            "dist\RDC-$env:RDC_VERSION-windows-x64-setup.exe",
+            "dist\RDC-$env:RDC_VERSION-windows-x64-setup.exe.sha256",
+            "dist\RDC-$env:RDC_VERSION-windows-portable.zip",
+            "dist\RDC-$env:RDC_VERSION-windows-portable.zip.sha256",
+            "dist\update-manifest.json",
+            "dist\update-manifest.json.sig",
+            "dist\update-manifest.json.sha256",
+            "dist\SHA256SUMS.txt"
+          ) | Where-Object { Test-Path $_ }
+          # 已存在同标签 Release 时先删再建，保证资产与本次构建完全一致。
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -eq 0) { gh release delete $tag --yes --cleanup-tag=false }
+          gh release create $tag $assets --title "RDC $env:RDC_VERSION" --notes "见 update-manifest.json 的 notes 字段"

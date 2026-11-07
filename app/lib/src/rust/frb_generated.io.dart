@@ -48,6 +48,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   ClipboardStatusDto dco_decode_clipboard_status_dto(dynamic raw);
 
   @protected
+  ConfigPathsDto dco_decode_config_paths_dto(dynamic raw);
+
+  @protected
   ControlFrameDto dco_decode_control_frame_dto(dynamic raw);
 
   @protected
@@ -103,6 +106,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<TrustDeviceDto> dco_decode_list_trust_device_dto(dynamic raw);
+
+  @protected
+  MigrationReportDto dco_decode_migration_report_dto(dynamic raw);
 
   @protected
   String? dco_decode_opt_String(dynamic raw);
@@ -186,6 +192,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ConfigPathsDto sse_decode_config_paths_dto(SseDeserializer deserializer);
+
+  @protected
   ControlFrameDto sse_decode_control_frame_dto(SseDeserializer deserializer);
 
   @protected
@@ -247,6 +256,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   List<TrustDeviceDto> sse_decode_list_trust_device_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  MigrationReportDto sse_decode_migration_report_dto(
     SseDeserializer deserializer,
   );
 
@@ -346,6 +360,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_config_paths_dto(
+    ConfigPathsDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_control_frame_dto(
     ControlFrameDto self,
     SseSerializer serializer,
@@ -426,6 +446,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_list_trust_device_dto(
     List<TrustDeviceDto> self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_migration_report_dto(
+    MigrationReportDto self,
     SseSerializer serializer,
   );
 

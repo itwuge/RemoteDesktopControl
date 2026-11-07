@@ -47,6 +47,7 @@ class AppSettings {
     this.localPairPolicy = 'ask',
     this.sameAccountPolicy = 'auto',
     this.passwordlessPolicy = false,
+    this.autoUpdateCheck = true,
   });
 
   /// 默认设置：默认不允许中继、严格 P2P、跟随主控端、文件上限 40%。
@@ -71,7 +72,8 @@ class AppSettings {
         auditRetentionDays = 30,
         localPairPolicy = 'ask',
         sameAccountPolicy = 'auto',
-        passwordlessPolicy = false;
+        passwordlessPolicy = false,
+        autoUpdateCheck = true;
 
   /// 是否允许使用中继（默认关闭，docs/01 C2）。
   final bool allowRelay;
@@ -136,6 +138,9 @@ class AppSettings {
   /// 是否允许完全免密。
   final bool passwordlessPolicy;
 
+  /// 是否自动检查更新（默认开启；关闭后启动期不发起任何更新请求）。
+  final bool autoUpdateCheck;
+
   /// 复制一份并覆盖部分字段。
   ///
   /// 参数均为可选覆盖项；未传字段保持原值。
@@ -161,6 +166,7 @@ class AppSettings {
     String? localPairPolicy,
     String? sameAccountPolicy,
     bool? passwordlessPolicy,
+    bool? autoUpdateCheck,
   }) {
     return AppSettings(
       allowRelay: allowRelay ?? this.allowRelay,
@@ -184,6 +190,7 @@ class AppSettings {
       localPairPolicy: localPairPolicy ?? this.localPairPolicy,
       sameAccountPolicy: sameAccountPolicy ?? this.sameAccountPolicy,
       passwordlessPolicy: passwordlessPolicy ?? this.passwordlessPolicy,
+      autoUpdateCheck: autoUpdateCheck ?? this.autoUpdateCheck,
     );
   }
 
@@ -210,6 +217,7 @@ class AppSettings {
         'local_pair_policy': localPairPolicy,
         'same_account_policy': sameAccountPolicy,
         'passwordless_policy': passwordlessPolicy,
+        'auto_update_check': autoUpdateCheck,
       };
 
   /// 从磁盘 JSON 还原；缺字段或非法值一律回落默认，避免旧配置让应用崩在启动路径。
@@ -256,6 +264,8 @@ class AppSettings {
           json['same_account_policy'] as String? ?? fallback.sameAccountPolicy,
       passwordlessPolicy: json['passwordless_policy'] as bool? ??
           fallback.passwordlessPolicy,
+      autoUpdateCheck:
+          json['auto_update_check'] as bool? ?? fallback.autoUpdateCheck,
     );
   }
 
