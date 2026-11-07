@@ -1137,6 +1137,7 @@ dependencies = [
  "rdc-security",
  "rdc-signal",
  "rdc-transport",
+ "sha2",
  "tokio",
  "tracing",
  "windows",

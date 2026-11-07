@@ -10,6 +10,7 @@
 
 use std::error::Error;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::{mpsc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -21,6 +22,7 @@ use rdc_protocol::{
 };
 use rdc_security::{hmac_sha256_b64, IdentityKeyPair, PairingCode, SessionHandshake};
 use rdc_signal::SignalServer;
+use sha2::{Digest, Sha256};
 use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM};
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::HiDpi::{
@@ -29,8 +31,8 @@ use windows::Win32::UI::HiDpi::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, GetCursorPos, GetMessageW, GetSystemMetrics, PeekMessageW, PostThreadMessageW,
     SetCursorPos, SetWindowsHookExW, UnhookWindowsHookEx, HHOOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED,
-    MSG, PM_NOREMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    MSG, PM_NOREMOVE, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
+    WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_QUIT, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
 // =====** 类型与常量 =====**
@@ -499,9 +501,7 @@ pub async fn run_keys() -> DemoResult<()> {
             Err(err) => Err(rdc_core::s4::S4Error::Input(err)),
         }
     };
-    let ctrl_fut = async {
-        rdc_core::s4::input::run_ctrl(&mut ctrl_rt.secure, &events).await
-    };
+    let ctrl_fut = async { rdc_core::s4::input::run_ctrl(&mut ctrl_rt.secure, &events).await };
     let (host_result, ctrl_result) = tokio::join!(host_fut, ctrl_fut);
     host_rt.close();
     ctrl_rt.close();
@@ -654,7 +654,11 @@ pub async fn run_clipboard() -> DemoResult<()> {
     let tail_is_done = matches!(tail, rdc_core::s4::message::S4Message::Done);
     println!(
         "[clipboard] 7. 回环探针：host 收到 {}（期望 Done）",
-        if tail_is_done { "Done" } else { "多余剪贴板消息" }
+        if tail_is_done {
+            "Done"
+        } else {
+            "多余剪贴板消息"
+        }
     );
 
     let ctrl_stats = ctrl_task.stats();
@@ -663,11 +667,17 @@ pub async fn run_clipboard() -> DemoResult<()> {
     ctrl_rt.close();
     println!(
         "[clipboard] ctrl stats: sent={} applied={} dup={} echo={}",
-        ctrl_stats.sent, ctrl_stats.applied, ctrl_stats.skipped_duplicates, ctrl_stats.skipped_echoes
+        ctrl_stats.sent,
+        ctrl_stats.applied,
+        ctrl_stats.skipped_duplicates,
+        ctrl_stats.skipped_echoes
     );
     println!(
         "[clipboard] host stats: sent={} applied={} dup={} echo={}",
-        host_stats.sent, host_stats.applied, host_stats.skipped_duplicates, host_stats.skipped_echoes
+        host_stats.sent,
+        host_stats.applied,
+        host_stats.skipped_duplicates,
+        host_stats.skipped_echoes
     );
 
     let normalized_ctrl = rdc_clipboard::text::to_network(CLIP_CTRL_TEXT);
@@ -713,6 +723,204 @@ pub async fn run_clipboard() -> DemoResult<()> {
     } else {
         Err(format!("[clipboard] FAIL: {}", failures.join("；")).into())
     }
+}
+
+// =====** demo-file =====**
+
+/// demo-file 传输的文件大小（5 MiB，跨一个 4 MiB 块边界）。
+const FILE_BYTES: u64 = 5 << 20;
+/// demo-file 使用的分块大小（0 走 `rdc-filetransfer` 默认 4 MiB，这里显式用于算期望值）。
+const FILE_CHUNK_BYTES: u64 = 4 << 20;
+
+/// 临时文件守卫：无论成功失败，离开作用域即删除，避免残留。
+struct TempFiles {
+    /// 待清理路径。
+    paths: Vec<PathBuf>,
+}
+
+impl Drop for TempFiles {
+    fn drop(&mut self) {
+        for path in &self.paths {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
+/// 文件通道演示：5 MiB 随机文件经 1352 字节分片传完，比对两端 SHA-256。
+///
+/// 首次发送第一块时故意改坏一个字节，用来验证块校验、`FileAck{ok=false}` 与重传路径。
+///
+/// # Returns
+/// 哈希一致、重传次数符合预期、分片数符合计划时返回 `Ok(())`。
+///
+/// # Errors
+/// 造样本、会话、传输失败或任一项核对不符时返回错误。
+pub async fn run_file() -> DemoResult<()> {
+    let start = Instant::now();
+    let pid = std::process::id();
+    let src = std::env::temp_dir().join(format!("rdc-s4file-src-{pid}.bin"));
+    let dst = std::env::temp_dir().join(format!("rdc-s4file-dst-{pid}.bin"));
+    let _temp = TempFiles {
+        paths: vec![src.clone(), dst.clone()],
+    };
+    write_random_file(&src, FILE_BYTES)?;
+    let src_hash = hash_file(&src)?;
+    println!(
+        "[file] 源文件 {} 字节（{} MiB），SHA-256 {}",
+        FILE_BYTES,
+        FILE_BYTES / (1 << 20),
+        hex(&src_hash)
+    );
+
+    let fixture = signal_fixture().await?;
+    let code = PairingCode::generate();
+    let host_id = IdentityKeyPair::generate();
+    let ctrl_id = IdentityKeyPair::generate();
+    let code_proof = hmac_sha256_b64(code.as_str().as_bytes(), b"rdc-s4");
+    let (host_rt, ctrl_rt) = tokio::join!(
+        setup_host(
+            fixture.addr,
+            &fixture.cert,
+            &fixture.key,
+            host_id,
+            code.clone()
+        ),
+        setup_ctrl(fixture.addr, &fixture.cert, ctrl_id, code, code_proof)
+    );
+    let mut host_rt = host_rt?;
+    let mut ctrl_rt = ctrl_rt?;
+    println!("[file] 会话就绪 +{} ms", start.elapsed().as_millis());
+
+    let dst_path = dst.clone();
+    let host_fut = async { rdc_core::s4::file::recv_file(&mut host_rt.secure, &dst_path).await };
+    let src_path = src.clone();
+    // 第一块首次发送故意改坏一个字节，驱动块校验 + 重传路径。
+    let ctrl_fut =
+        async { rdc_core::s4::file::send_file(&mut ctrl_rt.secure, &src_path, 0, true).await };
+    let (host_result, ctrl_result) = tokio::join!(host_fut, ctrl_fut);
+    host_rt.close();
+    ctrl_rt.close();
+
+    let sent = ctrl_result.map_err(|e| e.to_string())?;
+    let received = host_result.map_err(|e| e.to_string())?;
+    let dst_hash = hash_file(&dst)?;
+
+    let expected_frags = expected_fragments();
+    let first_chunk_frags = FILE_CHUNK_BYTES.div_ceil(rdc_core::s4::FILE_FRAGMENT_BYTES as u64);
+    println!(
+        "[file] 块 {} 个（每块 ≤ {} MiB），分片实际 {} / 期望 {}（重传片 {}），重传 {} 次",
+        sent.chunks,
+        FILE_CHUNK_BYTES / (1 << 20),
+        sent.fragments,
+        expected_frags + first_chunk_frags,
+        first_chunk_frags,
+        sent.retransmissions
+    );
+    println!(
+        "[file] 耗时：发送 {} ms / 接收 {} ms，吞吐 {:.3} MB/s",
+        sent.elapsed.as_millis(),
+        received.elapsed.as_millis(),
+        sent.throughput_mbps
+    );
+    println!("[file] SHA-256 源 {}", hex(&src_hash));
+    println!("[file] SHA-256 收 {}", hex(&dst_hash));
+    println!(
+        "[file] 接收端自校验 {}（{} 字节）",
+        if received.ok { "一致" } else { "不一致" },
+        received.total_bytes
+    );
+
+    let mut failures = Vec::new();
+    if src_hash != dst_hash {
+        failures.push("接收端 SHA-256 与源文件不一致");
+    }
+    if received.actual_hash != src_hash {
+        failures.push("接收端回报的哈希与源文件不一致");
+    }
+    if !received.ok {
+        failures.push("接收端自校验未通过");
+    }
+    if received.total_bytes != FILE_BYTES {
+        failures.push("接收字节数不符");
+    }
+    if sent.fragments != expected_frags + first_chunk_frags {
+        failures.push("分片数不符（期望含一次整块重传）");
+    }
+    if sent.retransmissions != 1 {
+        failures.push("重传次数不符（期望 1 次）");
+    }
+    if sent.chunks != 2 || received.chunks != 2 {
+        failures.push("分块数不符（期望 2）");
+    }
+
+    if failures.is_empty() {
+        println!("[file] PASS +{} ms", start.elapsed().as_millis());
+        Ok(())
+    } else {
+        Err(format!("[file] FAIL: {}", failures.join("；")).into())
+    }
+}
+
+/// 按计划推算出分片总数（不含重传）。
+fn expected_fragments() -> u64 {
+    let chunk_size = FILE_CHUNK_BYTES;
+    let frag_size = rdc_core::s4::FILE_FRAGMENT_BYTES as u64;
+    let mut remaining = FILE_BYTES;
+    let mut total = 0u64;
+    while remaining > 0 {
+        let len = remaining.min(chunk_size);
+        total += len.div_ceil(frag_size);
+        remaining -= len;
+    }
+    total
+}
+
+/// 写入 `bytes` 字节的伪随机内容（splitmix64，够快且不可压缩），用于构造演示样本。
+///
+/// # Errors
+/// 写盘失败时返回错误。
+fn write_random_file(path: &Path, bytes: u64) -> DemoResult<()> {
+    let mut buf = Vec::with_capacity(bytes as usize);
+    let mut state = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0x5EED)
+        .wrapping_add(0x9E37_79B9_7F4A_7C15);
+    while (buf.len() as u64) < bytes {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^= z >> 31;
+        buf.extend_from_slice(&z.to_le_bytes());
+    }
+    buf.truncate(bytes as usize);
+    std::fs::write(path, &buf)?;
+    Ok(())
+}
+
+/// 分块读取文件算 SHA-256。
+///
+/// # Errors
+/// 文件打不开或读取失败时返回错误。
+fn hash_file(path: &Path) -> DemoResult<[u8; 32]> {
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    let digest = hasher.finalize();
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    Ok(out)
+}
+
+/// 32 字节哈希转小写十六进制。
+fn hex(hash: &[u8; 32]) -> String {
+    use std::fmt::Write as _;
+    let mut text = String::with_capacity(64);
+    for byte in hash {
+        let _ = write!(text, "{byte:02x}");
+    }
+    text
 }
 
 // =====** 平台小工具 =====**

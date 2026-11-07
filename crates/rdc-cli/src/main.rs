@@ -42,14 +42,13 @@ async fn main() -> ExitCode {
         Some("s3b4") => run_s3b4(&mut args),
         Some("demo-input") => run_s4_demo("demo-input", 60, s4demo::run_input()).await,
         Some("demo-keys") => run_s4_demo("demo-keys", 60, s4demo::run_keys()).await,
-        Some("demo-clipboard") => {
-            run_s4_demo("demo-clipboard", 60, s4demo::run_clipboard()).await
-        }
+        Some("demo-clipboard") => run_s4_demo("demo-clipboard", 60, s4demo::run_clipboard()).await,
+        Some("demo-file") => run_s4_demo("demo-file", 120, s4demo::run_file()).await,
         Some(other) => {
             eprintln!("未知子命令: {other}");
             eprintln!(
                 "可用: doctor | selftest | demo | demo-input | demo-keys | demo-clipboard | \
-                 s3a [--fixture] | s3b [--frames N] | \
+                 demo-file | s3a [--fixture] | s3b [--frames N] | \
                  s3b3 [--instances K] [--frames N] [--bitrate B] | \
                  s3b4 [host|ctrl] [--secs S]"
             );
