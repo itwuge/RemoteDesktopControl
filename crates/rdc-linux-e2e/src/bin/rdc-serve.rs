@@ -454,7 +454,6 @@ mod serve_impl {
         for line in text.lines() {
             if let Some(rest) = line.strip_prefix("VmRSS:") {
                 return rest
-                    .trim()
                     .split_whitespace()
                     .next()
                     .and_then(|value| value.parse().ok())
@@ -546,45 +545,42 @@ mod serve_impl {
         };
         injector.set_viewport(viewport);
         let mut logged_errors = 0u32;
-        loop {
-            match protocol::read_packet(&mut stream) {
-                Ok(Some(packet)) => match packet.kind {
-                    protocol::KIND_INPUT => {
-                        let event = match decode_event(&packet.payload) {
-                            Ok(event) => event,
-                            Err(error) => {
-                                counters.inject_errors.fetch_add(1, Ordering::Relaxed);
-                                if logged_errors < 3 {
-                                    logged_errors += 1;
-                                    log_warn(&log, "E_INPUT_DECODE", &format!("输入包解析失败: {error}"));
-                                }
-                                continue;
+        while let Ok(Some(packet)) = protocol::read_packet(&mut stream) {
+            match packet.kind {
+                protocol::KIND_INPUT => {
+                    let event = match decode_event(&packet.payload) {
+                        Ok(event) => event,
+                        Err(error) => {
+                            counters.inject_errors.fetch_add(1, Ordering::Relaxed);
+                            if logged_errors < 3 {
+                                logged_errors += 1;
+                                log_warn(&log, "E_INPUT_DECODE", &format!("输入包解析失败: {error}"));
                             }
-                        };
-                        let started = Instant::now();
-                        match injector.inject(event) {
-                            Ok(()) => {
-                                counters.injected.fetch_add(1, Ordering::Relaxed);
-                                let micros = started.elapsed().as_micros() as u64;
-                                if let Ok(mut guard) = counters.inject_samples_us.lock() {
-                                    if guard.len() < 4096 {
-                                        guard.push(micros);
-                                    }
-                                }
-                            }
-                            Err(error) => {
-                                counters.inject_errors.fetch_add(1, Ordering::Relaxed);
-                                if logged_errors < 3 {
-                                    logged_errors += 1;
-                                    log_warn(&log, "E_INJECT", &format!("注入失败: {error}"));
+                            continue;
+                        }
+                    };
+                    let started = Instant::now();
+                    match injector.inject(event) {
+                        Ok(()) => {
+                            counters.injected.fetch_add(1, Ordering::Relaxed);
+                            let micros = started.elapsed().as_micros() as u64;
+                            if let Ok(mut guard) = counters.inject_samples_us.lock() {
+                                if guard.len() < 4096 {
+                                    guard.push(micros);
                                 }
                             }
                         }
+                        Err(error) => {
+                            counters.inject_errors.fetch_add(1, Ordering::Relaxed);
+                            if logged_errors < 3 {
+                                logged_errors += 1;
+                                log_warn(&log, "E_INJECT", &format!("注入失败: {error}"));
+                            }
+                        }
                     }
-                    protocol::KIND_BYE => break,
-                    _ => {}
-                },
-                Ok(None) | Err(_) => break,
+                }
+                protocol::KIND_BYE => break,
+                _ => {}
             }
         }
         alive.store(false, Ordering::SeqCst);
@@ -806,15 +802,7 @@ mod serve_impl {
                 break;
             }
             if last_stats.elapsed() >= STATS_INTERVAL {
-                emit_stats(
-                    log,
-                    &counters,
-                    peer,
-                    &cfg.status_path,
-                    cfg,
-                    pid,
-                    started_at,
-                );
+                emit_status(&counters, peer, &cfg.status_path, cfg, pid, started_at);
                 let captured_now = counters.captured.load(Ordering::Relaxed);
                 let packets_now = counters.packets.load(Ordering::Relaxed);
                 let bytes_now = counters.bytes.load(Ordering::Relaxed);
@@ -892,9 +880,8 @@ mod serve_impl {
         )
     }
 
-    /// 写一条 STATS/状态文件（会话内每秒调用）。
-    fn emit_stats(
-        log: &SharedLog,
+    /// 会话内每秒刷新状态文件（STATS 行由调用方负责写）。
+    fn emit_status(
         counters: &Counters,
         peer: SocketAddr,
         status_path: &Path,
@@ -924,8 +911,14 @@ mod serve_impl {
     /// 安装 SIGTERM/SIGINT 处理器：只置停机标志，主循环下一轮退出（exit 0）。
     fn install_signal_handlers() {
         unsafe {
-            libc::signal(libc::SIGTERM, handle_signal as usize as libc::sighandler_t);
-            libc::signal(libc::SIGINT, handle_signal as usize as libc::sighandler_t);
+            libc::signal(
+                libc::SIGTERM,
+                handle_signal as *const () as usize as libc::sighandler_t,
+            );
+            libc::signal(
+                libc::SIGINT,
+                handle_signal as *const () as usize as libc::sighandler_t,
+            );
         }
     }
 
