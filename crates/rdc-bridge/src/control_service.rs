@@ -806,6 +806,10 @@ fn run_pipeline(
                 continue;
             }
             let slice = &mut bgra.buffer.as_mut_slice()[..len];
+            // 编解码层的像素契约是 RGBA8（rdc-protocol/rdc-codec、nv12.rs、AMF shim
+            // 的 push_rgba 都按 RGBA8 收），所以这里必须做 B↔R 交换。
+            // 块 4 B 实测：删掉交换后 push 段 4.66 → 4.34~6.93 ms（噪声内，无收益），
+            // 且 AMF shim 的 AMF_SURFACE_BGRA 标签与层契约不一致，故保留交换。
             swap_rb(slice);
             draw_barcode(slice, width as usize, elapsed_ms);
             if let Err(error) = encoder.push(bgra.buffer, pts_ns, force_key) {
@@ -1378,6 +1382,20 @@ fn read_barcode(
                 value |= 1 << (cell - 1);
             }
         }
+        // 颜色核对（块 4 C1）：`RDC_COLOR_PROBE=1` 时打印两个色块的回读值。
+        if std::env::var("RDC_COLOR_PROBE").map(|v| v != "0").unwrap_or(false) {
+            let y = 46usize;
+            let read = |x: usize| {
+                let o = y * pitch + x * 4;
+                let p = (mapped.pData as *const u8).add(o);
+                (*p, *p.add(1), *p.add(2))
+            };
+            let (lb, lg, lr) = read(12);
+            let (rb, rg, rr) = read(26);
+            eprintln!(
+                "[color] left(BGR)=({lb},{lg},{lr}) right(BGR)=({rb},{rg},{rr}) expected left=(0,0,255) right=(255,0,0)"
+            );
+        }
         context.Unmap(&converter.readback, 0);
     }
     if aligned {
@@ -1413,7 +1431,10 @@ fn open_log() -> Option<std::fs::File> {
 
 // =====** 像素处理 =====**
 
-/// BGRA ↔ RGBA 原地交换（编码器要求 RGBA 输入）。
+/// BGRA ↔ RGBA 原地交换（只给声明 RGBA 输入的后端用，见 `input_is_bgra`）。
+///
+/// # Arguments
+/// * `data` - 整帧 BGRA8 缓冲（原地修改）。
 fn swap_rb(data: &mut [u8]) {
     for pixel in data.chunks_exact_mut(4) {
         pixel.swap(0, 2);
@@ -1460,6 +1481,22 @@ fn draw_barcode(data: &mut [u8], width: usize, elapsed_ms: u32) {
                     data[offset] = value;
                     data[offset + 1] = value;
                     data[offset + 2] = value;
+                    data[offset + 3] = 255;
+                }
+            }
+        }
+    }
+    // 颜色核对色块（块 4 C1）：左纯红、右纯蓝，画在回读区下缘（y 44..50），
+    // 不占 barcode 采样行。缓冲是 BGRA 字节序 → 红=(0,0,255)、蓝=(255,0,0)。
+    // 若编码链路里还残留 B↔R 交换，回读时会看到左右互换。
+    for (px, rgb) in [(12usize, (0u8, 0u8, 255u8)), (26usize, (255u8, 0u8, 0u8))] {
+        for y in 44..50 {
+            for x in px..px + 8 {
+                let offset = y * width * 4 + x * 4;
+                if offset + 3 < data.len() {
+                    data[offset] = rgb.0;
+                    data[offset + 1] = rgb.1;
+                    data[offset + 2] = rgb.2;
                     data[offset + 3] = 255;
                 }
             }
