@@ -142,7 +142,18 @@ if (Test-Path $amfShim) {
     Copy-Item $amfShim $ReleaseDir -Force
     Write-Host "[packaging/windows] AMF shim：rdc-amf.dll ($((Get-Item $amfShim).Length) B)"
 } else {
-    Write-Warning "缺少 target\amf\rdc-amf.dll：本次产物的编码器只能是 MFT。先运行 crates/rdc-codec/shim/build_amf.ps1"
+    Write-Warning "缺少 target\amf\rdc-amf.dll：A 卡机器将跳过 AMF，按 NVENC→MFT 回退。先运行 crates/rdc-codec/shim/build_amf.ps1"
+}
+
+# NVENC 原生编码 shim（Phase 1 骨架）：只负责探测系统 nvEncodeAPI64.dll。
+# 系统驱动 DLL（nvEncodeAPI64.dll / nvcuda.dll）由显卡驱动提供，禁止随包分发。
+# 当前 Phase 1 只做能力探测，会话未实装：真正的 NVENC 启用必须在 N 卡实机验收。
+$nvencShim = Join-Path $RepoRoot "target\nvenc\rdc-nvenc.dll"
+if (Test-Path $nvencShim) {
+    Copy-Item $nvencShim $ReleaseDir -Force
+    Write-Host "[packaging/windows] NVENC shim：rdc-nvenc.dll ($((Get-Item $nvencShim).Length) B；Phase 1 仅探测，不启用会话)"
+} else {
+    Write-Warning "缺少 target\nvenc\rdc-nvenc.dll：RDC_ENCODER=nvenc 将报 code=1 并安全回退。先运行 crates/rdc-codec/shim/build_nvenc.ps1"
 }
 
 # =====** VC++ 运行库（app-local 部署） =====**

@@ -259,7 +259,9 @@ pub fn mapping_table() -> &'static [ParamMapping] {
         ParamMapping {
             param: "b_frames",
             amf: "AMF_VIDEO_ENCODER_B_PIC_PATTERN=0",
-            nvenc: "NV_ENC_INITIALIZE_PARAMS.maxBPictures=0",
+            // 纠错：`maxBPictures` 是 `NV_ENC_PIC_PARAMS` 的「单帧允许的最大 B 帧数」，
+            // 不是关闭 B 帧的开关；关闭 B 帧必须把 `NV_ENC_CONFIG_H264.frameIntervalP` 设为 1。
+            nvenc: "NV_ENC_CONFIG_H264.frameIntervalP=1（无 B 帧）",
             onevpl: "mfxInfoMFX.GopRefDist=1",
             mft: "CODECAPI_AVEncMPVDefaultBPictureCount=0",
             equivalence: "exact：低延迟模式一律 0",
@@ -267,7 +269,8 @@ pub fn mapping_table() -> &'static [ParamMapping] {
         ParamMapping {
             param: "max_reference_frames",
             amf: "AMF_VIDEO_ENCODER_MAX_NUM_REFRAMES=1",
-            nvenc: "NV_ENC_RC_PARAMS 参考帧数 / 默认 1",
+            // 纠错：参考帧数不在 `NV_ENC_RC_PARAMS`；它属于 `NV_ENC_CONFIG_H264.maxNumRefFrames`。
+            nvenc: "NV_ENC_CONFIG_H264.maxNumRefFrames=1（不在 NV_ENC_RC_PARAMS）",
             onevpl: "mfxInfoMFX.NumRefFrame=1",
             mft: "CODECAPI_AVEncVideoMaxNumRefFrame=1",
             equivalence: "exact：低延迟模式一律 1",
@@ -369,6 +372,24 @@ mod tests {
         // 语义无法等价的项必须显式写明，不能默认 exact。
         let intra = table.iter().find(|m| m.param == "intra_refresh").unwrap();
         assert!(intra.equivalence.starts_with("none"));
+    }
+
+    /// NVENC 的两处历史参数错误必须保持被纠正后的写法。
+    ///
+    /// 判据：B 帧关闭靠 `frameIntervalP=1`；参考帧数属于 `NV_ENC_CONFIG_H264`，
+    /// 都不允许再出现 `maxBPictures` 或「NV_ENC_RC_PARAMS 参考帧数」。
+    #[test]
+    fn nvenc_mapping_uses_correct_struct_fields() {
+        let table = mapping_table();
+        let b = table.iter().find(|m| m.param == "b_frames").unwrap();
+        assert!(b.nvenc.contains("frameIntervalP=1"));
+        assert!(!b.nvenc.contains("maxBPictures"));
+        let refs = table
+            .iter()
+            .find(|m| m.param == "max_reference_frames")
+            .unwrap();
+        assert!(refs.nvenc.contains("NV_ENC_CONFIG_H264.maxNumRefFrames=1"));
+        assert!(!refs.nvenc.contains("NV_ENC_RC_PARAMS 参考帧数"));
     }
 
     #[test]

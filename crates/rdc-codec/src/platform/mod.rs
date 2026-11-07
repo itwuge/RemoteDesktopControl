@@ -34,6 +34,8 @@ pub struct EncoderSelection {
     pub backend: String,
     /// 选择理由（探测结果/覆盖项/跳过项，逐项可查）。
     pub reason: String,
+    /// 选中后端是否为硬件编码（以实际选中的后端为准，不取探测列表推断）。
+    pub hardware: bool,
 }
 
 /// 按当前平台创建指定格式的编码器。
@@ -73,6 +75,7 @@ pub fn create_encoder_selected(kind: CodecKind) -> Result<EncoderSelection, Code
             encoder: Box::new(macos::PlatformEncoder::new()),
             backend: "videotoolbox".to_owned(),
             reason: "macOS 唯一后端（VideoToolbox）".to_owned(),
+            hardware: true,
         })
     }
 
@@ -84,6 +87,7 @@ pub fn create_encoder_selected(kind: CodecKind) -> Result<EncoderSelection, Code
             encoder: Box::new(linux::PlatformEncoder::new()),
             backend: "ffmpeg-libx264".to_owned(),
             reason: "Linux 唯一后端（ffmpeg/libx264）".to_owned(),
+            hardware: false,
         })
     }
 
@@ -105,12 +109,16 @@ pub fn create_encoder_selected(kind: CodecKind) -> Result<EncoderSelection, Code
 /// - 每次选择都落一行 `encoder.selected backend=<name> reason=<探测结果>`，回退不静默。
 #[cfg(target_os = "windows")]
 mod selection {
-    use crate::backend::BackendKind;
-    use crate::encoder::VideoEncoder;
+    use crate::backend::{self, BackendCaps, BackendKind};
+    use crate::encoder::{CodecKind, VideoEncoder};
 
-    use super::{EncoderSelection, windows};
+    use super::{windows, EncoderSelection};
 
     /// 执行选择。
+    ///
+    /// 为什么不再手写 if/else：回退顺序与「不可用理由」统一由
+    /// [`backend::select_backend`] 决定，这里只负责把各后端探测成
+    /// [`BackendCaps`] 并把选中的后端实例化，避免两套选择逻辑各自演化。
     ///
     /// # Errors
     /// 选择本身不失败；软编实例在 `configure` 阶段才可能报错。
@@ -118,64 +126,222 @@ mod selection {
         let forced = std::env::var("RDC_ENCODER")
             .ok()
             .and_then(|value| BackendKind::from_env_value(&value));
-        let mut skipped: Vec<String> = Vec::new();
 
-        // 强制软编（诊断路径）：不再尝试任何硬件后端。
-        if forced == Some(BackendKind::Software) {
-            return Ok(finish(
-                windows::PlatformEncoder::new_software(),
-                "显式指定 RDC_ENCODER=software（诊断路径，不回退硬编）".to_owned(),
-            ));
-        }
-        // 强制 MFT：跳过 AMF，直接落到 MFT 硬件路径。
-        let try_amf = matches!(forced, None | Some(BackendKind::Amf));
-        if forced == Some(BackendKind::Mft) {
-            skipped.push("显式指定 RDC_ENCODER=mf".to_owned());
-        }
+        let mut caps: Vec<BackendCaps> = Vec::new();
+        let mut notes: Vec<String> = Vec::new();
+        let mut amf_ready: Option<windows::amf::AmfEncoder> = None;
+        let mut nvenc_ready: Option<windows::nvenc::NvencEncoder> = None;
+        let mut nvenc_note: Option<String> = None;
 
-        if try_amf {
+        // 强制软编/强制 MFT 的既有语义是「不探测更优硬件后端」；
+        // 保留该短路只为了避免无谓的 DLL 探测，最终选择仍交给 `select_backend`。
+        let probe_hard_chain = !matches!(
+            forced,
+            Some(BackendKind::Software) | Some(BackendKind::Mft)
+        );
+
+        if probe_hard_chain {
+            // --- AMF：探测成功的实例直接留给选中时使用，避免二次加载 DLL。 ---
             match windows::amf::AmfEncoder::try_new() {
-                Some(encoder) if !encoder.probe(&[]).is_empty() => {
-                    let reason = if forced == Some(BackendKind::Amf) {
-                        "显式指定 RDC_ENCODER=amf，AMF 探测通过".to_owned()
+                Some(encoder) => {
+                    let (h264, _hevc) = encoder.probe_caps();
+                    if h264 {
+                        caps.push(available_caps(
+                            BackendKind::Amf,
+                            "amf-h264-d3d11",
+                            true,
+                            3840,
+                            2160,
+                            60,
+                        ));
+                        amf_ready = Some(encoder);
                     } else {
-                        "默认探测：AMF H.264 可用（回退链首位）".to_owned()
-                    };
-                    return Ok(finish(encoder, reason));
+                        let note =
+                            "AMF 探测失败（rdc-amf.dll 可加载，但 H.264 能力为 0）".to_owned();
+                        caps.push(unavailable_caps(BackendKind::Amf, note.clone()));
+                        notes.push(note);
+                    }
                 }
-                Some(_) => skipped.push(
-                    "AMF 探测失败（rdc-amf.dll 可加载，但 H.264 能力为 0）".to_owned(),
-                ),
-                None => skipped
-                    .push("AMF 不可用（rdc-amf.dll 缺失或 AMF 组件未初始化）".to_owned()),
+                None => {
+                    let note = "AMF 不可用（rdc-amf.dll 缺失或 AMF 组件未初始化）".to_owned();
+                    caps.push(unavailable_caps(BackendKind::Amf, note.clone()));
+                    notes.push(note);
+                }
+            }
+
+            // --- NVENC：Phase 1 只探测系统 nvEncodeAPI64.dll，不创建会话。 ---
+            match windows::nvenc::NvencEncoder::try_new() {
+                Ok(encoder) => {
+                    let probed = encoder.probe(&[CodecKind::H264]);
+                    if probed.is_empty() {
+                        // Phase 1 无真实编码能力：写明 code=5，并丢弃实例。
+                        let note = encoder.note().to_owned();
+                        caps.push(unavailable_caps(BackendKind::Nvenc, note.clone()));
+                        notes.push(note.clone());
+                        nvenc_note = Some(note);
+                        drop(encoder);
+                    } else {
+                        caps.push(available_caps(
+                            BackendKind::Nvenc,
+                            "nvenc-h264",
+                            true,
+                            3840,
+                            2160,
+                            60,
+                        ));
+                        nvenc_ready = Some(encoder);
+                    }
+                }
+                Err(detail) => {
+                    let note = detail.note();
+                    caps.push(unavailable_caps(BackendKind::Nvenc, note.clone()));
+                    notes.push(note.clone());
+                    nvenc_note = Some(note);
+                }
+            }
+
+            // --- oneVPL：保留占位，不伪造能力。 ---
+            let note = "oneVPL 未接入（占位实现）".to_owned();
+            caps.push(unavailable_caps(BackendKind::OneVpl, note.clone()));
+            notes.push(note);
+        }
+
+        // --- MFT 硬件：只枚举不激活，避免选择阶段就做类型协商。 ---
+        // 强制 MFT 时也必须保留这条探测，否则无法判断「落到硬件还是软编」。
+        if probe_hard_chain || forced == Some(BackendKind::Mft) {
+            if windows::has_hardware_h264_mft() {
+                caps.push(available_caps(
+                    BackendKind::Mft,
+                    "mf-h264-hw",
+                    true,
+                    3840,
+                    2160,
+                    60,
+                ));
+            } else {
+                let note = "MFT 枚举不到硬件 H.264 编码器".to_owned();
+                caps.push(unavailable_caps(BackendKind::Mft, note.clone()));
+                notes.push(note);
             }
         }
-        // NVENC / oneVPL：当前是占位实现，没有可探测的运行时能力。
-        skipped.push("NVENC 未接入（占位实现）".to_owned());
-        skipped.push("oneVPL 未接入（占位实现）".to_owned());
 
-        // MFT 硬件：只枚举不激活，避免选择阶段就做一遍类型协商。
-        if windows::has_hardware_h264_mft() {
-            return Ok(finish(
-                windows::PlatformEncoder::new(),
-                format!("{}；落到 MFT 硬件路径", skipped.join("；")),
-            ));
+        // --- 软件 MFT：永远最后兜底；真实可用性由 configure 校验。 ---
+        caps.push(available_caps(
+            BackendKind::Software,
+            "mf-h264-sw",
+            false,
+            1920,
+            1080,
+            60,
+        ));
+
+        let selection = backend::select_backend(forced, &caps);
+
+        // 显式指定 NVENC 但能力不可用：必须留下带 code= 的专用回退行。
+        if forced == Some(BackendKind::Nvenc) && selection.backend != BackendKind::Nvenc {
+            if let Some(note) = nvenc_note.as_deref() {
+                eprintln!(
+                    "[enc] nvenc.fallback {note} fallback={} reason={}",
+                    selection.backend.as_str(),
+                    selection.reason
+                );
+            }
         }
-        skipped.push("MFT 枚举不到硬件 H.264 编码器".to_owned());
-        Ok(finish(
-            windows::PlatformEncoder::new_software(),
-            skipped.join("；"),
-        ))
+
+        // 把「跳过的后端原因」补进最终理由，保证状态接口能解释为什么没用更优后端。
+        let mut reason = selection.reason;
+        for note in notes {
+            if !reason.contains(&note) {
+                reason.push('；');
+                reason.push_str(&note);
+            }
+        }
+
+        let selected = selection.backend;
+        let encoder: Box<dyn VideoEncoder> = match selected {
+            BackendKind::Amf => match amf_ready {
+                Some(encoder) => Box::new(encoder),
+                // 探测与实例不一致属逻辑异常：退到 MFT，绝不 panic。
+                None => Box::new(windows::PlatformEncoder::new()),
+            },
+            BackendKind::Nvenc => match nvenc_ready {
+                Some(encoder) => Box::new(encoder),
+                None => Box::new(windows::PlatformEncoder::new()),
+            },
+            // oneVPL 未实现：真实可用时也会有明确 note；这里只做安全兜底。
+            BackendKind::OneVpl => Box::new(windows::PlatformEncoder::new()),
+            BackendKind::Mft => Box::new(windows::PlatformEncoder::new()),
+            BackendKind::Software => Box::new(windows::PlatformEncoder::new_software()),
+        };
+        // 「硬件」标记以实际选中的后端为准；oneVPL 未实现，按非硬件兜底记录。
+        let hardware = matches!(
+            selected,
+            BackendKind::Amf | BackendKind::Nvenc | BackendKind::Mft
+        );
+        Ok(finish(encoder, reason, hardware))
+    }
+
+    /// 组装「可用」能力记录。
+    fn available_caps(
+        backend: BackendKind,
+        name: &str,
+        hardware: bool,
+        max_width: u32,
+        max_height: u32,
+        max_fps: u32,
+    ) -> BackendCaps {
+        BackendCaps {
+            backend,
+            name: name.to_owned(),
+            hardware,
+            codecs: vec![CodecKind::H264],
+            supports_444: false,
+            supports_10bit: false,
+            max_width,
+            max_height,
+            max_fps,
+            low_latency: true,
+            true_cbr: hardware,
+            driver_version: String::new(),
+            // 本项目的运行期结论必须由实测报告给出，探测阶段不自我声明已验证。
+            verified_here: false,
+            note: "探测通过（运行期结论见实测报告）".to_owned(),
+        }
+    }
+
+    /// 组装「不可用」能力记录：`codecs` 为空即视为不可用。
+    fn unavailable_caps(backend: BackendKind, note: String) -> BackendCaps {
+        BackendCaps {
+            backend,
+            name: format!("{}-unavailable", backend.as_str()),
+            hardware: backend != BackendKind::Software,
+            codecs: Vec::new(),
+            supports_444: false,
+            supports_10bit: false,
+            max_width: 0,
+            max_height: 0,
+            max_fps: 0,
+            low_latency: false,
+            true_cbr: false,
+            driver_version: String::new(),
+            verified_here: false,
+            note,
+        }
     }
 
     /// 统一落 `encoder.selected` 日志并组装返回值。
-    fn finish(encoder: impl VideoEncoder + 'static, reason: String) -> EncoderSelection {
+    fn finish(
+        encoder: Box<dyn VideoEncoder>,
+        reason: String,
+        hardware: bool,
+    ) -> EncoderSelection {
         let backend = encoder.backend_name().to_owned();
-        eprintln!("encoder.selected backend={backend} reason={reason}");
+        eprintln!("encoder.selected backend={backend} hardware={hardware} reason={reason}");
         EncoderSelection {
-            encoder: Box::new(encoder),
+            encoder,
             backend,
             reason,
+            hardware,
         }
     }
 }

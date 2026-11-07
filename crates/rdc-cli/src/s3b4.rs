@@ -38,7 +38,9 @@ fn parse(args: &mut impl Iterator<Item = String>) -> Options {
         match arg.as_str() {
             "--secs" => {
                 if let Some(value) = args.next().and_then(|v| v.parse::<u64>().ok()) {
-                    options.secs = value.clamp(1, 60);
+                    // 上限放宽到 600 s：10 分钟稳定性/码控实测需要更长时间；
+                    // 仅放宽上限，不改变默认值与判据阈值。
+                    options.secs = value.clamp(1, 600);
                 }
             }
             "--out" => {
@@ -132,6 +134,15 @@ mod windows_impl {
     const CELL: u32 = 24;
     /// 单格步进。
     const CELL_STEP: u32 = 36;
+
+    /// `--secs` 上限必须允许 10 分钟稳定性实测（600 s），且仍保留 1 s 下限。
+    #[test]
+    fn secs_clamp_allows_ten_minutes() {
+        let mut args = ["--secs", "600"].into_iter().map(str::to_owned);
+        assert_eq!(super::parse(&mut args).secs, 600);
+        let mut args = ["--secs", "0"].into_iter().map(str::to_owned);
+        assert_eq!(super::parse(&mut args).secs, 1);
+    }
 
     /// 迟到阈值（微秒）：访问单元到达时已比采集时刻晚这么多，就不再送解码。
     const STALE_US: u64 = 150_000;

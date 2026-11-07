@@ -75,6 +75,18 @@ Media Foundation 解码（回退路径）。
   通过 `LoadLibrary("amfrt64.dll")` + `AMFInit` 动态加载，不随安装包分发。
 - 未引入 x264 / x265 / GPL 组件。
 
+## NVIDIA NVENC（rdc-nvenc.dll，Phase 1 骨架）
+
+- 组件：`crates/rdc-codec/shim/nvenc_enc.cpp`，编译产物 `rdc-nvenc.dll`（Phase 1 仅做
+  `nvEncodeAPI64.dll` 加载与版本探测，不创建编码会话）。
+- 源码许可：Phase 1 shim 不引入 NVENC SDK 头文件，仅按 NVIDIA `nv-codec-headers`
+  （MIT License）的 `NVENCAPI_VERSION` 编码规则引用 12.2 版本号；后续若引入头文件，
+  其 MIT 许可文本需随包附上。
+- 分发方式：系统驱动 DLL（`nvEncodeAPI64.dll` / `nvcuda.dll`）由 NVIDIA 显卡驱动提供，
+  运行期 `LoadLibrary("nvEncodeAPI64.dll")` 动态加载，**禁止随安装包分发**。
+- 当前状态：会话未实装，NVENC 真启用/1080p60/p99/掉帧/10 分钟稳定性/并发会话上限/
+  颜色通道一律「未验证」，须在 N 卡实机按 `logs/PLAN-NVENC-20261108.md` 验收。
+
 MIT License
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software

@@ -27,7 +27,7 @@ use rdc_capture::{
     create_source, CaptureConfig, CaptureSnapshot, ChromaFormat, DisplayInfo, Frame, FrameSink,
 };
 use rdc_codec::{
-    create_encoder, extract_sps_pps, probe_encoders, CodecKind, EncodeSnapshot, Mp4Writer,
+    create_encoder_selected, extract_sps_pps, probe_encoders, CodecKind, EncodeSnapshot, Mp4Writer,
     VideoConfig,
 };
 
@@ -188,6 +188,8 @@ struct EncodeOutcome {
     snapshot: EncodeSnapshot,
     /// 实际后端名称。
     backend: String,
+    /// 实际选中的后端是否为硬件（来自 `create_encoder_selected`，不取探测列表推断）。
+    hardware: bool,
 }
 
 // =====** 主线程：消息泵与看门狗 =====**
@@ -585,7 +587,7 @@ fn run_pipeline(progress: &Progress, log_dir: &Path) -> S3aResult<()> {
         &mp4_path,
         width,
         height,
-        probe.hardware_available,
+        outcome.hardware,
     );
     println!("{}", report.text);
     std::fs::write(&report_path, &report.json)?;
@@ -631,8 +633,12 @@ fn encode_loop(
     channel_dropped: Arc<AtomicU64>,
     log: Option<Arc<FrameLog>>,
 ) -> S3aResult<EncodeOutcome> {
-    let mut encoder = create_encoder(CodecKind::H264)
+    // 用带选择结果入口创建编码器：`hardware` 必须来自实际选中的后端，
+    // 而不是 `probe_encoders()` 的「列表里有没有硬件」。
+    let selection = create_encoder_selected(CodecKind::H264)
         .map_err(|e| format!("创建编码器失败: {e}"))?;
+    let hardware = selection.hardware;
+    let mut encoder = selection.encoder;
     encoder
         .configure(VideoConfig {
             codec: CodecKind::H264,
@@ -749,6 +755,7 @@ fn encode_loop(
         channel_dropped: channel_dropped.load(Ordering::Relaxed),
         snapshot,
         backend,
+        hardware,
     })
 }
 
@@ -923,7 +930,10 @@ fn build_report(
 /// # Errors
 /// 不会失败。
 fn print_probe(report: &rdc_codec::ProbeReport) {
-    println!("硬件编码器可用: {}", report.hardware_available);
+    println!(
+        "MFT 硬件编码器可用: {}（仅枚举结果，不代表实际选中后端；实际以后续 encoder.selected 为准）",
+        report.hardware_available
+    );
     for cap in &report.hardware {
         println!(
             "  [HW] {} | H.264 | {}x{}@{} | {:?}/{}bit | {}-{} Mbps | 热更新={} | {}",

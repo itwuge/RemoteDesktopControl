@@ -38,6 +38,9 @@ pub mod mf;
 // AMD AMF 原生编码后端（经 rdc-amf.dll 的 C ABI；MF 保留为回退）。
 pub mod amf;
 
+// NVIDIA NVENC 编码后端（Phase 1 骨架；系统 nvEncodeAPI64.dll 由 shim 动态加载，不随包分发）。
+pub mod nvenc;
+
 // =====** 常量 =====**
 
 /// 探测时尝试的分辨率候选（从大到小，取第一个协商成功的）。
@@ -53,6 +56,8 @@ const BITRATE_CANDIDATES: [u32; 5] =
 
 /// 硬件编码器选择名称前缀，用于日志与报告。
 const BACKEND_HW: &str = "mf-h264-hw";
+/// 软件 MFT 的稳定标识（与硬件标识区分，避免状态接口把软编报成硬编）。
+const BACKEND_SW: &str = "mf-h264-sw";
 
 // =====** PlatformEncoder =====**
 
@@ -122,7 +127,10 @@ impl PlatformEncoder {
     /// # Errors
     /// 不会失败。
     fn current_backend_name(&self) -> &str {
-        if self.selected_name.is_empty() {
+        if self.software {
+            // 软编必须始终报软编标识：即使 configure 后拿到 MFT 友好名，也不能冒充硬件。
+            BACKEND_SW
+        } else if self.selected_name.is_empty() {
             BACKEND_HW
         } else {
             &self.selected_name
