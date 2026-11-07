@@ -39,8 +39,11 @@ packaging/**/output/
 *.msi
 
 # --- 日志与运行期数据 ---
+# 判据与结论文档（logs/**/*.md）属于交付物，入库；原始日志、抓帧、dump 不入库
 *.log
-logs/
+/logs/**
+!/logs/**/
+!/logs/**/*.md
 app/rdc-control-logs/
 rdc-control-logs/
 tmp/
