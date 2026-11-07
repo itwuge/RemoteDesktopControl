@@ -35,8 +35,9 @@ use windows::Win32::Foundation::{HMODULE, RECT, TRUE};
 use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_UNKNOWN, D3D_FEATURE_LEVEL_11_0};
 use windows::Win32::Graphics::Direct3D11::{
     D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D, D3D11_BIND_RENDER_TARGET,
-    D3D11_BIND_SHADER_RESOURCE, D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-    D3D11_MAP_READ, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT, D3D11_USAGE_STAGING,
+    D3D11_BIND_SHADER_RESOURCE, D3D11_BOX, D3D11_CPU_ACCESS_READ, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+    D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+    D3D11_USAGE_STAGING,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Dxgi::{
@@ -444,6 +445,18 @@ fn capture_loop_dxgi(
     frame_interval_us: u64,
     gpu_device: usize,
 ) {
+    // 纹理直出有两种传法（`RDC_CAPTURE_GPU`）：
+    //   1 = DDA → 池化纹理 `CopyResource` → 编码器（有中间拷贝，实测首次 GPU 读付 28~43 ms）
+    //   2 = DDA 纹理**直接**交编码器（无拷贝，实验路径）
+    let gpu_mode: u8 = if gpu_device == 0 {
+        0
+    } else {
+        std::env::var("RDC_CAPTURE_GPU")
+            .ok()
+            .and_then(|v| v.parse::<u8>().ok())
+            .unwrap_or(1)
+            .clamp(1, 2)
+    };
     let mut capturer = match DxgiCapturer::new(config.display_id, gpu_device) {
         Ok(c) => c,
         Err(err) => {
@@ -452,7 +465,7 @@ fn capture_loop_dxgi(
         }
     };
     // 纹理直出：池在采集线程创建（设备已通过 set_gpu_device 绑定）。
-    let gpu_pool = if gpu_device != 0 {
+    let gpu_pool = if gpu_mode == 1 {
         match GpuTexturePool::new(&capturer.device, display.width, display.height) {
             Ok(pool) => {
                 let (dw, dh) = (display.width, display.height);
@@ -469,6 +482,9 @@ fn capture_loop_dxgi(
                 return;
             }
         }
+    } else if gpu_mode == 2 {
+        info!("采集走 DDA 纹理直入路径（不拷贝，DDA 纹理直接交编码器）");
+        None
     } else {
         info!("采集走 CPU BGRA 路径（staging 回读）");
         None
@@ -479,7 +495,7 @@ fn capture_loop_dxgi(
             break;
         }
         let timeout_ms = (frame_interval_us / 1000).max(1) as u32;
-        match capturer.capture(timeout_ms, gpu_pool.as_ref()) {
+        match capturer.capture(timeout_ms, gpu_pool.as_ref(), gpu_mode == 2) {
             Ok(Acquired::Cpu(shot)) => {
                 let Some(mut buffer) = pool.acquire() else {
                     // 池满：丢帧而不是等待（docs/06 §1.3）。
@@ -740,6 +756,16 @@ struct TextureLease {
 
 impl GpuLease for TextureLease {}
 
+/// DDA 纹理租约：只持有 COM 引用，不参与池回收。
+///
+/// 用于 `dda_direct` 实验路径：纹理由 DDA 提供，我们没有自己的池块可归还。
+struct DdaLease {
+    /// 持有的 DDA 纹理；`Drop` 时释放引用。
+    _texture: ID3D11Texture2D,
+}
+
+impl GpuLease for DdaLease {}
+
 impl Drop for TextureLease {
     fn drop(&mut self) {
         if let Ok(mut free) = self.pool.free.lock() {
@@ -880,6 +906,10 @@ struct DxgiCapturer {
     staging: Option<ID3D11Texture2D>,
     /// staging 对应的宽高。
     staging_size: (u32, u32),
+    /// 「预热探针」：1x1 staging 纹理；`dda_direct` 路径用它强制 DDA 内容完成
+    /// 一次真实 GPU 读（`CopySubresourceRegion` + `Map`），把首次读取的同步代价
+    /// 显式落在 `capture_us` 里，用来量化「同步可否提前触发」。
+    probe: Option<ID3D11Texture2D>,
 }
 
 impl DxgiCapturer {
@@ -1028,6 +1058,7 @@ impl DxgiCapturer {
                 duplication,
                 staging: None,
                 staging_size: (0, 0),
+                probe: None,
             })
         }
     }
@@ -1038,10 +1069,17 @@ impl DxgiCapturer {
     /// * `timeout_ms` - AcquireNextFrame 超时（毫秒）。
     /// * `gpu_pool` - 纹理直出池；`Some` 时把帧拷到池纹理并返回 [`Acquired::Gpu`]，
     ///   `None` 时读回 CPU 返回 [`Acquired::Cpu`]。
+    /// * `dda_direct` - `true` 时不拷贝，直接把 DDA 纹理 AddRef 后包成
+    ///   [`Acquired::Gpu`]，租约持有该 `ID3D11Texture2D`。
     ///
     /// # Returns
     /// 有新帧返回 [`Acquired::Cpu`]/[`Acquired::Gpu`]；超时（画面无变化）返回
     /// [`Acquired::NoFrame`]；池耗尽返回 [`Acquired::PoolExhausted`]（由调用方记丢帧）。
+    ///
+    /// # 约束（`dda_direct`）
+    /// `ReleaseFrame` 后纹理归驱动所有，下一次 `AcquireNextFrame` 可能覆盖同一
+    /// surface：跨迭代持有只保证 COM 对象存活，不保证像素没被改写。调用方必须
+    /// 尽快取样（见 TESTPLAN 块 4 Q5）。
     ///
     /// # Errors
     /// ACCESS_LOST 或其它 DXGI 错误返回 [`CaptureError`]，由调用方决定重建。
@@ -1049,6 +1087,7 @@ impl DxgiCapturer {
         &mut self,
         timeout_ms: u32,
         gpu_pool: Option<&Arc<GpuTexturePool>>,
+        dda_direct: bool,
     ) -> Result<Acquired, CaptureError> {
         unsafe {
             let mut frame_info = DXGI_OUTDUPL_FRAME_INFO::default();
@@ -1067,11 +1106,15 @@ impl DxgiCapturer {
             let acquired = std::time::Instant::now();
 
             // 无论后续拷贝是否成功，都必须 ReleaseFrame，否则下一次 Acquire 会永久失败。
-            let result = match gpu_pool {
-                Some(pool) => self.copy_to_pool(&frame_info, &resource, pool),
-                None => self
-                    .read_frame(&frame_info, &resource)
-                    .map(|shot| Acquired::Cpu(shot)),
+            let result = if dda_direct {
+                self.wrap_dda_texture(&frame_info, &resource)
+            } else {
+                match gpu_pool {
+                    Some(pool) => self.copy_to_pool(&frame_info, &resource, pool),
+                    None => self
+                        .read_frame(&frame_info, &resource)
+                        .map(|shot| Acquired::Cpu(shot)),
+                }
             };
             let _ = self.duplication.ReleaseFrame();
             let mut out = result?;
@@ -1088,6 +1131,124 @@ impl DxgiCapturer {
                 Acquired::NoFrame | Acquired::PoolExhausted => {}
             }
             Ok(out)
+        }
+    }
+
+    /// 把 DDA 纹理**原样**包成 [`Acquired::Gpu`]（不做任何拷贝）。
+    ///
+    /// 租约 [`DdaLease`] 只持有 `ID3D11Texture2D` 的 COM 引用，`Drop` 时释放引用、
+    /// 不归还任何池。像素内容在 `ReleaseFrame` 之后可能被下一次采集覆盖，
+    /// 因此该路径要求消费方在同一迭代内完成取样。
+    ///
+    /// # Arguments
+    /// * `frame_info` - `AcquireNextFrame` 返回的帧信息（脏区来源）。
+    /// * `resource` - DDA 返回的资源（`ID3D11Texture2D`）。
+    ///
+    /// # Returns
+    /// 成功返回 [`Acquired::Gpu`]。
+    ///
+    /// # Errors
+    /// 类型不符或取描述失败返回 [`CaptureError::Internal`]。
+    unsafe fn wrap_dda_texture(
+        &mut self,
+        frame_info: &DXGI_OUTDUPL_FRAME_INFO,
+        resource: &IDXGIResource,
+    ) -> Result<Acquired, CaptureError> {
+        let dirty_rects = self.read_dirty_rects(frame_info);
+        let move_rects = self.read_move_rects(frame_info);
+        let texture: ID3D11Texture2D = resource
+            .cast()
+            .map_err(|e| CaptureError::Internal(format!("cast ID3D11Texture2D: {e}")))?;
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        texture.GetDesc(&mut desc);
+        let format = if desc.Format == DXGI_FORMAT_B8G8R8A8_UNORM {
+            PixelFormat::Bgra8
+        } else {
+            PixelFormat::Rgba8
+        };
+        let raw = texture.as_raw() as usize;
+        // 预热探针（`RDC_GPU_PREWARM=0` 可关）：主动做一次 1x1 拷贝 + `Map`，把
+        // 「DDA 内容被第一次真实 GPU 读」的同步代价挤到 capture 段里，用来判定
+        // 该同步是否可以提前触发（若可以，编码器侧就不再承担这 18~28 ms）。
+        if std::env::var("RDC_GPU_PREWARM").map(|v| v != "0").unwrap_or(true) {
+            self.prewarm(&texture);
+        }
+        Ok(Acquired::Gpu(GpuShot {
+            gpu: GpuFrame::new(
+                raw,
+                0,
+                desc.Width,
+                desc.Height,
+                format,
+                Box::new(DdaLease { _texture: texture }),
+            ),
+            qpc_us: 0,
+            cost_us: 0,
+            dirty_rects,
+            move_rects,
+        }))
+    }
+
+    /// 强制对 DDA 纹理做一次真实 GPU 读（1x1 `CopySubresourceRegion` + `Map`）。
+    ///
+    /// `Map` 会阻塞到拷贝真正完成，因此这段耗时能被 `capture_us` 量化，
+    /// 而不是让编码器在 `SubmitInput`/编码时隐式承担。
+    ///
+    /// # Arguments
+    /// * `texture` - 当前 DDA 帧纹理。
+    ///
+    /// # Errors
+    /// 失败不影响采集（探针只用于测量，失败即跳过）。
+    unsafe fn prewarm(&mut self, texture: &ID3D11Texture2D) {
+        if self.probe.is_none() {
+            let mut desc = D3D11_TEXTURE2D_DESC::default();
+            desc.Width = 1;
+            desc.Height = 1;
+            desc.MipLevels = 1;
+            desc.ArraySize = 1;
+            desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+            desc.SampleDesc.Count = 1;
+            desc.Usage = D3D11_USAGE_STAGING;
+            desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+            let mut tex = None;
+            if self
+                .device
+                .CreateTexture2D(&desc, None, Some(&mut tex))
+                .is_err()
+            {
+                return;
+            }
+            self.probe = tex;
+        }
+        let Some(probe) = self.probe.as_ref() else {
+            return;
+        };
+        let Ok(src): Result<windows::Win32::Graphics::Direct3D11::ID3D11Resource, _> =
+            texture.cast()
+        else {
+            return;
+        };
+        let Ok(dst): Result<windows::Win32::Graphics::Direct3D11::ID3D11Resource, _> = probe.cast()
+        else {
+            return;
+        };
+        let region = D3D11_BOX {
+            left: 0,
+            top: 0,
+            front: 0,
+            right: 1,
+            bottom: 1,
+            back: 1,
+        };
+        self.context
+            .CopySubresourceRegion(&dst, 0, 0, 0, 0, &src, 0, Some(&region));
+        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
+        if self
+            .context
+            .Map(probe, 0, D3D11_MAP_READ, 0, Some(&mut mapped))
+            .is_ok()
+        {
+            self.context.Unmap(probe, 0);
         }
     }
 
