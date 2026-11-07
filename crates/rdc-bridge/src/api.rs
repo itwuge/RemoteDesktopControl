@@ -668,8 +668,10 @@ pub struct ControlStatusDto {
     pub running: bool,
     /// 采集后端。
     pub backend: String,
-    /// 编码器名称。
+    /// 编码器名称（configure 之后的真实后端/驱动名）。
     pub encoder: String,
+    /// 编码器选择理由（探测链与跳过项；回退不静默）。
+    pub encoder_fallback_reason: Option<String>,
     /// 解码器名称。
     pub decoder: String,
     /// 上屏通道（`dxgi-shared-texture`）。
@@ -712,6 +714,10 @@ pub struct ControlStatusDto {
     pub event_b: i64,
     /// 最近错误。
     pub last_error: Option<String>,
+    /// 编码会话重建次数（看门狗）。
+    pub encoder_resets: u64,
+    /// 当前在飞帧数（已提交、未出包；有界 ≤ 3）。
+    pub encoder_in_flight: u64,
 }
 
 /// 启动控制页真实画面预览。
@@ -836,6 +842,7 @@ fn to_control_status(snapshot: crate::control_service::ControlSnapshot) -> Contr
         running: snapshot.running,
         backend: snapshot.backend,
         encoder: snapshot.encoder,
+        encoder_fallback_reason: snapshot.encoder_fallback_reason,
         decoder: snapshot.decoder,
         texture_path: snapshot.texture_path,
         decode_path: snapshot.decode_path,
@@ -857,6 +864,8 @@ fn to_control_status(snapshot: crate::control_service::ControlSnapshot) -> Contr
         event_a: snapshot.event_a,
         event_b: snapshot.event_b,
         last_error: snapshot.last_error,
+        encoder_resets: snapshot.encoder_resets,
+        encoder_in_flight: snapshot.encoder_in_flight,
     }
 }
 
@@ -869,6 +878,7 @@ fn to_control_status_linux(
         running: snapshot.running,
         backend: snapshot.backend,
         encoder: snapshot.encoder,
+        encoder_fallback_reason: None,
         decoder: snapshot.decoder,
         texture_path: snapshot.texture_path,
         decode_path: snapshot.decode_path,
@@ -890,6 +900,9 @@ fn to_control_status_linux(
         event_a: snapshot.event_a,
         event_b: snapshot.event_b,
         last_error: (!snapshot.last_error.is_empty()).then_some(snapshot.last_error),
+        // Linux 预览没有 Windows 的 MF 编码看门狗，恒为 0。
+        encoder_resets: 0,
+        encoder_in_flight: 0,
     }
 }
 

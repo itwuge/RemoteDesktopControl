@@ -1816,6 +1816,7 @@ impl SseDecode for crate::api::ControlStatusDto {
         let mut var_running = <bool>::sse_decode(deserializer);
         let mut var_backend = <String>::sse_decode(deserializer);
         let mut var_encoder = <String>::sse_decode(deserializer);
+        let mut var_encoderFallbackReason = <Option<String>>::sse_decode(deserializer);
         let mut var_decoder = <String>::sse_decode(deserializer);
         let mut var_texturePath = <String>::sse_decode(deserializer);
         let mut var_decodePath = <String>::sse_decode(deserializer);
@@ -1837,10 +1838,13 @@ impl SseDecode for crate::api::ControlStatusDto {
         let mut var_eventA = <i64>::sse_decode(deserializer);
         let mut var_eventB = <i64>::sse_decode(deserializer);
         let mut var_lastError = <Option<String>>::sse_decode(deserializer);
+        let mut var_encoderResets = <u64>::sse_decode(deserializer);
+        let mut var_encoderInFlight = <u64>::sse_decode(deserializer);
         return crate::api::ControlStatusDto {
             running: var_running,
             backend: var_backend,
             encoder: var_encoder,
+            encoder_fallback_reason: var_encoderFallbackReason,
             decoder: var_decoder,
             texture_path: var_texturePath,
             decode_path: var_decodePath,
@@ -1862,6 +1866,8 @@ impl SseDecode for crate::api::ControlStatusDto {
             event_a: var_eventA,
             event_b: var_eventB,
             last_error: var_lastError,
+            encoder_resets: var_encoderResets,
+            encoder_in_flight: var_encoderInFlight,
         };
     }
 }
@@ -2657,6 +2663,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::ControlStatusDto {
             self.running.into_into_dart().into_dart(),
             self.backend.into_into_dart().into_dart(),
             self.encoder.into_into_dart().into_dart(),
+            self.encoder_fallback_reason.into_into_dart().into_dart(),
             self.decoder.into_into_dart().into_dart(),
             self.texture_path.into_into_dart().into_dart(),
             self.decode_path.into_into_dart().into_dart(),
@@ -2678,6 +2685,8 @@ impl flutter_rust_bridge::IntoDart for crate::api::ControlStatusDto {
             self.event_a.into_into_dart().into_dart(),
             self.event_b.into_into_dart().into_dart(),
             self.last_error.into_into_dart().into_dart(),
+            self.encoder_resets.into_into_dart().into_dart(),
+            self.encoder_in_flight.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -3171,6 +3180,7 @@ impl SseEncode for crate::api::ControlStatusDto {
         <bool>::sse_encode(self.running, serializer);
         <String>::sse_encode(self.backend, serializer);
         <String>::sse_encode(self.encoder, serializer);
+        <Option<String>>::sse_encode(self.encoder_fallback_reason, serializer);
         <String>::sse_encode(self.decoder, serializer);
         <String>::sse_encode(self.texture_path, serializer);
         <String>::sse_encode(self.decode_path, serializer);
@@ -3192,6 +3202,8 @@ impl SseEncode for crate::api::ControlStatusDto {
         <i64>::sse_encode(self.event_a, serializer);
         <i64>::sse_encode(self.event_b, serializer);
         <Option<String>>::sse_encode(self.last_error, serializer);
+        <u64>::sse_encode(self.encoder_resets, serializer);
+        <u64>::sse_encode(self.encoder_in_flight, serializer);
     }
 }
 

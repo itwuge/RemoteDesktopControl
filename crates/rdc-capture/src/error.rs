@@ -17,6 +17,12 @@ pub enum CaptureError {
     /// 缺少屏幕录制系统权限（macOS 屏幕录制授权、Linux portal 授权等）。
     #[error("采集权限被拒绝")]
     PermissionDenied,
+    /// 系统没有任何活跃显示输出（显示器关闭、未连接或睡眠）。
+    ///
+    /// 与 RDR-001 的 `no_display_output` 是同一根因：桌面不再产生新画面，
+    /// 采集初始化必然拿不到可复制的输出。必须报这一条，不能报笼统「采集失败」。
+    #[error("无活跃显示输出（显示器已关闭、未连接或睡眠）")]
+    NoActiveDisplay,
     /// 目标显示器已移除（热插拔、休眠唤醒或拓扑切换）。
     #[error("显示器已消失: display_id={display_id}")]
     DisplayDisappeared {

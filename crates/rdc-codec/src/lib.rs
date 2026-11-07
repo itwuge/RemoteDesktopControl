@@ -28,7 +28,7 @@ pub use encoder::{
 };
 pub use error::CodecError;
 pub use metrics::{EncodeSnapshot, EncodeStats};
-pub use platform::{create_encoder, probe_encoders};
+pub use platform::{create_encoder, create_encoder_selected, probe_encoders, EncoderSelection};
 #[cfg(target_os = "windows")]
 pub use mux::{extract_sps_pps, Mp4Writer};
 #[cfg(target_os = "windows")]

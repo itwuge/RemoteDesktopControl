@@ -10,6 +10,7 @@ add_executable(${BINARY_NAME} WIN32
   "control_texture.cpp"
   "flutter_window.cpp"
   "main.cpp"
+  "render_fallback.cpp"
   "utils.cpp"
   "win32_window.cpp"
   "${FLUTTER_MANAGED_DIR}/generated_plugin_registrant.cc"
@@ -20,6 +21,10 @@ add_executable(${BINARY_NAME} WIN32
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})
+
+# 源码含中文注释与中文字面量，统一按 UTF-8 解析；否则 MSVC 按系统代码页(936)
+# 解码会把注释尾字节当成续行符，直接导致语法错误。
+target_compile_options(${BINARY_NAME} PRIVATE "/utf-8")
 
 # Add preprocessor definitions for the build version.
 target_compile_definitions(${BINARY_NAME} PRIVATE "FLUTTER_VERSION=\"${FLUTTER_VERSION}\"")
@@ -35,6 +40,8 @@ target_compile_definitions(${BINARY_NAME} PRIVATE "NOMINMAX")
 # dependencies here.
 target_link_libraries(${BINARY_NAME} PRIVATE flutter flutter_wrapper_app)
 target_link_libraries(${BINARY_NAME} PRIVATE "dwmapi.lib")
+# 原生保底窗口（RDR-001）：ShellExecuteW 打开日志目录 / 诊断说明，SysLink 来自 comctl32。
+target_link_libraries(${BINARY_NAME} PRIVATE "shell32.lib" "comctl32.lib")
 target_include_directories(${BINARY_NAME} PRIVATE "${CMAKE_SOURCE_DIR}")
 
 # Run the Flutter tool portions of the build. This must not be removed.

@@ -155,6 +155,7 @@ class ControlPreviewInfo {
     required this.running,
     required this.backend,
     required this.encoder,
+    required this.encoderFallbackReason,
     required this.decoder,
     required this.texturePath,
     required this.decodePath,
@@ -176,6 +177,8 @@ class ControlPreviewInfo {
     required this.eventA,
     required this.eventB,
     required this.lastError,
+    required this.encoderResets,
+    required this.encoderInFlight,
   });
 
   /// 是否运行。
@@ -186,6 +189,9 @@ class ControlPreviewInfo {
 
   /// 编码器名。
   final String encoder;
+
+  /// 编码器选择理由（探测链与跳过项；回退不静默）。
+  final String? encoderFallbackReason;
 
   /// 解码器名。
   final String decoder;
@@ -249,6 +255,12 @@ class ControlPreviewInfo {
 
   /// 最近错误。
   final String? lastError;
+
+  /// 编码会话重建次数（编码看门狗）。
+  final int encoderResets;
+
+  /// 当前在飞帧数（已提交、未出包；有界 ≤ 3）。
+  final int encoderInFlight;
 }
 
 /// 控制页最新一帧 RGBA 画面（S8-3：Linux 无外部纹理时的降级上屏通道）。

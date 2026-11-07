@@ -555,14 +555,31 @@ class _SessionPageState extends State<SessionPage> {
             color: RdcTokens.background.withValues(alpha: 0.72),
             borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
           ),
-          child: Text(
-            '${info.fps.toStringAsFixed(1)} fps · '
-            '${latencyMs.toStringAsFixed(0)} ms · '
-            '$bitrate · 丢 ${info.droppedFrames}',
-            style: const TextStyle(
-              fontSize: RdcTokens.fontCaption,
-              color: RdcTokens.textPrimary,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${info.fps.toStringAsFixed(1)} fps · '
+                '${latencyMs.toStringAsFixed(0)} ms · '
+                '$bitrate · 丢 ${info.droppedFrames}'
+                // 编码看门狗重建次数：>0 时必须让用户看到（截图反馈用）。
+                '${info.encoderResets > 0 ? ' · 重编 ${info.encoderResets}' : ''}',
+                style: const TextStyle(
+                  fontSize: RdcTokens.fontCaption,
+                  color: RdcTokens.textPrimary,
+                ),
+              ),
+              // 稳定错误码（如 RDC-ENC-001）不静默：直接显示在角标里。
+              if (info.lastError != null && info.lastError!.isNotEmpty)
+                Text(
+                  info.lastError!,
+                  style: const TextStyle(
+                    fontSize: RdcTokens.fontCaption,
+                    color: RdcTokens.danger,
+                  ),
+                ),
+            ],
           ),
         );
       },
