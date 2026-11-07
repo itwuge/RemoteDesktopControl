@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.rdc" "\0"
-            VALUE "FileDescription", "rdc" "\0"
+            VALUE "CompanyName", "RDC Team" "\0"
+            VALUE "FileDescription", "RDC 远程桌面控制" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "rdc" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 com.rdc. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 RDC Team." "\0"
             VALUE "OriginalFilename", "rdc.exe" "\0"
-            VALUE "ProductName", "rdc" "\0"
+            VALUE "ProductName", "RDC 远程桌面" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END
