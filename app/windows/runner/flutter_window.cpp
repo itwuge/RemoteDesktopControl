@@ -1,4 +1,4 @@
-#include "flutter_window.h"
+﻿#include "flutter_window.h"
 
 #include <atomic>
 #include <chrono>
@@ -92,6 +92,16 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case WM_GETMINMAXINFO: {
+      // 最小窗口 960x640 逻辑像素：低于此宽高时工具栏与表单会互相挤压
+      // （清单 P1-11）。按窗口 DPI 换算，125%/150% 缩放下同样成立。
+      auto* info = reinterpret_cast<MINMAXINFO*>(lparam);
+      const UINT dpi = ::GetDpiForWindow(hwnd);
+      const double scale = dpi == 0 ? 1.0 : static_cast<double>(dpi) / 96.0;
+      info->ptMinTrackSize.x = static_cast<LONG>(960 * scale);
+      info->ptMinTrackSize.y = static_cast<LONG>(640 * scale);
+      return 0;
+    }
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

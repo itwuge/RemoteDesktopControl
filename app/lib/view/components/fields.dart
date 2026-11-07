@@ -57,10 +57,11 @@ class RdcField extends StatelessWidget {
 }
 
 /// 单行输入框（统一深色底与圆角）。
-class RdcTextField extends StatelessWidget {
+class RdcTextField extends StatefulWidget {
   /// 创建输入框。
   ///
-  /// [controller] 输入控制器；[hint] 占位文案；[onChanged] 变更回调。
+  /// [controller] 输入控制器；[hint] 占位文案；[onChanged] 变更回调；
+  /// [obscure] 是否密码样式（自动带「显示/隐藏」眼睛按钮，星号右对齐）。
   const RdcTextField({
     super.key,
     required this.controller,
@@ -82,18 +83,29 @@ class RdcTextField extends StatelessWidget {
   final bool obscure;
 
   @override
+  State<RdcTextField> createState() => _RdcTextFieldState();
+}
+
+/// 输入框状态：只维护「密码是否暂时可见」。
+class _RdcTextFieldState extends State<RdcTextField> {
+  /// 密码是否仍被遮住。
+  bool _hidden = true;
+
+  @override
   Widget build(BuildContext context) {
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(RdcTokens.radiusControl),
       borderSide: const BorderSide(color: RdcTokens.border),
     );
     return TextField(
-      controller: controller,
-      obscureText: obscure,
-      onChanged: onChanged,
+      controller: widget.controller,
+      obscureText: widget.obscure && _hidden,
+      onChanged: widget.onChanged,
+      // 密码星号靠右对齐，避免长度变化时文字左右跳动（清单 P2-2）。
+      textAlign: widget.obscure ? TextAlign.right : TextAlign.start,
       style: const TextStyle(fontSize: RdcTokens.fontBody),
       decoration: InputDecoration(
-        hintText: hint,
+        hintText: widget.hint,
         filled: true,
         fillColor: RdcTokens.surfaceRaised,
         isDense: true,
@@ -103,6 +115,20 @@ class RdcTextField extends StatelessWidget {
         focusedBorder: border.copyWith(
           borderSide: const BorderSide(color: RdcTokens.accent),
         ),
+        // 眼睛按钮：仅密码框出现，读屏读出「显示/隐藏密码」。
+        suffixIcon: widget.obscure
+            ? IconButton(
+                tooltip: _hidden
+                    ? AppStrings.showPassword
+                    : AppStrings.hidePassword,
+                icon: Icon(
+                  _hidden ? Icons.visibility_off : Icons.visibility,
+                  size: 18,
+                  color: RdcTokens.textMuted,
+                ),
+                onPressed: () => setState(() => _hidden = !_hidden),
+              )
+            : null,
       ),
     );
   }

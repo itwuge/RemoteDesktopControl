@@ -18,6 +18,7 @@ import 'package:flutter/services.dart';
 
 import '../../controller/key_scan_map.dart';
 import '../../controller/session_controller.dart';
+import '../../controller/settings_controller.dart';
 import '../../controller/shell_controller.dart';
 import '../../controller/viewport_controller.dart';
 import '../../core/l10n/strings.dart';
@@ -33,14 +34,22 @@ import '../components/session_transfer_dialogs.dart';
 class SessionPage extends StatefulWidget {
   /// 创建控制页。
   ///
-  /// [controller] 角色与全屏状态；[shell] 当前设备与断开返回。
-  const SessionPage({super.key, required this.controller, required this.shell});
+  /// [controller] 角色与全屏状态；[shell] 当前设备与断开返回；[settings] 只读中继开关，用于链路角标。
+  const SessionPage({
+    super.key,
+    required this.controller,
+    required this.shell,
+    required this.settings,
+  });
 
   /// 会话控制器。
   final SessionController controller;
 
   /// 壳控制器。
   final ShellController shell;
+
+  /// 设置控制器（链路角标读取「允许使用中继」）。
+  final SettingsController settings;
 
   @override
   State<SessionPage> createState() => _SessionPageState();
@@ -560,6 +569,47 @@ class _SessionPageState extends State<SessionPage> {
     );
   }
 
+  /// 链路角标：说明当前是否可能走中继。
+  ///
+  /// 只按「允许使用中继」设置如实标注，不做链路探测（无对应接口）：
+  /// 关闭中继 → 直连；开启中继 → 中继可用（不声称当前已走中继）。
+  Widget _buildLinkChip() {
+    return ValueListenableBuilder(
+      valueListenable: widget.settings.settings,
+      builder: (context, settings, _) {
+        final relay = settings.allowRelay;
+        final color = relay ? RdcTokens.warning : RdcTokens.success;
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(
+            color: RdcTokens.background.withValues(alpha: 0.72),
+            borderRadius: BorderRadius.circular(RdcTokens.radiusPill),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                relay ? Icons.warning_amber_rounded : Icons.link,
+                size: 12,
+                color: color,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                relay
+                    ? AppStrings.linkRelayAvailable
+                    : AppStrings.linkDirect,
+                style: const TextStyle(
+                  fontSize: RdcTokens.fontCaption,
+                  color: RdcTokens.textPrimary,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   /// 设备名 + 输入权限胶囊。
   Widget _buildDeviceChips() {
     return ValueListenableBuilder(
@@ -626,6 +676,9 @@ class _SessionPageState extends State<SessionPage> {
   // =====** 组件：工具条（两个方向复用同一组操作，仅布局不同） =====**
 
   /// 工具条；[floating] 为真时是宽布局的顶部悬浮样式。
+  ///
+  /// 固定动作为「断开 / 全屏 / 复位 / 更多」；剪贴板与文件传输收进「更多」，
+  /// 避免工具条随功能增加而变成一排按钮（清单 P1-9）。
   Widget _buildToolbar({required bool floating, required bool wide}) {
     final actions = <Widget>[
       // 断开是破坏性动作：红色 + 二次确认（清单 D1 / P0-9）。
@@ -635,27 +688,46 @@ class _SessionPageState extends State<SessionPage> {
         danger: true,
         onPressed: _disconnect,
       ),
-      if (wide)
-        RdcButton(
-          label: AppStrings.resetView,
-          icon: Icons.center_focus_strong,
-          onPressed: _viewport.reset,
-        )
-      else
+      // 宽布局画面已铺满，不再提供「全屏」；窄布局用它把画面区域放大。
+      if (!wide)
         RdcButton(
           label: AppStrings.fullscreen,
           icon: Icons.fullscreen,
           onPressed: controller.toggleFullscreen,
         ),
       RdcButton(
-        label: AppStrings.clipboard,
-        icon: Icons.content_paste,
-        onPressed: () => showClipboardDialog(context, controller),
+        label: AppStrings.resetView,
+        icon: Icons.center_focus_strong,
+        onPressed: _viewport.reset,
       ),
-      RdcButton(
-        label: AppStrings.files,
-        icon: Icons.folder_open,
-        onPressed: () => showFileTransferDialog(context, controller),
+      RdcMenuButton(
+        label: AppStrings.more,
+        onSelected: (value) {
+          if (value == 'clipboard') showClipboardDialog(context, controller);
+          if (value == 'files') showFileTransferDialog(context, controller);
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(
+            value: 'clipboard',
+            child: Row(
+              children: [
+                Icon(Icons.content_paste, size: 16, color: RdcTokens.textMuted),
+                SizedBox(width: RdcTokens.spaceSm),
+                Text(AppStrings.clipboard),
+              ],
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'files',
+            child: Row(
+              children: [
+                Icon(Icons.folder_open, size: 16, color: RdcTokens.textMuted),
+                SizedBox(width: RdcTokens.spaceSm),
+                Text(AppStrings.files),
+              ],
+            ),
+          ),
+        ],
       ),
     ];
     return Container(
@@ -778,7 +850,13 @@ class _SessionPageState extends State<SessionPage> {
             padding: const EdgeInsets.all(RdcTokens.spaceLg),
             child: Align(
               alignment: Alignment.bottomRight,
-              child: _buildStatsPill(),
+              child: Wrap(
+                spacing: RdcTokens.spaceSm,
+                runSpacing: RdcTokens.spaceSm,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                alignment: WrapAlignment.end,
+                children: [_buildLinkChip(), _buildStatsPill()],
+              ),
             ),
           ),
         ),
@@ -820,9 +898,11 @@ class _SessionPageState extends State<SessionPage> {
             children: [
               Expanded(child: _buildDeviceChips()),
               const SizedBox(width: RdcTokens.spaceSm),
-              _buildStatsPill(),
+              _buildLinkChip(),
             ],
           ),
+          const SizedBox(height: 6),
+          Align(alignment: Alignment.centerLeft, child: _buildStatsPill()),
           const SizedBox(height: RdcTokens.spaceMd),
           _buildToolbar(floating: false, wide: false),
           const SizedBox(height: RdcTokens.spaceLg),

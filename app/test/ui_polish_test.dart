@@ -14,6 +14,7 @@ import 'package:rdc/core/l10n/strings.dart';
 import 'package:rdc/core/theme/tokens.dart';
 import 'package:rdc/view/components/fields.dart';
 import 'package:rdc/view/components/home_access_card.dart';
+import 'package:rdc/view/components/info_row.dart';
 import 'package:rdc/view/components/pager.dart';
 import 'package:rdc/view/components/rdc_button.dart';
 import 'package:rdc/view/components/rdc_dialog.dart';
@@ -179,6 +180,80 @@ void main() {
     expect(find.text('上一页'), findsNothing);
     expect(find.text('下一页'), findsNothing);
     expect(find.text('1 / 1'), findsNothing);
+  });
+
+  // =====** 第二批：菜单按钮 / 紧凑胶囊 / 密码框 =====**
+
+  testWidgets('「更多」菜单按钮与普通按钮同高，展开后可选中低频动作', (tester) async {
+    String? selected;
+    await tester.pumpWidget(
+      _host(
+        RdcMenuButton(
+          label: AppStrings.more,
+          onSelected: (value) => selected = value,
+          itemBuilder: (context) => const [
+            PopupMenuItem(value: 'clipboard', child: Text(AppStrings.clipboard)),
+            PopupMenuItem(value: 'files', child: Text(AppStrings.files)),
+          ],
+        ),
+      ),
+    );
+
+    final size = tester.getSize(find.byType(RdcMenuButton));
+    expect(size.height, RdcTokens.controlHeight);
+
+    await tester.tap(find.text(AppStrings.more));
+    await tester.pumpAndSettle();
+    expect(find.text(AppStrings.clipboard), findsOneWidget);
+    expect(find.text(AppStrings.files), findsOneWidget);
+
+    await tester.tap(find.text(AppStrings.clipboard));
+    await tester.pumpAndSettle();
+    expect(selected, 'clipboard');
+  });
+
+  testWidgets('窄屏紧凑胶囊高度不超过 20px', (tester) async {
+    await tester.pumpWidget(
+      _host(
+        const RdcStatusPill(
+          text: AppStrings.wallNotConnected,
+          color: RdcTokens.textMuted,
+          compact: true,
+        ),
+      ),
+    );
+    expect(
+      tester.getSize(find.byType(RdcStatusPill)).height,
+      lessThanOrEqualTo(20),
+    );
+  });
+
+  testWidgets('密码框默认遮挡，眼睛按钮可切换明文', (tester) async {
+    final controller = TextEditingController(text: 'secret');
+    await tester.pumpWidget(
+      _host(
+        SizedBox(
+          width: 240,
+          child: RdcTextField(controller: controller, obscure: true),
+        ),
+      ),
+    );
+
+    expect(tester.widget<TextField>(find.byType(TextField)).obscureText, isTrue);
+    expect(find.byIcon(Icons.visibility_off), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.visibility_off));
+    await tester.pumpAndSettle();
+    expect(tester.widget<TextField>(find.byType(TextField)).obscureText, isFalse);
+    expect(find.byIcon(Icons.visibility), findsOneWidget);
+    controller.dispose();
+  });
+
+  test('启动与托盘只给空状态说明，不承诺未提供的能力', () {
+    expect(AppStrings.startupUnavailable.contains('尚未提供'), isTrue);
+    expect(AppStrings.startupUnavailable.contains('已开启'), isFalse);
+    expect(AppStrings.checkUpdateUnavailable.contains('不提供在线更新'), isTrue);
+    expect(AppStrings.capabilitiesLines, isNotEmpty);
   });
 
   // =====** 文案：开发痕迹不得出现在面向用户的字符串里 =====**

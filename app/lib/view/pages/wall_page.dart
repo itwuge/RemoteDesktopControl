@@ -144,7 +144,7 @@ class _WallPageState extends State<WallPage> {
 
   // =====** 组件：单格 =====**
 
-  Widget _buildTile(int index, int columns, {required String label, Widget? preview, bool live = false, String? hint}) {
+  Widget _buildTile(int index, int columns, {required String label, Widget? preview, bool live = false, String? hint, bool compact = false}) {
     return RdcHoverCard(
       padding: EdgeInsets.zero,
       // 未连接的宫格不绑定点击：不弹「待接线」，不用假入口（清单 C6）。
@@ -185,7 +185,11 @@ class _WallPageState extends State<WallPage> {
               right: 0,
               bottom: 0,
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  // 窄屏底条压到 6px，把高度让给画面（清单 P2-4）。
+                  vertical: compact ? 6 : 8,
+                ),
                 color: RdcTokens.background.withValues(alpha: 0.72),
                 child: Row(
                   children: [
@@ -202,6 +206,7 @@ class _WallPageState extends State<WallPage> {
                     RdcStatusPill(
                       text: live ? '在线' : AppStrings.wallNotConnected,
                       color: live ? RdcTokens.success : RdcTokens.textMuted,
+                      compact: compact,
                     ),
                   ],
                 ),
@@ -255,6 +260,7 @@ class _WallPageState extends State<WallPage> {
                           columns,
                           label: AppStrings.wallLocalPreview,
                           hint: '正在准备预览…',
+                          compact: !wide,
                         );
                       }
                       return _buildTile(
@@ -262,6 +268,7 @@ class _WallPageState extends State<WallPage> {
                         columns,
                         label: AppStrings.wallLocalPreview,
                         live: true,
+                        compact: !wide,
                         preview: RdcRgbaPreview(
                           bytes: frame.bytes,
                           width: frame.width,
@@ -277,6 +284,7 @@ class _WallPageState extends State<WallPage> {
                   columns,
                   label: name ?? AppStrings.wallWaiting,
                   hint: name == null ? AppStrings.wallWaiting : AppStrings.wallNotConnected,
+                  compact: !wide,
                 );
               },
             );
@@ -307,6 +315,36 @@ class _WallPageState extends State<WallPage> {
                   fontSize: RdcTokens.fontCaption,
                   color: RdcTokens.textMuted,
                 ),
+              ),
+              // 没有设备时给一条可执行的下一步，而不是让宫格一直空着（清单 P2-9）。
+              ValueListenableBuilder(
+                valueListenable: widget.controller.deviceNames,
+                builder: (context, names, _) {
+                  if (names.isNotEmpty) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: RdcTokens.spaceMd),
+                    child: Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: RdcTokens.spaceSm,
+                      runSpacing: RdcTokens.spaceSm,
+                      children: [
+                        Text(
+                          AppStrings.wallNoDevices,
+                          style: const TextStyle(
+                            fontSize: RdcTokens.fontCaption,
+                            color: RdcTokens.textMuted,
+                          ),
+                        ),
+                        RdcButton(
+                          label: AppStrings.wallGoDevices,
+                          icon: Icons.devices_other,
+                          onPressed: () =>
+                              widget.shell.selectTab(ShellTab.devices),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: RdcTokens.spaceLg),
               ValueListenableBuilder(

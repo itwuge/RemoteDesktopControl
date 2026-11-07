@@ -153,14 +153,32 @@ class _DevicePageState extends State<DevicePage> {
     final nameColumn = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          device.name,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontSize: RdcTokens.fontBody,
-            fontWeight: FontWeight.w600,
-            color: RdcTokens.textPrimary,
-          ),
+        Row(
+          children: [
+            Flexible(
+              child: Text(
+                device.name,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: RdcTokens.fontBody,
+                  fontWeight: FontWeight.w600,
+                  color: RdcTokens.textPrimary,
+                ),
+              ),
+            ),
+            // 信任不再是独立胶囊：用小锁放在名称行，避免与在线状态抢位置（清单 P1-5）。
+            if (trusted) ...[
+              const SizedBox(width: 6),
+              const Tooltip(
+                message: AppStrings.trustedTooltip,
+                child: Icon(
+                  Icons.lock,
+                  size: 14,
+                  color: RdcTokens.success,
+                ),
+              ),
+            ],
+          ],
         ),
         const SizedBox(height: 2),
         Text(
@@ -173,17 +191,29 @@ class _DevicePageState extends State<DevicePage> {
         ),
       ],
     );
-    final statusPill = RdcStatusPill(
-      text: trusted ? AppStrings.trusted : AppStrings.untrusted,
-      color: trusted ? RdcTokens.success : RdcTokens.textMuted,
-    );
-    final lastOnline = Text(
-      Formatters.lastOnline(device.lastOnline),
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        fontSize: RdcTokens.fontCaption,
-        color: RdcTokens.textMuted,
-      ),
+    // 没有在线心跳接口：只如实显示「从未在线 / 上次在线」，不伪造在线绿点。
+    final lastOnline = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          device.lastOnline == null ? Icons.radio_button_unchecked : Icons.history,
+          size: 12,
+          color: RdcTokens.textMuted,
+        ),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(
+            device.lastOnline == null
+                ? AppStrings.neverOnline
+                : Formatters.lastOnline(device.lastOnline),
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: RdcTokens.fontCaption,
+              color: RdcTokens.textMuted,
+            ),
+          ),
+        ),
+      ],
     );
     final connectButton = RdcButton(
       label: AppStrings.connect,
@@ -214,6 +244,13 @@ class _DevicePageState extends State<DevicePage> {
     return Padding(
       padding: const EdgeInsets.only(bottom: RdcTokens.spaceMd),
       child: RdcHoverCard(
+        // 整卡可点：点卡片任意空白处进入编辑，按钮仍走各自的回调（清单 P2-8）。
+        onTap: () => _showDeviceDialog(
+          deviceId: device.id,
+          name: device.name,
+          trusted: trusted,
+          sameAccount: device.sameAccount,
+        ),
         padding: EdgeInsets.symmetric(
           horizontal: wide ? 18 : 14,
           vertical: wide ? 14 : RdcTokens.spaceMd,
@@ -225,7 +262,6 @@ class _DevicePageState extends State<DevicePage> {
                   const SizedBox(width: 14),
                   Expanded(flex: 3, child: nameColumn),
                   Expanded(flex: 2, child: lastOnline),
-                  statusPill,
                   const SizedBox(width: RdcTokens.spaceLg),
                   connectButton,
                   const SizedBox(width: RdcTokens.spaceSm),
@@ -242,7 +278,6 @@ class _DevicePageState extends State<DevicePage> {
                       iconBox,
                       const SizedBox(width: RdcTokens.spaceMd),
                       Expanded(child: nameColumn),
-                      statusPill,
                     ],
                   ),
                   const SizedBox(height: RdcTokens.spaceSm),

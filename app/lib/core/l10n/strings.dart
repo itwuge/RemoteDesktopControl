@@ -112,6 +112,9 @@ class AppStrings {
   /// 取消。
   static const cancel = '取消';
 
+  /// 关闭。
+  static const close = '关闭';
+
   /// 确认。
   static const confirm = '确认';
 
@@ -607,4 +610,74 @@ class AppStrings {
 
   /// 诊断说明。
   static const aboutHint = '诊断信息仅在此处显示，主界面不展示工程细节。';
+
+  // =====** 第二批补充 =====**
+
+  /// 通用：更多。
+  static const more = '更多';
+
+  /// 通用：上一页的设备卡片信任提示。
+  static const trustedTooltip = '已信任：连接时跳过配对确认';
+
+  /// 设备最近在线前缀。
+  static const lastOnlinePrefix = '最近在线';
+
+  /// 通信链路：直连。
+  static const linkDirect = '直连';
+
+  /// 通信链路：中继可用（未启用中继时不显示）。
+  static const linkRelayAvailable = '中继可用';
+
+  /// 设置：启动与托盘分组。
+  static const startupSection = '启动与托盘';
+
+  /// 设置：启动与托盘暂不可用说明（接口缺失时只给空状态，不做假开关）。
+  static const startupUnavailable =
+      '当前版本关闭窗口即退出，不会留在后台；开机自启、托盘驻留与远程时阻止休眠尚未提供。';
+
+  /// 设置：恢复默认确认标题。
+  static const resetDefaultsTitle = '恢复默认设置？';
+
+  /// 设置：恢复默认确认正文。
+  static const resetDefaultsBody = '只把本页选项恢复为出厂值，不会删除设备与授权；保存后才生效。';
+
+  /// 设置：恢复默认完成提示。
+  static const resetDefaultsDone = '已恢复默认，点击「保存设置」后生效';
+
+  /// 关于：检查更新。
+  static const checkUpdate = '检查更新';
+
+  /// 关于：无更新通道时的明确说明。
+  static const checkUpdateUnavailable =
+      '当前版本不提供在线更新；请从发布页下载安装包覆盖安装。';
+
+  /// 关于：能力与限制。
+  static const capabilities = '能力与限制';
+
+  /// 关于：能力与限制条目。
+  static const capabilitiesLines = <String>[
+    '仅支持 Windows 控制端与被控端；手机与平板暂不支持。',
+    '暂不支持声音回传；画面之外的声音请用其他方式传递。',
+    '暂不支持多显示器切换；连接后显示主显示器。',
+    '重启、关机与切换显示器属于敏感操作，连接时仍需本机逐次确认。',
+    '不按商业用途封禁，也不强制登录账号。',
+  ];
+
+  /// 屏幕墙：去设备列表。
+  static const wallGoDevices = '去设备列表添加设备';
+
+  /// 屏幕墙：无设备时的一句引导。
+  static const wallNoDevices = '还没有设备；添加后这里会显示它们的缩略画面。';
+
+  /// 权限页：高级权限折叠标题。
+  static const advancedPermissions = '高级权限';
+
+  /// 设置：恢复默认按钮。
+  static const restoreDefaults = '恢复默认';
+
+  /// 密码框：显示密码。
+  static const showPassword = '显示密码';
+
+  /// 密码框：隐藏密码。
+  static const hidePassword = '隐藏密码';
 }

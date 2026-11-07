@@ -347,6 +347,7 @@ class _ShellPageState extends State<ShellPage> {
           _ => SessionPage(
               controller: widget.session,
               shell: widget.shell,
+              settings: widget.settings,
             ),
         };
         return AnimatedSwitcher(

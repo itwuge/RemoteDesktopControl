@@ -61,6 +61,14 @@ class SettingsController {
     }
   }
 
+  /// 把草稿恢复为出厂默认。
+  ///
+  /// 只改内存中的草稿，必须再点「保存设置」才落盘；不删除设备与授权。
+  void resetDrafts() {
+    settings.value = const AppSettings.defaults();
+    message.value = null;
+  }
+
   /// 更新中继地址。
   ///
   /// [value] 为用户输入；不做格式校验（S1 不连接中继），仅做去空格。

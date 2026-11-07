@@ -112,9 +112,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       : AppStrings.relayOffHint,
                   style: TextStyle(
                     fontSize: RdcTokens.fontCaption,
-                    // 开启中继是「需要注意」而非「故障」：用警示橙，不用危险红（清单 G6）。
-                    color: allowRelay ? RdcTokens.warning : RdcTokens.success,
-                    fontWeight: FontWeight.w600,
+                    // 开启中继是「需要注意」用警示橙；关闭是常态，用中性灰而不是绿色成功色（清单 P1-1 / G6）。
+                    color: allowRelay ? RdcTokens.warning : RdcTokens.textMuted,
                   ),
                 ),
               ),
@@ -122,18 +121,21 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           if (allowRelay) ...[
             const SizedBox(height: RdcTokens.spaceLg),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            // 窄窗把地址与策略自动换行，不再把两个字段硬塞进一行（清单 P1-11）。
+            Wrap(
+              spacing: RdcTokens.spaceMd,
+              runSpacing: RdcTokens.spaceMd,
+              crossAxisAlignment: WrapCrossAlignment.start,
               children: [
                 RdcField(
                   label: AppStrings.relayAddress,
+                  width: 360,
                   child: RdcTextField(
                     controller: _relayAddress,
                     hint: 'relay.example.com:21117',
                     onChanged: widget.controller.setRelayAddress,
                   ),
                 ),
-                const SizedBox(width: RdcTokens.spaceMd),
                 RdcField(
                   label: AppStrings.policyLabel,
                   expand: false,
@@ -319,6 +321,39 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  // =====** 组件：启动与托盘（清单 P1-14） =====**
+
+  /// 启动与托盘。
+  ///
+  /// 内核尚未提供开机自启 / 托盘驻留 / 防休眠接口，这里只给明确说明，
+  /// 不放看起来能点、实际没有效果的假开关。
+  Widget _buildStartupSection() {
+    return RdcSectionCard(
+      title: AppStrings.startupSection,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.info_outline,
+            size: 16,
+            color: RdcTokens.textMuted,
+          ),
+          const SizedBox(width: RdcTokens.spaceSm),
+          Expanded(
+            child: Text(
+              AppStrings.startupUnavailable,
+              style: const TextStyle(
+                fontSize: RdcTokens.fontCaption,
+                color: RdcTokens.textMuted,
+                height: 1.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // =====** 组件：快捷设置 =====**
 
   Widget _buildQuickSection() {
@@ -359,19 +394,33 @@ class _SettingsPageState extends State<SettingsPage> {
             ],
           ),
           const SizedBox(height: RdcTokens.spaceLg),
-          // 保存按钮靠右、固定宽 120，右侧留白形成明确的“主操作”位置（清单 P1-13）。
+          // 主操作固定靠右：恢复默认（次要）+ 保存（主要），宽度 120 保持稳定（清单 P1-13）。
           Align(
             alignment: Alignment.centerRight,
-            child: SizedBox(
-              width: 120,
-              child: ValueListenableBuilder(
-                valueListenable: widget.controller.isSaving,
-                builder: (context, saving, _) => RdcButton(
-                  label: saving ? '保存中…' : AppStrings.saveButton,
-                  primary: true,
-                  onPressed: saving ? null : _save,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                SizedBox(
+                  width: 120,
+                  child: RdcButton(
+                    label: AppStrings.restoreDefaults,
+                    icon: Icons.settings_backup_restore,
+                    onPressed: _resetDefaults,
+                  ),
                 ),
-              ),
+                const SizedBox(width: RdcTokens.spaceSm),
+                SizedBox(
+                  width: 120,
+                  child: ValueListenableBuilder(
+                    valueListenable: widget.controller.isSaving,
+                    builder: (context, saving, _) => RdcButton(
+                      label: saving ? '保存中…' : AppStrings.saveButton,
+                      primary: true,
+                      onPressed: saving ? null : _save,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           // 「设置文件：/AppData/...」属于工程细节，已移出主界面（清单 E5 / P0-6）。
@@ -417,6 +466,63 @@ class _SettingsPageState extends State<SettingsPage> {
     if (message == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
+    );
+  }
+
+  /// 恢复默认：确认后只重置草稿，仍需点「保存设置」才落盘。
+  Future<void> _resetDefaults() async {
+    final confirmed = await showRdcConfirmDialog(
+      context,
+      title: AppStrings.resetDefaultsTitle,
+      body: AppStrings.resetDefaultsBody,
+      confirmLabel: AppStrings.restoreDefaults,
+    );
+    if (!confirmed || !mounted) return;
+    widget.controller.resetDrafts();
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text(AppStrings.resetDefaultsDone)),
+    );
+  }
+
+  /// 检查更新：没有更新通道时给出明确说明，不假装「已是最新」。
+  void _checkUpdate() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text(AppStrings.checkUpdateUnavailable)),
+    );
+  }
+
+  /// 能力与限制：静态说明，放在「关于」里，不占主界面。
+  Future<void> _showCapabilities() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => RdcDialog(
+        title: AppStrings.capabilities,
+        actions: [
+          RdcButton(
+            label: AppStrings.close,
+            primary: true,
+            onPressed: () => Navigator.of(dialogContext).pop(),
+          ),
+        ],
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final line in AppStrings.capabilitiesLines)
+              Padding(
+                padding: const EdgeInsets.only(bottom: RdcTokens.spaceSm),
+                child: Text(
+                  '· $line',
+                  style: const TextStyle(
+                    fontSize: RdcTokens.fontBody,
+                    color: RdcTokens.textPrimary,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -609,6 +715,24 @@ class _SettingsPageState extends State<SettingsPage> {
               color: RdcTokens.textMuted,
             ),
           ),
+          const SizedBox(height: RdcTokens.spaceMd),
+          // 更新与能力边界放在「关于」里，属于低频信息（清单 P1-18）。
+          Wrap(
+            spacing: RdcTokens.spaceSm,
+            runSpacing: RdcTokens.spaceSm,
+            children: [
+              RdcButton(
+                label: AppStrings.checkUpdate,
+                icon: Icons.system_update,
+                onPressed: _checkUpdate,
+              ),
+              RdcButton(
+                label: AppStrings.capabilities,
+                icon: Icons.info_outline,
+                onPressed: _showCapabilities,
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -637,6 +761,8 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               const SizedBox(height: RdcTokens.spaceLg),
               _buildDegradationSection(settings.autoReconnect),
+              const SizedBox(height: RdcTokens.spaceLg),
+              _buildStartupSection(),
               const SizedBox(height: RdcTokens.spaceLg),
               _buildQuickSection(),
               const SizedBox(height: RdcTokens.spaceLg),

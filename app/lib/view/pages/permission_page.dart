@@ -211,6 +211,19 @@ class _PermissionPageState extends State<PermissionPage> {
 
   // =====** 组件：区块③ 权限模板 =====**
 
+  /// 权限位说明（与 [PermissionController.permissionBitLabels] 一一对应，12px 辅助文字）。
+  static const List<String> _permissionBitHints = [
+    '连接后能看到本机画面（始终开启）',
+    '允许对方操作鼠标与键盘',
+    '允许在两端复制粘贴文字',
+    '允许在两端复制粘贴图片',
+    '允许把文件发送到本机',
+    '允许把本机声音传到对方',
+    '每次重启/关机仍需本机逐次确认',
+    '每次切换显示器仍需本机逐次确认',
+    '断线后由对方自动重连',
+  ];
+
   Widget _buildTemplateSection(String template, int bits) {
     const templates = [
       ('readonly', AppStrings.templateReadonly),
@@ -237,29 +250,42 @@ class _PermissionPageState extends State<PermissionPage> {
             ],
           ),
           const SizedBox(height: RdcTokens.spaceMd),
-          Wrap(
-            spacing: RdcTokens.spaceSm,
-            runSpacing: RdcTokens.spaceSm,
-            children: [
-              for (var bit = 0;
-                  bit < PermissionController.permissionBitLabels.length;
-                  bit++)
-                RdcStateButton(
-                  // bit0（查看屏幕）是底线，按钮禁用并保持开启。
-                  label: PermissionController.permissionBitLabels[bit],
-                  active: (bits & (1 << bit)) != 0,
-                  onPressed: bit == 0
-                      ? null
-                      : () => widget.controller.togglePermissionBit(bit),
-                ),
-            ],
-          ),
-          const SizedBox(height: RdcTokens.spaceSm),
-          const Text(
-            '重启/关机与切换显示器属于敏感位：即使勾选，连接时仍需本机逐次确认。',
-            style: TextStyle(
-              fontSize: RdcTokens.fontCaption,
-              color: RdcTokens.textMuted,
+          // 权限位默认收进「高级权限」折叠区：先给模板，细节按需展开（清单 P2-5）。
+          RdcDiagnostics(
+            title: AppStrings.advancedPermissions,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var bit = 0;
+                    bit < PermissionController.permissionBitLabels.length;
+                    bit++)
+                  Padding(
+                    padding: const EdgeInsets.only(top: RdcTokens.spaceSm),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        RdcStateButton(
+                          // bit0（查看屏幕）是底线，按钮禁用并保持开启。
+                          label: PermissionController.permissionBitLabels[bit],
+                          active: (bits & (1 << bit)) != 0,
+                          onPressed: bit == 0
+                              ? null
+                              : () => widget.controller.togglePermissionBit(bit),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          bit < _permissionBitHints.length
+                              ? _permissionBitHints[bit]
+                              : '',
+                          style: const TextStyle(
+                            fontSize: RdcTokens.fontCaption,
+                            color: RdcTokens.textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
           ),
         ],
@@ -383,25 +409,63 @@ class _PermissionPageState extends State<PermissionPage> {
           ),
           if (!revoked) ...[
             const SizedBox(height: RdcTokens.spaceSm),
-            Wrap(
-              spacing: RdcTokens.spaceSm,
-              runSpacing: RdcTokens.spaceSm,
+            // 只保留一个主动作；吊销与移除是低频、易误点的动作，收进「更多」（清单 P1-16）。
+            Row(
               children: [
                 RdcButton(
                   label: AppStrings.grantReissue,
                   icon: Icons.tune,
                   onPressed: () => _showReissueDialog(grant),
                 ),
-                RdcButton(
-                  label: AppStrings.grantRevoke,
-                  icon: Icons.block,
-                  danger: true,
-                  onPressed: () => _revokeGrant(grant),
-                ),
-                RdcButton(
-                  label: '移除',
-                  icon: Icons.delete_outline,
-                  onPressed: () => _removeGrant(grant),
+                const SizedBox(width: RdcTokens.spaceSm),
+                PopupMenuButton<String>(
+                  tooltip: AppStrings.more,
+                  icon: const Icon(
+                    Icons.more_horiz,
+                    size: 18,
+                    color: RdcTokens.textMuted,
+                  ),
+                  color: RdcTokens.surfaceRaised,
+                  onSelected: (value) {
+                    if (value == 'revoke') {
+                      _revokeGrant(grant);
+                    } else if (value == 'remove') {
+                      _removeGrant(grant);
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: 'revoke',
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.block,
+                            size: 16,
+                            color: RdcTokens.danger,
+                          ),
+                          const SizedBox(width: RdcTokens.spaceSm),
+                          Text(
+                            AppStrings.grantRevoke,
+                            style: const TextStyle(color: RdcTokens.danger),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'remove',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.delete_outline,
+                            size: 16,
+                            color: RdcTokens.textMuted,
+                          ),
+                          SizedBox(width: RdcTokens.spaceSm),
+                          Text('移除记录'),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),

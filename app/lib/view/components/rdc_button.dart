@@ -124,6 +124,75 @@ class RdcButton extends StatelessWidget {
   }
 }
 
+/// 带下拉菜单的次要按钮。
+///
+/// 低频/易误点的动作（吊销、移除、剪贴板、文件传输）收进「更多」，
+/// 与主动作同一套 36 高 / 圆角 10 的视觉（清单 P1-9 / P1-16）。
+class RdcMenuButton extends StatelessWidget {
+  /// 创建菜单按钮。
+  ///
+  /// [label] 按钮文案；[itemBuilder] 菜单项；[onSelected] 选中回调。
+  const RdcMenuButton({
+    super.key,
+    required this.label,
+    required this.itemBuilder,
+    required this.onSelected,
+  });
+
+  /// 按钮文案。
+  final String label;
+
+  /// 菜单项构造器。
+  final PopupMenuItemBuilder<String> itemBuilder;
+
+  /// 选中回调。
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: PopupMenuButton<String>(
+        tooltip: label,
+        itemBuilder: itemBuilder,
+        onSelected: onSelected,
+        color: RdcTokens.surfaceRaised,
+        offset: const Offset(0, RdcTokens.controlHeight),
+        child: Container(
+          height: RdcTokens.controlHeight,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: RdcTokens.surfaceRaised,
+            borderRadius: BorderRadius.circular(RdcTokens.radiusControl),
+            border: Border.all(color: RdcTokens.border),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: RdcTokens.fontBody,
+                  fontWeight: FontWeight.w600,
+                  color: RdcTokens.textPrimary,
+                ),
+              ),
+              const SizedBox(width: 4),
+              const Icon(
+                Icons.expand_more,
+                size: 16,
+                color: RdcTokens.textMuted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// 状态按钮：用按钮态表达开关（不用 Switch）。
 class RdcStateButton extends StatelessWidget {
   /// 创建状态按钮。

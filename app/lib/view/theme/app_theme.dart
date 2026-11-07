@@ -15,6 +15,8 @@ class AppTheme {
 
   /// 构造深色主题；应用固定深色，避免两套配色带来维护成本。
   static ThemeData dark() {
+    // 统一西文字体族，避免中文回落到宋体/黑体混排（清单 P2-1）。
+    // 高分屏 125%/150% 下需实机复核，当前只固定字体族，不改字号阶梯。
     final base = ThemeData.dark(useMaterial3: true);
     return base.copyWith(
       scaffoldBackgroundColor: RdcTokens.background,
@@ -27,6 +29,8 @@ class AppTheme {
       textTheme: base.textTheme.apply(
         bodyColor: RdcTokens.textPrimary,
         displayColor: RdcTokens.textPrimary,
+        fontFamily: 'Microsoft YaHei UI',
+        fontFamilyFallback: const ['Microsoft YaHei', 'Segoe UI'],
       ),
       dividerColor: RdcTokens.border,
       appBarTheme: const AppBarTheme(
