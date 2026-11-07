@@ -102,19 +102,38 @@
 | `flutter test`（全量） | **13/13 通过**（0.00 s 级，宿主无设备依赖） |
 | 最终 APK（含触摸手势改动） | `flutter build apk --debug --target-platform android-arm64` **13 s**；93,389,750 B；sha256 `5e47f7a74e1b85f09beaf272ebf93c51ee13136ecdbbbda80dfff14aec28ca90`；`unzip -l` 仍含 `lib/arm64-v8a/librdc_bridge.so`（1,141,680 B） |
 
+### 2.7 本轮（MediaCodec + 文本协议）构建与测试 —— 【已验证】
+
+| 命令 | 结果 |
+|---|---|
+| `cargo test -p rdc-input -p rdc-protocol -p rdc-bridge` | **rdc-input 28/28、rdc-protocol 37/37、rdc-bridge 10/10** 全部通过（新增文本线格式、畸形载荷、能力位协商、DTO 边界用例） |
+| `cargo check -p rdc-input --target x86_64-pc-windows-msvc --tests` | **通过**（0.68 s，含 `windows.rs` 的 UNICODE 注入与 3 条新单测的编译） |
+| `flutter analyze` | **No issues found!**（1.6 s） |
+| `flutter test`（全量） | **30/30 通过**（新增文本差分/分段 11 条、解码通道契约 6 条） |
+| Kotlin JVM 单测 `:app:testDebugUnitTest` | **9/9 通过**（`AnnexBParserTest`，0.031 s，`failures=0 errors=0`） |
+| APK 构建 | `flutter build apk --debug --target-platform android-arm64` **10.4 s**（增量）→ `app/build/app/outputs/flutter-apk/app-debug.apk`，**79,031,817 B**，sha256 `12f8a422250e1a17358b02ff1bc8dff4cb57879a4ef647826ec31fd1d353e61b` |
+| APK 内容 | `unzip -l`：`lib/arm64-v8a/librdc_bridge.so` **1,144,608 B**（新协议已打入），`classes*.dex` 含 Kotlin 插件 |
+
 ---
 
-## 三、阶段 2 现状（部分实现，未真机验证）
+## 三、阶段 2 现状（代码完成，设备侧未验证）
 
 | # | 现状 | 阻塞 |
 |---|---|---|
-| B1 MediaCodec | 未实现 | 无真机；解码需 SurfaceTexture 外部纹理，无法静态验证出画面 |
-| B2 触摸→鼠标 | **部分实现**：点击/拖动沿用既有指针路径；新增双指滚动→滚轮（40 本地像素=1 格）、长按→右键，映射纯函数见 `app/lib/model/input/touch_mapper.dart`，10 条单测全通过 | 可跑通逻辑，但命中精度/手感需真机 |
-| B3 软键盘 | 只有硬件键扫描码；IME 文本输入未接 | 需隐藏 TextField/TextInputClient 通道，且 Rust 输入协议目前只有扫描码事件 |
-| B4 横竖屏 | `ViewportController` 已是唯一入口，`Texture` 只改尺寸不换 `textureId`，设计满足「只换皮不换核」；Android 尚未产生 textureId | 解码器缺失导致无纹理可测 |
+| B1 MediaCodec | **代码完成**：`MediaCodec(video/avc)` → `TextureRegistry.SurfaceProducer` 外部纹理，GPU 直出（`releaseOutputBuffer(render=true)`，无像素回读）；低延迟参数、SPS/PPS 懒配置、队列过深丢到 IDR、p50/p99 统计（最近 256 帧） | 无真机；延迟/帧率/花屏无法实测 |
+| B2 触摸→鼠标 | **已完成**：点击/拖动沿用既有指针路径；双指滚动→滚轮（40 本地像素=1 格）、长按→右键，映射纯函数见 `app/lib/model/input/touch_mapper.dart`，10 条单测全通过 | 命中精度/手感需真机 |
+| B3 软键盘/IME | **代码完成**：协议 tag4（删除 N × UTF-16 码元 + 插入 UTF-8 文本）+ 能力位 bit13；Windows `SendInput(KEYEVENTF_UNICODE)`；Dart `TextInputConnection` 差分与 1348 字节分段；兼容性说明见 `research/android-s9-text-input-compat.md` | 真机端到端上屏未验证 |
+| B4 横竖屏/前后台 | **代码完成**：旋转只改 `SurfaceProducer.setSize` 与坐标映射，`textureId` 不变；前后台 `pause` 释放 MediaCodec/Surface、`resume` 等待新 Surface 与下一个 IDR | 真机切换未验证 |
 | B5 稳定性 | 未验证 | 无设备 |
 
-**停止点**：阶段 1 完成；阶段 2 已完成触摸手势映射（B2 的滚动/右键部分）。下一块起点：Kotlin MediaCodec 解码器 + Flutter 外部纹理注册（B1），随后才是 B3/B4/B5。
+### 3.1 解码器设计的实测边界
+
+- 本 SDK（Flutter 3.47.9 引擎 `1.0.0-89c39edf...`）**没有** `SurfaceTextureEntry.markTextureFrameAvailable()`；`TextureRegistry` 只提供 `createSurfaceProducer()` / `registerSurfaceTexture()`。实现改用 `SurfaceProducer` + 每帧 `scheduleFrame()`。
+- 代价说明：`SurfaceProducer` 在 API 29+ 由引擎实现为 HardwareBuffer/ImageReader 路径，**仍然没有 CPU 像素回读**，但比纯 SurfaceTexture 多一次 GPU 纹理拷贝；这是本 SDK 的唯一外部纹理入口，不是本项目选择了 ImageReader。
+- 低延迟：`KEY_LOW_LATENCY`（API 30+）、`KEY_OPERATING_RATE`/`KEY_PRIORITY`（API 23+）；`configure` 失败时自动退回不带低延迟参数的路径并记录 `lastError`。
+- 统计口径：p50/p99 是「入队 → releaseOutputBuffer(render=true)」的本地耗时，**不含网络传输**；无设备时数值无法产生。
+
+**停止点**：阶段 1 完成；阶段 2 的 B1 解码器、B3 文本协议、B4 生命周期代码均已落地并编译/单测通过。下一块起点：把解码器与真实会话传输接线（Dart 侧 `textureId` → 视频通道字节流；文本事件 → 输入通道），并做真机端到端验证。
 
 ---
 
@@ -141,13 +160,26 @@ adb logcat -s flutter | grep AndroidSelfCheck
 
 ---
 
-## 五、失败/未验证清单
+## 五、失败与阻塞记录
 
 | # | 项 | 状态 | 原因 / 后续 |
 |---|---|---|---|
-| 1 | 真机安装与启动 | 未验证 | `adb devices` 为空；需用户接入一台 arm64 Android 8.0+ 设备并开启 USB 调试 |
-| 2 | 模拟器 | 不可用 | VM 无 `/dev/kvm`（前述报告已实测），不尝试软件模拟 |
-| 3 | Android 运行时 dlopen | 未验证 | 依赖 #1；宿主 x86_64 替代证据已取得 |
-| 4 | MediaCodec 出画面/延迟/帧率 | 未实现 | 阶段 2 |
-| 5 | 100 次点击 ≤4px | 未验证 | 需真机与被控端联合测量 |
-| 6 | 5 分钟稳定性/前后台 | 未验证 | 需真机 |
+| 1 | 模拟器 | 不可用 | VM 无 `/dev/kvm`（前述报告已实测），不尝试软件模拟 |
+| 2 | `x86_64-pc-windows-msvc` 目标首次安装 | 失败一次 | 两个 rustup 进程并发导致 `.partial` 重命名失败；串行重试后安装成功，`cargo check` 通过 |
+| 3 | Kotlin 首次编译 | 失败 | SDK 无 `markTextureFrameAvailable`、`ActivityPluginBinding.getLifecycle()` 返回 `Object`；已改用 `SurfaceProducer.scheduleFrame()` 与 `Activity as LifecycleOwner`，复建通过 |
+
+## 六、设备未验证清单（不计入通过项）
+
+> 以下全部**没有**真机/模拟器证据，不得当作已通过。
+
+| # | 项 | 为什么没验证 | 需要什么才能验证 |
+|---|---|---|---|
+| D1 | APK 安装与启动 | `adb devices` 为空 | 一台 arm64 Android 8.0+ 真机 + USB 调试 |
+| D2 | `librdc_bridge.so` 在 Android 运行时 dlopen | 依赖 D1 | 真机 logcat（`rdc.AndroidSelfCheck`） |
+| D3 | MediaCodec 实际出画面、不花屏 | 依赖 D1 | 真机 + 一段已知 H.264 Annex-B 码流 |
+| D4 | 解码延迟 p50/p99、帧率、丢帧 | 依赖 D1；统计代码已就绪 | 真机跑 60 s，读 `stats()` |
+| D5 | 30fps 稳定 | 依赖 D1 | 真机 + 被控端视频通道 |
+| D6 | IME 中文/emoji 端到端上屏 | 依赖 D1 + Windows 被控端 | 真机输入 → 协议 → Windows `SendInput` |
+| D7 | 100 次点击偏差 ≤4px | 依赖 D1 | 真机与被控端联合测量 |
+| D8 | 旋转不重建解码器、前后台不崩 | 依赖 D1 | 真机旋转/切后台连续操作 |
+| D9 | 连续 5 分钟不崩 | 依赖 D1 | 真机长跑 |

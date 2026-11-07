@@ -72,3 +72,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // JVM 单测只覆盖纯 Kotlin 解析逻辑（Annex-B/SPS/PPS），不启动 Android 运行时。
+    testImplementation("junit:junit:4.13.2")
+}
