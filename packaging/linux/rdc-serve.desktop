@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=RDC Linux 被控端
+Comment=S8-5 常驻被控服务（图形会话自启，需 DISPLAY/XAUTHORITY）
+Exec=@EXEC@
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

@@ -1,0 +1,14 @@
+# rdc-serve 最小配置（key=value，支持 # 注释；命令行同名参数优先）
+# 线协议见 crates/rdc-linux-e2e/src/protocol.rs，本轮未改动字节级格式。
+
+# 监听地址：0.0.0.0 表示对局域网开放（安卓模拟器/真机都要能到）
+listen=0.0.0.0:45900
+
+# 配对码：留空则自动生成 6 位并写入 ~/.config/rdc/pair-code（权限 0600）
+# 注意：当前协议没有配对字段，该码只做展示与日志对账，不做强制校验。
+pair=
+
+fps=60
+bitrate=8000000
+display_id=0
+max_backlog=3
