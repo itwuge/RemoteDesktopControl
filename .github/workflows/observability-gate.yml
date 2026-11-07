@@ -1,0 +1,22 @@
+name: observability-gate
+
+on:
+  pull_request:
+  push:
+    branches: [observability]
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gate self-test
+        shell: pwsh
+        run: ./scripts/gate.ps1 -SelfTest
+
+      - name: Gate changed files
+        shell: pwsh
+        run: ./scripts/gate.ps1 -Changed -BaseRef origin/${{ github.base_ref || 'master' }}

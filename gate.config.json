@@ -1,0 +1,148 @@
+{
+  "configVersion": 1,
+  "project": { "name": "RemoteDesktopControl" },
+
+  "ruleIds": {
+    "swallowed_error": "R-C-2",
+    "error_context": "R-C-3",
+    "unbounded_queue": "R-C-5",
+    "version_consistency": "R-C-14",
+    "build_location": "R-C-15",
+    "source_encoding": "R-C-1",
+    "note_header": "R-N-1",
+    "note_doc": "R-N-2",
+    "note_section": "R-N-4",
+    "note_section_control": "R-N-5",
+    "note_section_sync": "R-N-7",
+    "log_print_bypass": "R-L-1",
+    "log_integration": "R-L-4",
+    "log_only": "R-L-9",
+    "team_conflict": "R-T-2",
+    "team_change_record": "R-T-4",
+    "team_shared_file": "R-T-8",
+    "command_version_bump": "R-D-9",
+    "command_smoke_record": "R-D-9",
+    "command_milestone": "R-T-5"
+  },
+
+  "scan": {
+    "exclude": [
+      "**/target/**",
+      "**/build/**",
+      "**/.dart_tool/**",
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.git/**",
+      "**/vendor/**",
+      "**/third_party/**",
+      "**/generated/**",
+      "**/*.g.rs",
+      "**/frb_generated.rs",
+      "**/ephemeral/**",
+      "**/GeneratedPluginRegistrant.*",
+      "**/generated_plugin_registrant.*",
+      "**/Runner-Bridging-Header.h",
+      "app/lib/src/rust/**",
+      "**/*.g.dart",
+      "**/*.freezed.dart",
+      "**/*.mocks.dart",
+      "**/flutter_service_worker.js"
+    ]
+  },
+
+  "rust": {
+    "cratesDir": "crates",
+    "sourceGlobs": ["crates/*/src/**/*.rs"],
+    "streamingGlobs": [
+      "crates/rdc-capture/src/**/*.rs",
+      "crates/rdc-codec/src/**/*.rs",
+      "crates/rdc-transport/src/**/*.rs",
+      "crates/rdc-decode/src/**/*.rs",
+      "crates/rdc-bridge/src/**/*.rs"
+    ],
+    "pathSensitiveGlobs": [
+      "crates/rdc-capture/src/platform/**/*.rs",
+      "crates/rdc-codec/src/platform/**/*.rs",
+      "crates/rdc-bridge/src/**/*.rs"
+    ],
+    "pureCrates": ["rdc-protocol", "rdc-signal"],
+    "requiredLogDeps": ["tracing"]
+  },
+
+  "encoding": {
+    "extensions": [".cpp", ".h", ".hpp", ".cc", ".c"],
+    "roots": ["app/windows"],
+    "exclude": ["**/build/**", "**/.dart_tool/**", "**/generated/**"]
+  },
+
+  "note": {
+    "headerScanLines": 25,
+    "requireDocForPublic": true,
+    "requireParamSections": false,
+    "minLinesForSection": 200,
+    "minLinesForControlMarker": 400,
+    "placeholderNames": ["组件名", "Component", "TODO"]
+  },
+
+  "team": {
+    "conflictMarkerRegex": "^(<<<<<<< |=======$|>>>>>>> )",
+    "sourceGlobs": [
+      "crates/*/src/**/*.rs",
+      "app/lib/**/*.dart",
+      "app/windows/runner/**/*.cpp",
+      "app/windows/runner/**/*.h"
+    ],
+    "changeRecordGlobs": []
+  },
+
+  "command": {
+    "smokeRecordGlobs": ["logs/s6/smoke/**"],
+    "requireSmokeOnBuild": true
+  },
+
+  "version": {
+    "cargoManifest": "Cargo.toml",
+    "pubspec": "app/pubspec.yaml",
+    "nsiGlobs": ["packaging/**/*.nsi"],
+    "buildInfoGlobs": ["packaging/**/BUILD_INFO.txt"],
+    "distDir": "dist",
+    "artifactExtensions": [".exe", ".msi", ".zip", ".apk", ".aab"],
+    "versionBumpExcludeGlobs": ["docs/**", "product/**", "**/*.md", "scripts/**", "tools/**", ".github/**", "logs/**"]
+  },
+
+  "build": {
+    "targetDirEnv": "CARGO_TARGET_DIR",
+    "defaultTargetDir": "target",
+    "minFreeGB": 10,
+    "checkSystemDrive": true
+  },
+
+  "logging": {
+    "allowedPrintGlobs": [
+      "**/examples/**",
+      "**/benches/**",
+      "**/tests/**",
+      "**/build.rs",
+      "app/windows/runner/**",
+      "scripts/**"
+    ]
+  },
+
+  "whitelist": [
+    {
+      "rule": "R-L-1",
+      "glob": "crates/rdc-cli/src/**",
+      "reason": "rdc-cli 的 stdout 是面向用户的命令行输出通道，不是诊断日志。"
+    },
+    {
+      "rule": "R-L-1",
+      "glob": "crates/rdc-codec/shim/**",
+      "reason": "codec spike/shim 可执行程序把测量结果打到 stdout，属于工具输出。"
+    },
+    {
+      "rule": "R-L-1",
+      "glob": "crates/rdc-linux-e2e/src/bin/**",
+      "reason": "Linux E2E 场景程序以 stdout 报告场景结果，属于工具输出。"
+    }
+  ]
+}

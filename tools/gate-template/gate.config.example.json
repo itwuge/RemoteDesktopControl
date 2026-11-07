@@ -1,0 +1,140 @@
+{
+  "configVersion": 1,
+  "project": { "name": "your-project" },
+
+  "scan": {
+    "include": ["**/*.rs", "**/*.dart", "**/*.cpp", "**/*.h", "**/*.hpp", "**/*.c", "**/*.cc"],
+    "exclude": [
+      "**/target/**",
+      "**/build/**",
+      "**/.dart_tool/**",
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/.git/**",
+      "**/vendor/**",
+      "**/third_party/**",
+      "**/generated/**",
+      "**/*.g.rs",
+      "**/*.g.dart",
+      "**/*.freezed.dart",
+      "**/ephemeral/**",
+      "**/GeneratedPluginRegistrant.*"
+    ],
+    "maxFileBytes": 4194304
+  },
+
+  "ruleIds": {
+    "swallowed_error": "R-C-2",
+    "error_context": "R-C-3",
+    "unbounded_queue": "R-C-5",
+    "version_consistency": "R-C-14",
+    "build_location": "R-C-15",
+    "source_encoding": "R-C-1",
+    "note_header": "R-N-1",
+    "note_doc": "R-N-2",
+    "note_section": "R-N-4",
+    "note_section_control": "R-N-5",
+    "note_section_sync": "R-N-7",
+    "log_print_bypass": "R-L-1",
+    "log_integration": "R-L-4",
+    "log_only": "R-L-9",
+    "team_conflict": "R-T-2",
+    "team_change_record": "R-T-4",
+    "team_shared_file": "R-T-8",
+    "command_version_bump": "R-D-9",
+    "command_smoke_record": "R-D-9",
+    "command_milestone": "R-T-5"
+  },
+
+  "rules": {
+    "swallowed_error": { "enabled": true },
+    "error_context": { "enabled": true },
+    "unbounded_queue": { "enabled": true },
+    "version_consistency": { "enabled": true },
+    "build_location": { "enabled": true },
+    "source_encoding": { "enabled": true },
+    "note_header": { "enabled": true },
+    "note_doc": { "enabled": true },
+    "note_section": { "enabled": true },
+    "note_section_control": { "enabled": true },
+    "note_section_sync": { "enabled": true, "manual": true },
+    "log_print_bypass": { "enabled": true },
+    "log_integration": { "enabled": true },
+    "log_only": { "enabled": true },
+    "team_conflict": { "enabled": true },
+    "team_change_record": { "enabled": true },
+    "team_shared_file": { "enabled": true, "manual": true },
+    "command_version_bump": { "enabled": true },
+    "command_smoke_record": { "enabled": true },
+    "command_milestone": { "enabled": true, "manual": true }
+  },
+
+  "rust": {
+    "cratesDir": "crates",
+    "sourceGlobs": ["crates/*/src/**/*.rs"],
+    "streamingGlobs": ["crates/*/src/**/*.rs"],
+    "pathSensitiveGlobs": ["**/platform/**/*.rs", "**/ffi/**/*.rs"],
+    "pureCrates": [],
+    "requiredLogDeps": ["tracing"]
+  },
+
+  "encoding": {
+    "extensions": [".cpp", ".h", ".hpp", ".cc", ".c"],
+    "roots": ["."],
+    "exclude": ["**/target/**", "**/build/**", "**/generated/**", "**/third_party/**"]
+  },
+
+  "note": {
+    "headerRegex": "^(//|///|//!|/*)\\s*(=====|File|Module|文件用途|模块用途|用途)",
+    "headerScanLines": 25,
+    "sourceGlobs": ["**/*.rs", "**/*.dart", "**/*.cpp", "**/*.h", "**/*.hpp", "**/*.c", "**/*.cc"],
+    "requireDocForPublic": true,
+    "requireParamSections": false,
+    "paramSectionRegex": "#\\s*(Arguments|Parameters|Args|参数)",
+    "componentMarkerRegex": "^\\s*(//|#)\\s*=====+\\*\\*",
+    "controlMarkerRegex": "^\\s*(//|#)\\s*========+\\*\\*",
+    "minLinesForSection": 200,
+    "minLinesForControlMarker": 400,
+    "placeholderNames": ["Component", "TODO"]
+  },
+
+  "team": {
+    "conflictMarkerRegex": "^(<<<<<<< |=======$|>>>>>>> )",
+    "sourceGlobs": ["crates/*/src/**/*.rs"],
+    "changeRecordGlobs": []
+  },
+
+  "command": {
+    "smokeRecordGlobs": [],
+    "requireSmokeOnBuild": true
+  },
+
+  "version": {
+    "cargoManifest": "Cargo.toml",
+    "pubspec": "",
+    "nsiGlobs": ["**/*.nsi"],
+    "buildInfoGlobs": ["**/BUILD_INFO.txt"],
+    "distDir": "dist",
+    "artifactExtensions": [".exe", ".msi", ".zip", ".apk", ".aab", ".dmg", ".deb", ".rpm"],
+    "versionBumpExcludeGlobs": ["docs/**", "**/*.md", "scripts/**", "tools/**", ".github/**", "logs/**"]
+  },
+
+  "build": {
+    "targetDirEnv": "CARGO_TARGET_DIR",
+    "defaultTargetDir": "target",
+    "minFreeGB": 10,
+    "checkSystemDrive": true
+  },
+
+  "logging": {
+    "allowedPrintGlobs": ["**/examples/**", "**/benches/**", "**/tests/**", "**/build.rs"]
+  },
+
+  "whitelist": [
+    {
+      "rule": "R-L-01",
+      "glob": "cli/**",
+      "reason": "Command-line stdout is user-facing output, not diagnostic logging."
+    }
+  ]
+}
