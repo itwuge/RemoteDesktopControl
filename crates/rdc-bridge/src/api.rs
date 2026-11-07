@@ -600,7 +600,10 @@ fn to_wall_status(snapshot: wall_service::WallSnapshot) -> WallStatusDto {
 // =====** 控制页真实画面（外部纹理） =====**
 
 /// 控制页预览状态。
-#[derive(Debug, Clone)]
+///
+/// 非 Windows 平台（Linux/macOS）的 `control_start`/`control_stop`/`control_status` 分支
+/// 使用 `Default` 表达「预览不可用」的空状态，因此这里显式派生 `Default`。
+#[derive(Debug, Clone, Default)]
 pub struct ControlStatusDto {
     /// 是否运行。
     pub running: bool,

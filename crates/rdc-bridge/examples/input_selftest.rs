@@ -7,20 +7,26 @@
 // 边界：只在当前会话桌面注入；不写文件、不改注册表、不留后台进程。
 // ============================================================
 
+#[cfg(target_os = "windows")]
 use std::thread::sleep;
+#[cfg(target_os = "windows")]
 use std::time::Duration;
 
+#[cfg(target_os = "windows")]
 use rdc_bridge::api::{
     input_flush, input_push, input_start, input_status, input_stop, InputEventDto,
 };
 
-/// Win32 POINT。
+/// Win32 POINT（仅 Windows 自检使用）。
+#[cfg(target_os = "windows")]
 #[repr(C)]
 struct Point {
     x: i32,
     y: i32,
 }
 
+/// Win32 API 声明：Linux 上无对应符号，按平台门禁隔离。
+#[cfg(target_os = "windows")]
 unsafe extern "system" {
     /// 取屏幕物理尺寸（0=宽，1=高）。
     fn GetSystemMetrics(index: i32) -> i32;
@@ -29,6 +35,7 @@ unsafe extern "system" {
 }
 
 /// 构造一条指针移动事件。
+#[cfg(target_os = "windows")]
 fn move_event(x: i32, y: i32) -> InputEventDto {
     InputEventDto {
         kind: "move".to_owned(),
@@ -44,6 +51,7 @@ fn move_event(x: i32, y: i32) -> InputEventDto {
 }
 
 /// 构造一条键盘事件。
+#[cfg(target_os = "windows")]
 fn key_event(scan_code: u16, pressed: bool) -> InputEventDto {
     InputEventDto {
         kind: "key".to_owned(),
@@ -58,6 +66,8 @@ fn key_event(scan_code: u16, pressed: bool) -> InputEventDto {
     }
 }
 
+/// Windows 自检入口。
+#[cfg(target_os = "windows")]
 fn main() -> Result<(), String> {
     let width = unsafe { GetSystemMetrics(0) }.max(1);
     let height = unsafe { GetSystemMetrics(1) }.max(1);
@@ -149,4 +159,10 @@ fn main() -> Result<(), String> {
         return Err("收尾未清理干净".to_owned());
     }
     Ok(())
+}
+
+/// 非 Windows 平台入口：自检依赖 Win32 光标回读，明确失败而不是伪造通过。
+#[cfg(not(target_os = "windows"))]
+fn main() -> Result<(), String> {
+    Err("input_selftest 依赖 GetCursorPos/GetSystemMetrics，目前仅支持 Windows".to_owned())
 }

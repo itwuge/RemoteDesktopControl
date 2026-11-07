@@ -454,6 +454,8 @@ fn run_pipeline(
     // 退出前停采集并冲刷编码器，避免残留帧；解码器随线程释放。
     capture.stop();
     let _ = thumbnail.flush();
+    // 解码器只在 Windows 后端存在；其它平台无解码句柄可冲刷。
+    #[cfg(target_os = "windows")]
     let _ = decoder.flush();
     Ok(())
 }
@@ -485,6 +487,7 @@ fn frame_messages(frame: &WallFrame) -> Vec<WallMessage> {
 }
 
 /// 解码一帧并转为 RGBA 预览。
+#[cfg(target_os = "windows")]
 fn decode_frame(
     decoder: &mut DecoderHandle,
     frame: &WallFrame,
@@ -569,9 +572,13 @@ fn nv12_to_rgba_half(frame: &rdc_decode::DecodedFrame) -> (u32, u32, Vec<u8>) {
     (out_w, out_h, rgba)
 }
 
-/// 非 Windows 平台的占位转换（不会被执行，调用前已返回错误）。
+/// 非 Windows 平台的解码占位：屏幕墙预览依赖 Media Foundation，调用方按错误处理。
 #[cfg(not(target_os = "windows"))]
-fn nv12_to_rgba_half(_frame: &()) -> (u32, u32, Vec<u8>) {
-    (PREVIEW_WIDTH, PREVIEW_HEIGHT, Vec::new())
+fn decode_frame(
+    _decoder: &mut DecoderHandle,
+    _frame: &WallFrame,
+    _origin: Instant,
+) -> Result<Option<PreviewFrame>, String> {
+    Err("屏幕墙预览解码目前仅支持 Windows".to_owned())
 }
 
