@@ -10,9 +10,13 @@
 
 // =====** 模块声明 =====**
 
+pub mod error;
 pub mod filter;
+pub mod frame_trace;
 pub mod panic_hook;
+pub mod platform_windows;
 pub mod record;
+pub mod redact;
 pub mod ring;
 
 // =====** 模块导入 =====**

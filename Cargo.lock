@@ -1155,6 +1155,7 @@ dependencies = [
  "rdc-codec",
  "rdc-core",
  "rdc-decode",
+ "rdc-diag",
  "rdc-filetransfer",
  "rdc-input",
  "rdc-linux-e2e",
@@ -1215,6 +1216,7 @@ dependencies = [
 name = "rdc-codec"
 version = "0.1.1"
 dependencies = [
+ "rdc-diag",
  "rdc-protocol",
  "rdc-runtime",
  "thiserror",
@@ -1275,6 +1277,9 @@ dependencies = [
 name = "rdc-diag"
 version = "0.1.1"
 dependencies = [
+ "serde",
+ "serde_json",
+ "sha2",
  "tracing",
  "tracing-subscriber",
 ]

@@ -44,6 +44,9 @@ logs/*
 # 门禁基线是治理依据，必须入库；只放行基线文件，其余日志仍不入库。
 !logs/gate-baseline*.json
 !logs/gate-baseline*.txt
+# 判据与欠账清单是可追溯证据，随基线一起入库。
+!logs/gate-baseline-master-debt.md
+!logs/batch1-diag-criteria.md
 app/rdc-control-logs/
 rdc-control-logs/
 tmp/

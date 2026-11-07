@@ -17,6 +17,7 @@ description = "RDC 视频编解码抽象与平台硬件后端"
 [dependencies]
 rdc-protocol = { workspace = true }
 rdc-runtime = { workspace = true }
+rdc-diag = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 

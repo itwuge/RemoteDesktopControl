@@ -23,3 +23,16 @@ mod session_service;
 mod wall_service;
 // 该文件由 flutter_rust_bridge_codegen 生成，勿手工编辑。
 mod frb_generated;
+
+// =====** 诊断初始化 =====**
+
+/// 进程内唯一的诊断 guard；Flutter 进程的 Rust 侧没有 `main`，
+/// 因此把首次 FFI 调用当作进程入口（docs/16 §2.6）。
+static DIAG_GUARD: std::sync::OnceLock<rdc_diag::LogGuard> = std::sync::OnceLock::new();
+
+/// 幂等初始化诊断日志；重复调用不会重复注册 subscriber。
+pub(crate) fn ensure_diagnostics() {
+    let guard = DIAG_GUARD.get_or_init(|| rdc_diag::init("bridge"));
+    // 初始化后立刻冲刷一次启动行，保证随后崩溃也能留下入口证据。
+    guard.flush();
+}

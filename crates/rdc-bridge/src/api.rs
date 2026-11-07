@@ -72,6 +72,8 @@ pub fn platform_name() -> String {
 /// # Errors
 /// 不会失败。
 pub fn bridge_status() -> String {
+    // Rust 侧无 main，首次 FFI 调用即进程入口：在这里幂等初始化诊断日志。
+    crate::ensure_diagnostics();
     // 这是 S1 的最小闭环验证点：Dart 侧拿到 "OK" 即代表动态库装载、符号解析均成功。
     "OK".to_owned()
 }
@@ -86,6 +88,8 @@ pub fn bridge_status() -> String {
 /// # Errors
 /// 不会失败；单项失败以文本标注，不抛错。
 pub fn doctor_report() -> Vec<String> {
+    // doctor 是显式诊断入口，必须保证日志系统已就绪。
+    crate::ensure_diagnostics();
     rdc_core::run_doctor().iter().map(|check| check.line()).collect()
 }
 
