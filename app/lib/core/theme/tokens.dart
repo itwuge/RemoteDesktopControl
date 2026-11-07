@@ -58,6 +58,17 @@ class RdcTokens {
   /// 大区块间距 28。
   static const spaceXl = 28.0;
 
+  /// 中段间距 16。
+  static const spaceLg = 16.0;
+
+  // =====** 控件尺寸 =====**
+
+  /// 列表/工具栏按钮统一高度 36（S5-2 界面规矩）。
+  static const controlHeight = 36.0;
+
+  /// 页面内容最大宽度（上下单栏，不做左右分栏）。
+  static const pageMaxWidth = 1100.0;
+
   // =====** 圆角 =====**
 
   /// 卡片圆角 16。

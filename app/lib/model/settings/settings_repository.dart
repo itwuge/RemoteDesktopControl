@@ -1,26 +1,30 @@
 // ============================================================
-// 文件用途：设置持久化仓库（纯 Dart 文件读写，不依赖插件）
+// 文件用途：设置持久化仓库（优先走 Rust 原子写，Dart 文件写作为回退）
 //
 // 层级：model（数据持久化边界）
-// 被谁调用：controller/settings_controller.dart
+// 被谁调用：controller/settings_controller.dart、controller/permission_controller.dart
 //
-// 说明：S1 使用 dart:io 直接写入平台配置目录，避免引入 path_provider 插件
-//       （本机未开启 Windows 开发者模式，插件工程无法生成符号链接）。
-//       移动端目录在 S2 接入正式存储方案，见 docs/决策待办.md。
+// 说明：S5-2 起设置读写经 FRB 收口到 Rust（rdc-core `s5::settings`，临时文件 + rename）；
+//       Rust 不可用时仍用 dart:io 写同一路径，保证应用不会因桥接故障丢失设置。
 // ============================================================
 
 import 'dart:convert';
 import 'dart:io';
 
+import '../gateway/rust_gateway.dart';
+import '../gateway/rust_types.dart';
 import '../settings/app_settings_model.dart';
 
 /// 设置文件读写。
 class SettingsRepository {
-  /// 创建仓库；[baseDirectory] 仅测试注入，生产为 `null`。
-  SettingsRepository({this.baseDirectory});
+  /// 创建仓库；[baseDirectory] 仅测试注入，[gateway] 为生产 FFI 通道。
+  SettingsRepository({this.baseDirectory, this.gateway});
 
   /// 测试用目录覆盖。
   final String? baseDirectory;
+
+  /// Rust 设置读写通道；初始化前或测试中为 `null`。
+  final RustGateway? gateway;
 
   /// 设置文件名。
   static const _fileName = 'settings.json';
@@ -28,10 +32,19 @@ class SettingsRepository {
   /// 返回设置文件绝对路径。
   String get filePath => '${_configDirectory()}${Platform.pathSeparator}$_fileName';
 
-  /// 读取设置；文件不存在或损坏时回落到默认值。
+  /// 读取设置。
   ///
-  /// 为什么吞掉解析异常：设置损坏不应阻止应用启动，用户可在设置页重新保存覆盖。
+  /// 优先调用 Rust（原子读，字段净化）；桥接不可用时回落到 Dart 文件读取。
+  /// 文件不存在或损坏时回落到默认值，避免设置损坏阻止应用启动。
   Future<AppSettings> load() async {
+    final rust = gateway;
+    if (rust != null && rust.isInitialized) {
+      try {
+        return _fromSnapshot(await rust.loadSettings());
+      } catch (_) {
+        // 桥接异常不阻塞启动，继续走本地文件。
+      }
+    }
     try {
       final file = File(filePath);
       if (!await file.exists()) return const AppSettings.defaults();
@@ -47,8 +60,17 @@ class SettingsRepository {
   /// 保存设置。
   ///
   /// 返回：`true` 表示写入成功；失败时调用方负责提示用户。
-  /// 实现：先写临时文件再原子替换，避免断电/崩溃留下半截 JSON。
+  /// 优先 Rust 原子写；失败则回退 Dart 的「临时文件 + rename」，两者路径一致。
   Future<bool> save(AppSettings settings) async {
+    final rust = gateway;
+    if (rust != null && rust.isInitialized) {
+      try {
+        await rust.saveSettings(_toSnapshot(settings, filePath));
+        return true;
+      } catch (_) {
+        // 继续走 Dart 回退。
+      }
+    }
     try {
       final dir = Directory(_configDirectory());
       await dir.create(recursive: true);
@@ -63,6 +85,69 @@ class SettingsRepository {
     } catch (_) {
       return false;
     }
+  }
+
+  /// Rust 快照转设置模型。
+  AppSettings _fromSnapshot(SettingsSnapshot snapshot) {
+    return AppSettings(
+      allowRelay: snapshot.allowRelay,
+      relayAddress: snapshot.relayAddress,
+      connectionPolicy: switch (snapshot.connectionPolicy) {
+        'ask_then_fallback' => ConnectionPolicy.askThenFallback,
+        'auto_fallback' => ConnectionPolicy.autoFallback,
+        _ => ConnectionPolicy.strictP2p,
+      },
+      orientation: switch (snapshot.orientation) {
+        'landscape' => OrientationPolicy.landscape,
+        'portrait' => OrientationPolicy.portrait,
+        _ => OrientationPolicy.followController,
+      },
+      fileBandwidthRatio: snapshot.fileBandwidthRatio,
+      videoWidth: snapshot.videoWidth,
+      videoHeight: snapshot.videoHeight,
+      videoFps: snapshot.videoFps,
+      videoBitrateMbps: snapshot.videoBitrateMbps,
+      autoReconnect: snapshot.autoReconnect,
+      remoteAccessEnabled: snapshot.remoteAccessEnabled,
+      concurrentMode: snapshot.concurrentMode,
+      takeoverPolicy: snapshot.takeoverPolicy,
+      takeoverTimeoutS: snapshot.takeoverTimeoutS,
+      permissionTemplate: snapshot.permissionTemplate,
+      permissionBits: snapshot.permissionBits,
+      localNotice: snapshot.localNotice,
+      auditRetentionDays: snapshot.auditRetentionDays,
+      localPairPolicy: snapshot.localPairPolicy,
+      sameAccountPolicy: snapshot.sameAccountPolicy,
+      passwordlessPolicy: snapshot.passwordlessPolicy,
+    );
+  }
+
+  /// 设置模型转 Rust 快照。
+  SettingsSnapshot _toSnapshot(AppSettings settings, String path) {
+    return SettingsSnapshot(
+      allowRelay: settings.allowRelay,
+      relayAddress: settings.relayAddress,
+      connectionPolicy: connectionPolicyToWire(settings.connectionPolicy),
+      orientation: orientationToWire(settings.orientation),
+      fileBandwidthRatio: settings.fileBandwidthRatio,
+      videoWidth: settings.videoWidth,
+      videoHeight: settings.videoHeight,
+      videoFps: settings.videoFps,
+      videoBitrateMbps: settings.videoBitrateMbps,
+      autoReconnect: settings.autoReconnect,
+      remoteAccessEnabled: settings.remoteAccessEnabled,
+      concurrentMode: settings.concurrentMode,
+      takeoverPolicy: settings.takeoverPolicy,
+      takeoverTimeoutS: settings.takeoverTimeoutS,
+      permissionTemplate: settings.permissionTemplate,
+      permissionBits: settings.permissionBits,
+      localNotice: settings.localNotice,
+      auditRetentionDays: settings.auditRetentionDays,
+      localPairPolicy: settings.localPairPolicy,
+      sameAccountPolicy: settings.sameAccountPolicy,
+      passwordlessPolicy: settings.passwordlessPolicy,
+      filePath: path,
+    );
   }
 
   /// 计算平台配置目录。

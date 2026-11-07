@@ -113,6 +113,32 @@ class SettingsController {
     settings.value = settings.value.copyWith(fileBandwidthRatio: clamped);
   }
 
+  /// 设置主码流分辨率预设。
+  ///
+  /// [width] / [height] 为偶数；越界交给 Rust 端净化，这里只挡负数。
+  void setVideoSize(int width, int height) {
+    if (width <= 0 || height <= 0) return;
+    settings.value =
+        settings.value.copyWith(videoWidth: width, videoHeight: height);
+  }
+
+  /// 设置主码流帧率（15/30/60）。
+  void setVideoFps(int fps) {
+    if (fps <= 0) return;
+    settings.value = settings.value.copyWith(videoFps: fps);
+  }
+
+  /// 设置主码流码率（Mbps）。
+  void setVideoBitrate(double mbps) {
+    if (mbps <= 0) return;
+    settings.value = settings.value.copyWith(videoBitrateMbps: mbps);
+  }
+
+  /// 设置断线自动重连。
+  void setAutoReconnect(bool value) {
+    settings.value = settings.value.copyWith(autoReconnect: value);
+  }
+
   /// 保存到磁盘。
   ///
   /// 返回：无返回值；结果写入 [message]，供 view 显示 SnackBar。
