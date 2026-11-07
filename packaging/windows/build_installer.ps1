@@ -112,6 +112,16 @@ if (-not (Test-Path $ReleaseDir)) {
 Copy-Item (Join-Path $RepoRoot "target\release\rdc_bridge.dll") $ReleaseDir -Force
 Copy-Item (Join-Path $RepoRoot "target\release\rdc-cli.exe") $ReleaseDir -Force
 
+# AMF 原生编码 shim：bridge 运行时用 LoadLibrary 动态加载，缺它只能回退 MFT。
+# AMF 运行库（amfrt64.dll）由显卡驱动提供，不随包分发；rdc-amf.dll 是本仓库自建产物。
+$amfShim = Join-Path $RepoRoot "target\amf\rdc-amf.dll"
+if (Test-Path $amfShim) {
+    Copy-Item $amfShim $ReleaseDir -Force
+    Write-Host "[packaging/windows] AMF shim：rdc-amf.dll ($((Get-Item $amfShim).Length) B)"
+} else {
+    Write-Warning "缺少 target\amf\rdc-amf.dll：本次产物的编码器只能是 MFT。先运行 crates/rdc-codec/shim/build_amf.ps1"
+}
+
 # =====** VC++ 运行库（app-local 部署） =====**
 # 依据 dumpbin /dependents：rdc.exe 需要 MSVCP140 / VCRUNTIME140 / VCRUNTIME140_1，
 # rdc_bridge.dll 需要 VCRUNTIME140；flutter_windows.dll 静态链接 CRT，不需要额外 DLL。
