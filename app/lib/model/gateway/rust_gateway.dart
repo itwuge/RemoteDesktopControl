@@ -510,6 +510,7 @@ class RustGateway {
       pointerEvents: dto.pointerEvents.toInt(),
       keyEvents: dto.keyEvents.toInt(),
       wheelEvents: dto.wheelEvents.toInt(),
+      textEvents: dto.textEvents.toInt(),
       keysDown: dto.keysDown.toInt(),
       lastX: dto.lastX,
       lastY: dto.lastY,

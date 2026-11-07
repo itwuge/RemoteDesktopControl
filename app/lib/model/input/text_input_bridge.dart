@@ -19,6 +19,12 @@ const int kMaxTextEventBytes = 1348;
 /// 单次可删除的 UTF-16 码元上限（协议字段为 u16）。
 const int kMaxDeleteUnits = 65535;
 
+/// 文本事件能力位（与 `crates/rdc-protocol/src/capabilities.rs` 的
+/// `bits::TEXT_INPUT = 1 << 13` 保持一致）。
+///
+/// 协商结果没有该位时，本地输入法只保留组合与候选，不把文本发往远端。
+const int kTextInputCapabilityBit = 1 << 13;
+
 // =====** TextEdit =====**
 
 /// 一次远端文本编辑：先删除 [deleteUnits] 个 UTF-16 码元，再插入 [insert]。

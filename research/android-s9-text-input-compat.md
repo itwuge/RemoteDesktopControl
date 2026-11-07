@@ -39,16 +39,26 @@
 - `KNOWN_BITS` 从 `(1<<13)-1` 扩展为 `(1<<14)-1`。
 - 协商规则不变：双方按位与。任一端没有 bit13 时，文本事件**不得发送**，发送端退回逐扫描码键盘路径（英文可用，中文不可用）。
 
+### 2.1 `Capabilities::DEFAULT` 故意不含 bit13
+
+`Capabilities::DEFAULT` 仍是 `HEVC | TEMPORAL | CLIPBOARD | FILE_TRANSFER`（`capabilities.rs:69`），**没有**加 `TEXT_INPUT`。原因是这个常量同时被 Windows / Linux 注册路径复用，而 Linux 注入端对 `InputEvent::Text` 返回 `Unsupported`（`platform/linux.rs`）；若并入默认值，Linux 主机会声明一个无法兑现的能力。
+
+因此：**现有 Windows 主控端即使升级到本分支代码，也不会自动声明文本能力**；要启用必须在注册时显式 `Capabilities::DEFAULT.with(bits::TEXT_INPUT, true)`（Windows 注入端已实现）。当前仓库没有这条注册调用点，属于「缺协议/缺接线」，见 TESTPLAN 阶段 3 收尾清单。
+
 ## 3. 旧客户端收到新消息时的行为
 
 | 场景 | 旧客户端行为 | 后果 |
 |---|---|---|
 | 旧注入端收到 tag4 文本事件 | `decode_event` 对未知 tag 返回 `InputError::MalformedPayload` | 该事件被丢弃并记账（`rejected`/错误字符串），**不会崩溃、不会误解为其它事件** |
-| 旧客户端读注册报文里的 bit13 | 位图解析保留原值；`has_unknown_bits()` 返回 true 并只记告警 | 会话继续，旧端不启用文本能力 |
-| 旧客户端协商 | `negotiate` 会把 bit13 裁掉（`KNOWN_BITS` 不含它） | 新端看到协商结果无 bit13，不会发送文本 |
+| 旧客户端读注册报文里的 bit13 | 位图解析保留原值；`has_unknown_bits()` 返回 true；当前仓库没有调用该判定（只提供 API） | 会话继续，旧端不启用文本能力 |
+| 旧客户端协商 | `negotiate` 会把 bit13 裁掉（旧二进制的 `KNOWN_BITS = (1<<13)-1`） | 新端看到协商结果无 bit13，不会发送文本 |
 | 新客户端收到旧端（无 bit13） | 协商结果无 bit13 | 新端不发送文本事件，输入法退化为扫描码 |
+| **Windows 主控端（现有二进制）连新 Android 被控端** | 旧 `KNOWN_BITS` 不认识 bit13：`has_unknown_bits()` 只是告警，`negotiate` 按位与后丢掉 bit13；解码 tag 不受影响 | **不会误判为其它能力**，不会崩溃；只是协商不出文本，主控端继续用扫描码键盘 |
+| **新版 Windows 主控端连旧 Android 客户端** | 新版 `DEFAULT` 仍无 bit13，故上报位图与旧版一致（低 13 位不变） | 旧客户端看到的能力集完全不变，行为零变化 |
+| **旧版 Windows 主控端 + 新 Android 客户端** | 主控端不声明 bit13；Android 只按协商结果门控（`SessionController.setNegotiatedCapabilities`） | Android 不发 tag4；旧主控端不需要认识新事件 |
+| **新版 Windows 主控端（显式 opt-in）+ 新 Android 客户端** | 双方都置 bit13，协商保留 | 文本事件启用；这是唯一会真正发送 tag4 的组合 |
 
-**结论**：新增消息类型 + 能力位是向后兼容的“软升级”；旧端不会因为新端发文本而崩溃，但旧端**不能**处理中文输入。
+**结论**：新增消息类型 + 能力位是向后兼容的“软升级”；旧端不会因为新端发文本而崩溃，也不会把 bit13 误判成其它能力，但旧端**不能**处理中文输入。默认配置下（含现有 Windows 主控端）文本能力是关闭的，必须两端都显式 opt-in。
 
 ## 4. 发送端实现要点（Android）
 

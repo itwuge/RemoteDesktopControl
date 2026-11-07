@@ -55,7 +55,8 @@ class H264Decoder(
     private var codec: MediaCodec? = null
     private var sps: ByteArray? = null
     private var pps: ByteArray? = null
-    private var keyFrameOnly = true
+    /// 首个 IDR 门控（纯逻辑，JVM 单测覆盖）。
+    private val gate = FrameGate()
     private var paused = false
     private var released = false
     private val pending = ArrayDeque<FeedChunk>()
@@ -151,7 +152,7 @@ class H264Decoder(
             decoder.fps = fps.coerceIn(1, 240)
             if (decoder.codec != null) {
                 decoder.releaseCodec()
-                decoder.keyFrameOnly = true
+                decoder.gate.reset()
             }
         }, "configure")
     }
@@ -177,7 +178,7 @@ class H264Decoder(
     fun resume() {
         submit({ decoder ->
             decoder.paused = false
-            decoder.keyFrameOnly = true
+            decoder.gate.reset()
         }, "resume")
     }
 
@@ -303,23 +304,19 @@ class H264Decoder(
         val keyFrame = AnnexBParser.isKeyFrame(units)
 
         // 关键帧之前的数据喂进去只会花屏，直接丢到下一个 IDR。
-        if (keyFrameOnly && !keyFrame) {
+        if (!gate.accept(keyFrame)) {
             dropped += 1
             return
-        }
-        if (keyFrame) {
-            keyFrameOnly = false
         }
 
         // 队列过深说明消费跟不上：丢到下一个 IDR，宁可花一次也不让延迟累积。
         if (pending.size >= MAX_PENDING_FRAMES) {
             dropped += 1
-            keyFrameOnly = true
             pending.clear()
-            if (!keyFrame) {
+            gate.reset()
+            if (!gate.accept(keyFrame)) {
                 return
             }
-            keyFrameOnly = false
         }
 
         ensureCodec()

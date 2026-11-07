@@ -7,22 +7,48 @@
 // ============================================================
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 
 import '../core/utils/logger.dart';
 import '../model/gateway/rust_gateway.dart';
 import '../model/gateway/rust_types.dart';
+import '../model/input/text_input_bridge.dart';
+import '../model/video/android_video_decoder.dart';
+import '../model/video/annexb.dart';
+import '../model/video/video_frame_channel.dart';
 
 /// 远程控制状态与行为。
+///
+/// 平台分叉原则：会话/输入/收尾骨架只有一份；Android 只替换「画面来源」
+/// （MediaCodec 外部纹理 + Annex-B 通道），Windows/Linux 继续走 Rust 回环管线。
 class SessionController {
   /// 创建控制器。
   ///
   /// [gateway] 由 main.dart 注入。
-  SessionController({required this.gateway});
+  /// [decoderFactory] / [videoChannel] / [androidMode] 只用于宿主单测注入；
+  /// 生产环境保持 `null`，由平台与默认实现决定。
+  SessionController({
+    required this.gateway,
+    AndroidVideoDecoder Function()? decoderFactory,
+    VideoFrameChannel? videoChannel,
+    bool? androidMode,
+  }) : _decoderFactory = decoderFactory ?? AndroidVideoDecoder.new,
+       videoChannel = videoChannel ?? VideoFrameChannel(),
+       _android = androidMode ?? Platform.isAndroid;
 
   /// FFI 网关。
   final RustGateway gateway;
+
+  /// 视频字节通道：传输层或离线测试源推入 Annex-B。
+  final VideoFrameChannel videoChannel;
+
+  /// 是否运行 Android 画面分支。
+  final bool _android;
+
+  /// 解码器工厂（每个会话一个实例）。
+  final AndroidVideoDecoder Function() _decoderFactory;
 
   /// 当前角色（controller / viewer）。
   final ValueNotifier<String> role = ValueNotifier('controller');
@@ -85,6 +111,53 @@ class SessionController {
   /// 是否正在启动（防止重复进入）。
   bool _starting = false;
 
+  // =====** Android 视频分支状态 =====**
+
+  /// 当前会话的 Android 解码器；`null` 表示未接通。
+  AndroidVideoDecoder? _decoder;
+
+  /// 视频通道订阅。
+  StreamSubscription<Uint8List>? _videoSubscription;
+
+  /// 视频推入串行链：保证 Annex-B 单元按切分顺序抵达平台通道。
+  Future<void> _videoChain = Future<void>.value();
+
+  /// Annex-B 访问单元切分器（状态：等待配对的 SPS/PPS）。
+  final AnnexBFrameParser _annexBParser = AnnexBFrameParser();
+
+  /// 首个关键帧门控（IDR 前不向解码器投递）。
+  final AnnexBGate _annexBGate = AnnexBGate();
+
+  /// 已下发给解码器的尺寸，避免每秒重复 `configure`。
+  int _configuredWidth = 0;
+
+  /// 已下发的视频高。
+  int _configuredHeight = 0;
+
+  /// 已下发的视频帧率。
+  int _configuredFps = 60;
+
+  /// 是否已尝试启动输入（Android 尺寸未就绪时延后，避免每秒重试）。
+  bool _inputStartAttempted = false;
+
+  /// 远端文本输入客户端；Android 输入法经它进入统一输入链。
+  RemoteTextInput? _textInput;
+
+  /// 协商结果是否含文本能力位（`TEXT_INPUT = bit13`）。
+  bool _textInputEnabled = false;
+
+  /// 当前可用的远端文本输入客户端（单测与页面入口使用）。
+  RemoteTextInput? get textInput => _textInput;
+
+  /// 是否允许发送文本事件（能力位已协商且输入通道已运行）。
+  bool get canSendText => _textInputEnabled && _inputRunning;
+
+  /// 等待视频推入链排空（暂停/收尾与单测使用）。
+  Future<void> get videoIdle => _videoChain;
+
+  /// 等待输入串行链排空（收尾与单测使用）。
+  Future<void> get inputIdle => _inputChain;
+
   /// 查询角色权限（真实调用 Rust 授权模块）。
   ///
   /// 返回：无返回值；结果写入三个角色通知器。
@@ -118,30 +191,28 @@ class SessionController {
     _starting = true;
     previewError.value = null;
     try {
-      final info = await gateway.startControlPreview();
-      final id = await gateway.registerControlTexture(info);
-      preview.value = info;
-      // Linux 无外部纹理，Rust 端以 `rgba-frame` 标明走降级通道。
-      final rgbaFallback = id == null && info.texturePath == 'rgba-frame';
-      RdcLogger.log(
-        'SessionController',
-        '画面通道 textureId=$id path=${info.texturePath} '
-            '${info.width}x${info.height} backend=${info.backend}',
-      );
-      if (id != null) {
-        textureId.value = id;
-      } else if (rgbaFallback) {
-        _lastFrameId = 0;
-        _startFramePolling();
+      // 平台分叉只发生在「画面来源」这一层；会话、输入与轮询骨架共用。
+      if (_android) {
+        await _startAndroidVideo();
       } else {
-        previewError.value = '外部纹理注册失败（非 Windows 或 runner 未挂载通道）';
-        await gateway.stopControlPreview();
+        await _startDesktopPreview();
+      }
+      if (previewError.value != null &&
+          textureId.value == null &&
+          frame.value == null) {
         return;
       }
       // 画面接通后建立会话链路：bye 握手与资源清理都挂在会话生命周期上。
       await _startSession();
+      final info = preview.value;
       // 画面接通后才启动输入通道：没有画面就没有可靠的坐标映射。
-      await _startInput(info);
+      // Android 首帧前的尺寸可能为 0，交给 `_refreshStatus` 在拿到尺寸后再启动。
+      if (info != null) {
+        await _startInput(info);
+      }
+      if (_android) {
+        _ensureTextInput();
+      }
       _statusTimer?.cancel();
       _statusTimer = Timer.periodic(
         const Duration(seconds: 1),
@@ -149,6 +220,9 @@ class SessionController {
       );
     } catch (error, stackTrace) {
       previewError.value = '$error';
+      if (_android) {
+        await _stopAndroidVideo();
+      }
       RdcLogger.log(
         'SessionController',
         '真实画面启动失败',
@@ -159,6 +233,141 @@ class SessionController {
     } finally {
       _starting = false;
     }
+  }
+
+  /// Windows/Linux：Rust 采集编码 → 共享纹理（Windows）或 RGBA 帧（Linux）。
+  Future<void> _startDesktopPreview() async {
+    final info = await gateway.startControlPreview();
+    final id = await gateway.registerControlTexture(info);
+    preview.value = info;
+    // Linux 无外部纹理，Rust 端以 `rgba-frame` 标明走降级通道。
+    final rgbaFallback = id == null && info.texturePath == 'rgba-frame';
+    RdcLogger.log(
+      'SessionController',
+      '画面通道 textureId=$id path=${info.texturePath} '
+          '${info.width}x${info.height} backend=${info.backend}',
+    );
+    if (id != null) {
+      textureId.value = id;
+    } else if (rgbaFallback) {
+      _lastFrameId = 0;
+      _startFramePolling();
+    } else {
+      previewError.value = '外部纹理注册失败（非 Windows 或 runner 未挂载通道）';
+      await gateway.stopControlPreview();
+    }
+  }
+
+  /// Android：创建 MediaCodec 外部纹理，并订阅 Annex-B 视频通道。
+  ///
+  /// 返回：无返回值；`textureId` 非空后页面用现有 `Texture` 组件消费。
+  Future<void> _startAndroidVideo() async {
+    final decoder = _decoderFactory();
+    _decoder = decoder;
+    final id = await decoder.create();
+    textureId.value = id;
+    final stream = videoChannel.info;
+    if (stream != null) {
+      await _configureAndroidDecoder(stream);
+    }
+    final stats = await decoder.stats();
+    _updateAndroidPreview(stats);
+    _annexBParser.reset();
+    _annexBGate.reset();
+    _videoSubscription = videoChannel.frames.listen(
+      _onVideoBytes,
+      onError: (Object error, StackTrace stackTrace) {
+        RdcLogger.log(
+          'SessionController',
+          '视频通道错误',
+          level: LogLevel.error,
+          error: error,
+          stackTrace: stackTrace,
+        );
+      },
+    );
+    RdcLogger.log(
+      'SessionController',
+      'Android 画面通道 textureId=$id '
+          '${stream?.width ?? 0}x${stream?.height ?? 0}',
+    );
+  }
+
+  /// 仅在流元数据变化时下发 `configure`（不重建 textureId）。
+  Future<void> _configureAndroidDecoder(VideoStreamInfo stream) async {
+    final decoder = _decoder;
+    if (decoder == null || stream.width <= 0 || stream.height <= 0) {
+      return;
+    }
+    if (stream.width == _configuredWidth &&
+        stream.height == _configuredHeight &&
+        stream.fps == _configuredFps) {
+      return;
+    }
+    await decoder.configure(
+      width: stream.width,
+      height: stream.height,
+      fps: stream.fps,
+    );
+    _configuredWidth = stream.width;
+    _configuredHeight = stream.height;
+    _configuredFps = stream.fps;
+  }
+
+  /// 收到一段 Annex-B 字节：切分 → IDR 门控 → 串行推给平台解码器。
+  void _onVideoBytes(Uint8List bytes) {
+    final decoder = _decoder;
+    if (decoder == null) {
+      return;
+    }
+    for (final unit in _annexBParser.push(bytes)) {
+      if (!_annexBGate.accept(unit)) {
+        continue;
+      }
+      _videoChain = _videoChain.then((_) async {
+        try {
+          await decoder.push(unit.data);
+        } catch (error, stackTrace) {
+          RdcLogger.log(
+            'SessionController',
+            '视频帧推入失败',
+            level: LogLevel.error,
+            error: error,
+            stackTrace: stackTrace,
+          );
+        }
+      });
+    }
+  }
+
+  /// 把解码器统计映射成页面需要的画面快照。
+  void _updateAndroidPreview(VideoDecodeStats stats) {
+    preview.value = ControlPreviewInfo(
+      running: stats.textureId >= 0,
+      backend: 'android',
+      encoder: 'remote',
+      decoder: stats.codec.isEmpty ? 'mediacodec' : stats.codec,
+      texturePath: 'surface-producer',
+      decodePath: 'mediacodec-surface',
+      width: stats.width,
+      height: stats.height,
+      fps: stats.fps,
+      capturedFrames: 0,
+      encodedFrames: 0,
+      decodedFrames: stats.decoded,
+      droppedFrames: stats.dropped,
+      encodedBytes: 0,
+      bitrateKbps: 0,
+      latencyLastUs: stats.latencyP50Us,
+      latencyP50Us: stats.latencyP50Us,
+      latencyP99Us: stats.latencyP99Us,
+      readbackCount: 0,
+      shareHandleA: 0,
+      shareHandleB: 0,
+      eventA: 0,
+      eventB: 0,
+      lastError: stats.lastError.isEmpty ? null : stats.lastError,
+    );
   }
 
   /// 启动 RGBA 帧轮询（约 30Hz，按需丢弃重复帧）。
@@ -212,19 +421,51 @@ class SessionController {
     _statusTimer?.cancel();
     _statusTimer = null;
     _stopFramePolling();
-    try {
-      await gateway.unregisterControlTexture();
-    } catch (error) {
-      RdcLogger.log('SessionController', '注销纹理失败: $error');
+    _detachTextInput();
+    if (_android) {
+      await _stopAndroidVideo();
+    } else {
+      try {
+        await gateway.unregisterControlTexture();
+      } catch (error) {
+        RdcLogger.log('SessionController', '注销纹理失败: $error');
+      }
     }
     await _stopInput();
-    try {
-      await gateway.stopControlPreview();
-    } catch (error) {
-      RdcLogger.log('SessionController', '停止画面管线失败: $error');
+    if (!_android) {
+      try {
+        await gateway.stopControlPreview();
+      } catch (error) {
+        RdcLogger.log('SessionController', '停止画面管线失败: $error');
+      }
     }
     textureId.value = null;
     preview.value = null;
+  }
+
+  /// 释放 Android 解码器、视频订阅与切分状态（幂等）。
+  Future<void> _stopAndroidVideo() async {
+    await _videoSubscription?.cancel();
+    _videoSubscription = null;
+    _annexBParser.reset();
+    _annexBGate.reset();
+    try {
+      await _videoChain;
+    } catch (_) {
+      // 链内已记录，收尾继续。
+    }
+    final decoder = _decoder;
+    _decoder = null;
+    _configuredWidth = 0;
+    _configuredHeight = 0;
+    _configuredFps = 60;
+    if (decoder != null) {
+      try {
+        await decoder.dispose();
+      } catch (error) {
+        RdcLogger.log('SessionController', '释放 Android 解码器失败: $error');
+      }
+    }
   }
 
   /// 建立会话链路；失败只记录，不阻断画面与输入。
@@ -252,12 +493,17 @@ class SessionController {
     _statusTimer?.cancel();
     _statusTimer = null;
     _stopFramePolling();
+    _detachTextInput();
     // 顺序要求：输入先排空、纹理先注销，Rust 才停采集与解码。
     await _stopInput();
-    try {
-      await gateway.unregisterControlTexture();
-    } catch (error) {
-      RdcLogger.log('SessionController', '注销纹理失败: $error');
+    if (_android) {
+      await _stopAndroidVideo();
+    } else {
+      try {
+        await gateway.unregisterControlTexture();
+      } catch (error) {
+        RdcLogger.log('SessionController', '注销纹理失败: $error');
+      }
     }
     SessionTeardownInfo? report;
     try {
@@ -281,6 +527,11 @@ class SessionController {
 
   /// 启动输入通道；失败时只记录错误，不影响画面。
   Future<void> _startInput(ControlPreviewInfo info) async {
+    // Android 首帧前尺寸可能为 0：等 `_refreshStatus` 拿到有效尺寸后再启动。
+    if (_android && (info.width <= 0 || info.height <= 0)) {
+      return;
+    }
+    _inputStartAttempted = true;
     try {
       inputStats.value = await gateway.startInput(
         width: info.width,
@@ -303,6 +554,7 @@ class SessionController {
 
   /// 停止输入通道：先排空串行链，再让 Rust 抬起所有键/钮并返回收尾统计。
   Future<void> _stopInput() async {
+    _inputStartAttempted = false;
     if (!_inputRunning) return;
     _inputRunning = false;
     try {
@@ -340,6 +592,68 @@ class SessionController {
     });
   }
 
+  // =====** 文本/IME 接线 =====**
+
+  /// 写入协商结果的能力位；bit13 未置位时立即停发文本。
+  ///
+  /// 参数 [bits]：双方 `Capabilities::negotiate` 后的位图（Dart 只关心 bit13）。
+  void setNegotiatedCapabilities(int bits) {
+    final enabled = (bits & kTextInputCapabilityBit) != 0;
+    if (!enabled) {
+      _detachTextInput();
+    }
+    _textInputEnabled = enabled;
+    RdcLogger.log(
+      'SessionController',
+      '文本能力位 ${enabled ? '已协商' : '未协商'}（bits=0x${bits.toRadixString(16)}）',
+    );
+  }
+
+  /// 创建远端文本框（幂等）；只接线，不自动弹软键盘。
+  void _ensureTextInput() {
+    if (!_android) {
+      return;
+    }
+    _textInput ??= RemoteTextInput(onEdit: _onTextEdit);
+  }
+
+  /// 显示软键盘（页面入口调用）；能力位未协商时静默不弹。
+  void showTextInput() {
+    if (!canSendText) {
+      return;
+    }
+    _ensureTextInput();
+    _textInput?.attach();
+  }
+
+  /// 收起软键盘（不发编辑）。
+  void hideTextInput() {
+    _textInput?.detach();
+  }
+
+  /// 清空本地编辑缓存（远端窗口切换时调用）。
+  void resetTextInput() {
+    _textInput?.reset();
+  }
+
+  /// 断开输入法并丢弃客户端；会话结束时调用。
+  void _detachTextInput() {
+    _textInput?.detach();
+    _textInput = null;
+  }
+
+  /// 输入法分段事件 → 统一输入链。
+  ///
+  /// 能力位为 0 时**不发送**：这时保留本地组合/候选，远端退回扫描码键盘。
+  void _onTextEdit(TextEdit edit) {
+    if (edit.isNoop || !canSendText) {
+      return;
+    }
+    sendInputEvents([
+      InputEventSpec.text(text: edit.insert, deleteUnits: edit.deleteUnits),
+    ]);
+  }
+
   /// 冲刷挂起的移动（指针抬起后调用，避免末点丢失）。
   void flushInputEvents() {
     if (!_inputRunning) return;
@@ -354,16 +668,45 @@ class SessionController {
 
   /// 刷新一次指标。
   Future<void> _refreshStatus() async {
-    try {
-      preview.value = await gateway.controlPreviewStatus();
-    } catch (error) {
-      RdcLogger.log('SessionController', '读取画面状态失败: $error');
+    if (_android) {
+      await _refreshAndroidVideo();
+    } else {
+      try {
+        preview.value = await gateway.controlPreviewStatus();
+      } catch (error) {
+        RdcLogger.log('SessionController', '读取画面状态失败: $error');
+      }
     }
     if (!_inputRunning) return;
     try {
       inputStats.value = await gateway.inputStats();
     } catch (error) {
       RdcLogger.log('SessionController', '读取输入统计失败: $error');
+    }
+  }
+
+  /// Android 指标来自解码器，而不是 Rust 回环采集端。
+  Future<void> _refreshAndroidVideo() async {
+    final decoder = _decoder;
+    if (decoder == null) {
+      return;
+    }
+    try {
+      final stats = await decoder.stats();
+      _updateAndroidPreview(stats);
+      // 首帧 SPS 解出前宽度为 0；拿到有效尺寸后补启动输入与文本接线。
+      if (!_inputRunning &&
+          !_inputStartAttempted &&
+          stats.width > 0 &&
+          stats.height > 0) {
+        final info = preview.value;
+        if (info != null) {
+          await _startInput(info);
+          _ensureTextInput();
+        }
+      }
+    } catch (error) {
+      RdcLogger.log('SessionController', '读取解码统计失败: $error');
     }
   }
 
@@ -428,10 +771,16 @@ class SessionController {
 
   /// 无通知器写入的管线回收。
   Future<void> _teardown() async {
-    try {
-      await gateway.unregisterControlTexture();
-    } catch (_) {
-      // 窗口关闭路径，忽略失败。
+    _textInput?.detach();
+    _textInput = null;
+    if (_android) {
+      await _stopAndroidVideo();
+    } else {
+      try {
+        await gateway.unregisterControlTexture();
+      } catch (_) {
+        // 窗口关闭路径，忽略失败。
+      }
     }
     try {
       await gateway.sessionDisconnect('窗口关闭');
@@ -448,10 +797,12 @@ class SessionController {
     } catch (_) {
       // 窗口关闭路径，忽略失败。
     }
-    try {
-      await gateway.stopControlPreview();
-    } catch (_) {
-      // 窗口关闭路径，忽略失败。
+    if (!_android) {
+      try {
+        await gateway.stopControlPreview();
+      } catch (_) {
+        // 窗口关闭路径，忽略失败。
+      }
     }
   }
 }

@@ -29,6 +29,17 @@
 | B4 | 横竖屏切换不重建解码器 | 旋转前后解码器实例 ID 不变、画面不黑 |
 | B5 | 稳定性 | 连续 5 分钟不崩；切前后台不崩 |
 
+### 阶段 3 · 接线（本轮先落判据，再实现）
+
+| # | 判据 | 判定方式 |
+|---|---|---|
+| C1 | `SessionController` 与 Windows 路径共用骨架 | 同一个 `startPreview/stopPreview/endSession/_startInput/_stopInput` 流程；Android 只在 `_startAndroidVideo/_startAndroidInput` 分支分叉，不存在第二份 session 状态机 |
+| C2 | Android 分支创建 `textureId` 并交给现有 `Texture` | 宿主单测用 mock 通道：`create` 返回纹理号，`controller.textureId.value` 等于该值；`session_page.dart` 不改布局 |
+| C3 | 视频通道 Annex-B 帧被切分后推给 `AndroidVideoDecoder.push` | 离线码流（内嵌 SPS/PPS/IDR/非 IDR）走 `VideoFrameChannel` → 控制器 → mock `push`；断言访问单元切分正确、顺序不变 |
+| C4 | IDR 前不启动解码 | Dart 侧 `AnnexBGate` 丢弃首个 IDR前的非关键帧，mock 不收到这些字节；Kotlin 侧 `FrameGate` 同一判定有 JVM 单测 |
+| C4b | 能力位为 0 时不发文本 | 协商位不含 bit13 时 `RemoteTextInput` 的编辑不进入 `gateway.pushInput`；置位后才产生 `kind=text` 事件 |
+| C5 | 兼容性结论落盘 | `research/android-s9-text-input-compat.md` 表格补 Windows 主控端与旧 Android 客户端两行，且有代码依据（`Capabilities::DEFAULT`/`negotiate`） |
+
 ---
 
 ## 二、阶段 1 实测结果
@@ -114,6 +125,18 @@
 | APK 构建 | `flutter build apk --debug --target-platform android-arm64` **10.4 s**（增量）→ `app/build/app/outputs/flutter-apk/app-debug.apk`，**79,031,817 B**，sha256 `12f8a422250e1a17358b02ff1bc8dff4cb57879a4ef647826ec31fd1d353e61b` |
 | APK 内容 | `unzip -l`：`lib/arm64-v8a/librdc_bridge.so` **1,144,608 B**（新协议已打入），`classes*.dex` 含 Kotlin 插件 |
 
+### 2.8 本轮（阶段 3 接线）构建与测试 —— 【已验证】
+
+| 命令 | 结果 |
+|---|---|
+| `flutter analyze` | **No issues found!**（1.6 s，0 条 info/warning） |
+| `flutter test`（全量） | **40/40 通过**（新增 `annexb_test.dart` 5 条、`session_controller_android_test.dart` 5 条） |
+| Kotlin JVM 单测 `:app:testDebugUnitTest` | **BUILD SUCCESSFUL**（`AnnexBParserTest` 9 条 + 新增 `DecoderGateTest` 3 条，无失败） |
+| 离线码流判据 | 宿主单测：非 IDR 先到 → mock `push` 不收到；SPS/PPS/IDR → 推第 1 单元；IDR 后 P 帧 → 推第 2 单元；顺序与 `nalTypes` 均有断言 |
+| 能力位判据 | 宿主单测：默认（无 bit13）输入法提交 → `gateway.pushInput` 0 次；置 bit13 → 1 条 `kind=text`；再撤销 → 0 次 |
+| APK 构建 | `flutter build apk --debug --target-platform android-arm64` **12.2 s**；**94,614,894 B**；sha256 `293ab42fc6db277589bb19d17997ec5cb143e3158893ce89972bfd91292a4068`；`lib/arm64-v8a/librdc_bridge.so` **1,144,608 B** |
+| 未改 Rust | 本轮仅 Dart/Kotlin/文档，未触碰 `crates/`，Rust 测试沿用 2.7 的 75/75 |
+
 ---
 
 ## 三、阶段 2 现状（代码完成，设备侧未验证）
@@ -133,7 +156,18 @@
 - 低延迟：`KEY_LOW_LATENCY`（API 30+）、`KEY_OPERATING_RATE`/`KEY_PRIORITY`（API 23+）；`configure` 失败时自动退回不带低延迟参数的路径并记录 `lastError`。
 - 统计口径：p50/p99 是「入队 → releaseOutputBuffer(render=true)」的本地耗时，**不含网络传输**；无设备时数值无法产生。
 
-**停止点**：阶段 1 完成；阶段 2 的 B1 解码器、B3 文本协议、B4 生命周期代码均已落地并编译/单测通过。下一块起点：把解码器与真实会话传输接线（Dart 侧 `textureId` → 视频通道字节流；文本事件 → 输入通道），并做真机端到端验证。
+### 3.2 阶段 3 现状（接线完成，传输/设备仍缺）
+
+| # | 现状 | 阻塞 |
+|---|---|---|
+| C1 共用骨架 | **已完成**：`SessionController` 只有一份 `startPreview/stopPreview/endSession/_startInput/_stopInput/_refreshStatus`；Android 只分叉 `_startAndroidVideo`，Windows/Linux 保留 `_startDesktopPreview` | 无 |
+| C2 textureId | **已完成（宿主契约）**：`_startAndroidVideo` 调 `AndroidVideoDecoder.create()` 写入 `textureId`；`session_page.dart` 未改，继续用现有 `Texture` | 真机 `Texture` 是否出画面属 D3 |
+| C3 视频字节流 | **Dart 接线已完成**：`VideoFrameChannel` → `AnnexBFrameParser` 切分 → `AnnexBGate` → 串行 `AndroidVideoDecoder.push`；离线码流单测通过 | **真实传输层未实现**：目前没有网络视频通道把被控端码流写进 `VideoFrameChannel`，也没有流元数据（宽/高/fps）来源 |
+| C4 IDR 门控 | **已完成**：Dart `AnnexBGate` + Kotlin `FrameGate`（`H264Decoder` 使用），两侧单测通过 | 真机 MediaCodec 从 IDR 起播的实际表现属 D3 |
+| C4b 文本门控 | **已完成**：`setNegotiatedCapabilities(bits)` 读 bit13；`RemoteTextInput` 编辑默认被挡，置位后才进 `pushInput` | **协商调用点缺失**：传输层尚未把协商位图传给控制器，生产环境默认仍为 0 |
+| C5 兼容结论 | **已完成**：`research/android-s9-text-input-compat.md` §2.1 与 §3 表格补齐（含现有 Windows 主控端、旧 Android 客户端、显式 opt-in 组合） | 无 |
+
+**停止点**：阶段 1、2 完成；阶段 3 的 Dart/Kotlin 接线与宿主判据完成，`flutter analyze` 干净、40/40 Dart 单测、Kotlin 门控单测通过。下一块起点：接入真实视频传输（把网络 Annex-B 与流元数据写入 `VideoFrameChannel`）、把协商位图写入 `SessionController.setNegotiatedCapabilities`，然后进入真机端到端（TESTPLAN 六 D1–D10）。
 
 ---
 

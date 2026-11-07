@@ -519,6 +519,7 @@ class InputStatsInfo {
     required this.pointerEvents,
     required this.keyEvents,
     required this.wheelEvents,
+    required this.textEvents,
     required this.keysDown,
     required this.lastX,
     required this.lastY,
@@ -538,6 +539,7 @@ class InputStatsInfo {
       pointerEvents = 0,
       keyEvents = 0,
       wheelEvents = 0,
+      textEvents = 0,
       keysDown = 0,
       lastX = 0,
       lastY = 0,
@@ -573,6 +575,9 @@ class InputStatsInfo {
 
   /// 滚轮事件数。
   final int wheelEvents;
+
+  /// 文本/IME 事件数。
+  final int textEvents;
 
   /// 当前按下的键数。
   final int keysDown;
