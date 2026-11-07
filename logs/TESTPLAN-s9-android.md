@@ -40,6 +40,19 @@
 | C4b | 能力位为 0 时不发文本 | 协商位不含 bit13 时 `RemoteTextInput` 的编辑不进入 `gateway.pushInput`；置位后才产生 `kind=text` 事件 |
 | C5 | 兼容性结论落盘 | `research/android-s9-text-input-compat.md` 表格补 Windows 主控端与旧 Android 客户端两行，且有代码依据（`Capabilities::DEFAULT`/`negotiate`） |
 
+### 阶段 4 · 真实视频传输（判据先落盘）
+
+| # | 判据 | 判定方式 |
+|---|---|---|
+| D1 | 视频元数据协议落地 | `rdc-protocol::video` 定义 Meta（宽/高/fps/编码/色彩空间/范围/SPS-PPS 策略 + config_id），编解码互转有单测 |
+| D2 | 分片/重组规则明确 | 分片 ≤1352 字节、帧头含 `frame_id`/`pts_us`/`total_len`/`frag_count`；分片乱序可重组；重复分片只留一份 |
+| D3 | 丢包/乱序等下一个 IDR | 帧号空洞后 `needs_keyframe=true`，后续非 IDR 整帧丢弃；新 IDR 到达后恢复，统计 `resyncs` 递增 |
+| D4 | 元数据变化触发重建 | `config_id`/宽高/编码/色彩任一变化 → `ConfigChanged` 事件，清空待重组帧并重新等 IDR |
+| D5 | 桥接订阅 API | `video_ingest`/`video_poll_frame`/`video_stats`/`video_reset` 可用；坏消息只记账不 panic |
+| D6 | Dart 吃到桥接帧 | `pollVideoFrame` 轮询 → `VideoFrameChannel` → 切分 → 门控 → `AndroidVideoDecoder.push`，宿主单测覆盖 |
+| D7 | 协商位回填 | 会话建立后调用 `sessionNegotiatedCapabilities` 并写入 `setNegotiatedCapabilities`；bit13 为 0 时文本不发 |
+| D8 | 端到端判据 | Rust 单测覆盖“协议分片→桥接重组”；Dart 单测覆盖“桥接 DTO→切分→门控→解码器桩”；FFI 边界由 FRB 生成的编译/APK 构建覆盖 |
+
 ---
 
 ## 二、阶段 1 实测结果
@@ -137,6 +150,17 @@
 | APK 构建 | `flutter build apk --debug --target-platform android-arm64` **12.2 s**；**94,614,894 B**；sha256 `293ab42fc6db277589bb19d17997ec5cb143e3158893ce89972bfd91292a4068`；`lib/arm64-v8a/librdc_bridge.so` **1,144,608 B** |
 | 未改 Rust | 本轮仅 Dart/Kotlin/文档，未触碰 `crates/`，Rust 测试沿用 2.7 的 75/75 |
 
+### 2.9 本轮（阶段 4 真实视频传输）构建与测试 —— 【部分已验证，VM 已关机】
+
+| 命令 | 结果 |
+|---|---|
+| `cargo test -p rdc-protocol -p rdc-bridge` | **rdc-protocol 44/44、rdc-bridge 13/13** 全部通过（新增 `video` 协议 7 条、`video_service` 桥接 3 条） |
+| `flutter analyze` | **No issues found!**（1.7 s） |
+| `flutter test`（全量） | **41/41 通过**（新增「桥接轮询：元数据变化触发重配并重置 IDR 门控」1 条） |
+| Kotlin JVM 单测 `:app:testDebugUnitTest` | **BUILD SUCCESSFUL**（Kotlin 未改，命中缓存，9+3 条沿用） |
+| `flutter_rust_bridge_codegen generate` | **Done!**（新增 `sessionLocalCapabilities` / `sessionSetPeerCapabilities` / `sessionNegotiatedCapabilities` / `videoIngest` / `videoPollFrame` / `videoStats` / `videoReset` 与 3 个 DTO；u64 → Dart `BigInt`） |
+| APK 构建 | ⚠️ **不作为通过项**：构建命令成功，但本轮同步时 `rsync --delete` 清空了 `app/android/app/src/main/jniLibs/`，产物未包含重新编出的 `librdc_bridge.so`；随后 VM 关机，无法补编与校验。**上次已验证 APK 仍是阶段 3 的 94,614,894 B / sha256 `293ab42f…`** |
+
 ---
 
 ## 三、阶段 2 现状（代码完成，设备侧未验证）
@@ -167,7 +191,23 @@
 | C4b 文本门控 | **已完成**：`setNegotiatedCapabilities(bits)` 读 bit13；`RemoteTextInput` 编辑默认被挡，置位后才进 `pushInput` | **协商调用点缺失**：传输层尚未把协商位图传给控制器，生产环境默认仍为 0 |
 | C5 兼容结论 | **已完成**：`research/android-s9-text-input-compat.md` §2.1 与 §3 表格补齐（含现有 Windows 主控端、旧 Android 客户端、显式 opt-in 组合） | 无 |
 
-**停止点**：阶段 1、2 完成；阶段 3 的 Dart/Kotlin 接线与宿主判据完成，`flutter analyze` 干净、40/40 Dart 单测、Kotlin 门控单测通过。下一块起点：接入真实视频传输（把网络 Annex-B 与流元数据写入 `VideoFrameChannel`）、把协商位图写入 `SessionController.setNegotiatedCapabilities`，然后进入真机端到端（TESTPLAN 六 D1–D10）。
+### 3.3 阶段 4 现状（协议 + 桥 + Dart 接收完成，传输层仍缺）
+
+| # | 现状 | 阻塞 / 备注 |
+|---|---|---|
+| D1 元数据协议 | **已完成**：`crates/rdc-protocol/src/video.rs` 定义 Meta/Frame/Fragment/Done（0x61–0x64）与 `VideoStreamConfig`；编解码严格校验长度与上限；7 条单测 | 无 |
+| D2 分片/重组 | **已完成**：≤1352 字节分片、`frame_id`/`pts_us`(微秒)/`total_len`/`frag_count`；乱序按 `frag_index` 重排，重复分片留先到 | 无 |
+| D3 丢包等下一个 IDR | **已完成**：帧号空洞置 `needs_keyframe`，非 IDR 整帧丢弃，IDR 到达恢复；`resyncs` 计数；协议层与桥层各有单测 | 真实网络丢包/抖动未实测 |
+| D4 元数据变化重建 | **已完成**：`config_id`/尺寸变化 → `ConfigChanged` 清空槽位；Dart `_applyRemoteConfig` 重建解码器并重置 IDR 门控，单测覆盖 | 真机重建画面未验证 |
+| D5 桥接订阅 API | **已完成**：`video_ingest`/`video_poll_frame`/`video_stats`/`video_reset`（`video_service.rs`，队列上限 8）；坏消息只记账不 panic | 无 |
+| D6 Dart 吃到桥接帧 | **已完成**：8 ms 轮询 → `pollVideoFrame` → `_applyRemoteConfig` → `VideoFrameChannel.push` → `AnnexBFrameParser` → `AnnexBGate` → `AndroidVideoDecoder.push`；宿主单测通过 | 真机解码未验证 |
+| D7 协商位回填 | **已完成**：会话建立后与每秒刷新都调用 `sessionNegotiatedCapabilities()` 写入 `setNegotiatedCapabilities`；`local_capabilities()` 显式 opt-in bit13；单测断言握手后 `canSendText=true`、能力位 0 时不发文本 | **真实握手注册报文尚未接入**：`session_set_peer_capabilities` 没有网络层调用点 |
+| D8 端到端判据 | **部分完成**：Rust 侧「协议分片→桥重组」单测 + Dart 侧「桥 DTO→切分→门控→解码器桩」单测；FFI 边界由 FRB 生成代码的编译通过覆盖 | **APK 重新打包未验证**（VM 关机 + jniLibs 被同步清空） |
+
+**停止点**：阶段 4 的协议、桥接订阅、Dart 接收路径、协商位回填与宿主判据全部完成（Rust 44+13 通过、Flutter 41/41 通过、analyze 干净）。因 Ubuntu 虚拟机已关机，**APK 重新打包与 Kotlin 产物的重新校验留到下一次开机**；判据 D8 中「FFI 打包进 APK」保持未验证。
+
+**下一块起点**：(1) VM 开机后重建 `librdc_bridge.so`（`packaging/android/build_apk.sh`）并重跑 `:app:testDebugUnitTest` + APK 校验；(2) 把真实网络层（媒体包收发）接到 `video_ingest`，把握手注册报文接到 `session_set_peer_capabilities`。
+
 
 ---
 
@@ -201,6 +241,7 @@ adb logcat -s flutter | grep AndroidSelfCheck
 | 1 | 模拟器 | 不可用 | VM 无 `/dev/kvm`（前述报告已实测），不尝试软件模拟 |
 | 2 | `x86_64-pc-windows-msvc` 目标首次安装 | 失败一次 | 两个 rustup 进程并发导致 `.partial` 重命名失败；串行重试后安装成功，`cargo check` 通过 |
 | 3 | Kotlin 首次编译 | 失败 | SDK 无 `markTextureFrameAvailable`、`ActivityPluginBinding.getLifecycle()` 返回 `Object`；已改用 `SurfaceProducer.scheduleFrame()` 与 `Activity as LifecycleOwner`，复建通过 |
+| 4 | 阶段 4 同步误删 jniLibs | 阻塞（待 VM 开机） | `rsync --delete` 把构建机上的 `app/android/app/src/main/jniLibs/` 清空，产物缺 `librdc_bridge.so`；VM 已关机无法补编。**代码与宿主判据不受影响**，下次开机执行 `packaging/android/build_apk.sh` 重编并复验 APK |
 
 ## 六、设备未验证清单（不计入通过项）
 
@@ -217,3 +258,5 @@ adb logcat -s flutter | grep AndroidSelfCheck
 | D7 | 100 次点击偏差 ≤4px | 依赖 D1 | 真机与被控端联合测量 |
 | D8 | 旋转不重建解码器、前后台不崩 | 依赖 D1 | 真机旋转/切后台连续操作 |
 | D9 | 连续 5 分钟不崩 | 依赖 D1 | 真机长跑 |
+| D10 | 真实网络视频链路（丢包/乱序后等 IDR、元数据变更重建） | 依赖 D1 + 真实媒体传输 | 真机 + 被控端 + 可控丢包工具（如 `tc netem`） |
+

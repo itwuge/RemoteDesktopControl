@@ -140,6 +140,15 @@ class SessionController {
   /// 是否已尝试启动输入（Android 尺寸未就绪时延后，避免每秒重试）。
   bool _inputStartAttempted = false;
 
+  /// 远端视频轮询定时器（8 ms，约一帧一次）。
+  Timer? _videoPollTimer;
+
+  /// 防止上一轮 `pollVideoFrame` 未返回时重入。
+  bool _videoPollInflight = false;
+
+  /// 已应用到解码器的配置版本；元数据变化时重建。
+  int _appliedConfigId = -1;
+
   /// 远端文本输入客户端；Android 输入法经它进入统一输入链。
   RemoteTextInput? _textInput;
 
@@ -286,6 +295,8 @@ class SessionController {
         );
       },
     );
+    // 桥接层把网络视频消息重组成帧，Flutter 侧按帧轮询拉取。
+    _startVideoPolling();
     RdcLogger.log(
       'SessionController',
       'Android 画面通道 textureId=$id '
@@ -294,12 +305,18 @@ class SessionController {
   }
 
   /// 仅在流元数据变化时下发 `configure`（不重建 textureId）。
-  Future<void> _configureAndroidDecoder(VideoStreamInfo stream) async {
+  ///
+  /// 参数 [force]：配置版本变化但尺寸相同时（如色彩空间变化）仍要重配。
+  Future<void> _configureAndroidDecoder(
+    VideoStreamInfo stream, {
+    bool force = false,
+  }) async {
     final decoder = _decoder;
     if (decoder == null || stream.width <= 0 || stream.height <= 0) {
       return;
     }
-    if (stream.width == _configuredWidth &&
+    if (!force &&
+        stream.width == _configuredWidth &&
         stream.height == _configuredHeight &&
         stream.fps == _configuredFps) {
       return;
@@ -312,6 +329,89 @@ class SessionController {
     _configuredWidth = stream.width;
     _configuredHeight = stream.height;
     _configuredFps = stream.fps;
+  }
+
+  /// 启动远端视频轮询（8 ms）；桥接层没有新帧时返回 `null`，不占 CPU。
+  void _startVideoPolling() {
+    _videoPollTimer?.cancel();
+    _videoPollTimer = Timer.periodic(
+      const Duration(milliseconds: 8),
+      (_) => unawaited(pollRemoteVideoNow()),
+    );
+  }
+
+  /// 从 Rust 桥拉取一帧并送入既有视频通道。
+  ///
+  /// 元数据 `configId` 变化时重建解码器、重置切分与 IDR 门控；
+  /// 队列为空时直接返回，不产生额外 FFI 压力（8 ms 一次）。
+  Future<void> pollRemoteVideoNow() async {
+    if (_videoPollInflight || _decoder == null) {
+      return;
+    }
+    _videoPollInflight = true;
+    try {
+      final frame = await gateway.pollVideoFrame();
+      if (frame == null) {
+        return;
+      }
+      if (frame.config.configId != _appliedConfigId) {
+        await _applyRemoteConfig(frame.config);
+      }
+      videoChannel.push(frame.data);
+    } catch (error) {
+      RdcLogger.log('SessionController', '拉取远端视频帧失败: $error');
+    } finally {
+      _videoPollInflight = false;
+    }
+  }
+
+  /// 应用新的远端元数据：更新流信息、重建解码器并等待新的 IDR。
+  Future<void> _applyRemoteConfig(VideoConfigInfo config) async {
+    _appliedConfigId = config.configId;
+    videoChannel.info = VideoStreamInfo(
+      width: config.width,
+      height: config.height,
+      fps: config.fps,
+    );
+    _annexBParser.reset();
+    _annexBGate.reset();
+    final info = VideoStreamInfo(
+      width: config.width,
+      height: config.height,
+      fps: config.fps,
+    );
+    // 分辨率/色彩变化必须重新 configure；同配置重复到达直接跳过。
+    await _stopInput();
+    await _configureAndroidDecoder(info, force: true);
+    preview.value = ControlPreviewInfo(
+      running: true,
+      backend: 'android',
+      encoder: 'remote',
+      decoder: config.codec,
+      texturePath: 'surface-producer',
+      decodePath: 'mediacodec-surface',
+      width: config.width,
+      height: config.height,
+      fps: config.fps.toDouble(),
+      capturedFrames: 0,
+      encodedFrames: 0,
+      decodedFrames: 0,
+      droppedFrames: 0,
+      encodedBytes: 0,
+      bitrateKbps: 0,
+      latencyLastUs: 0,
+      latencyP50Us: 0,
+      latencyP99Us: 0,
+      readbackCount: 0,
+      shareHandleA: 0,
+      shareHandleB: 0,
+      eventA: 0,
+      eventB: 0,
+      lastError: null,
+    );
+    _inputStartAttempted = false;
+    await _startInput(preview.value!);
+    _ensureTextInput();
   }
 
   /// 收到一段 Annex-B 字节：切分 → IDR 门控 → 串行推给平台解码器。
@@ -445,6 +545,10 @@ class SessionController {
 
   /// 释放 Android 解码器、视频订阅与切分状态（幂等）。
   Future<void> _stopAndroidVideo() async {
+    _videoPollTimer?.cancel();
+    _videoPollTimer = null;
+    _videoPollInflight = false;
+    _appliedConfigId = -1;
     await _videoSubscription?.cancel();
     _videoSubscription = null;
     _annexBParser.reset();
@@ -481,6 +585,18 @@ class SessionController {
         error: error,
         stackTrace: stackTrace,
       );
+      return;
+    }
+    // 握手完成后回填协商位；未握手时 Rust 侧返回 0，文本保持关闭。
+    await _refreshNegotiatedCapabilities();
+  }
+
+  /// 从 Rust 桥读取协商结果并写入文本门控。
+  Future<void> _refreshNegotiatedCapabilities() async {
+    try {
+      setNegotiatedCapabilities(await gateway.sessionNegotiatedCapabilities());
+    } catch (error) {
+      RdcLogger.log('SessionController', '读取协商能力位失败: $error');
     }
   }
 
@@ -677,6 +793,8 @@ class SessionController {
         RdcLogger.log('SessionController', '读取画面状态失败: $error');
       }
     }
+    // 握手可能晚于会话建立：每秒回填一次，直到能力位稳定。
+    await _refreshNegotiatedCapabilities();
     if (!_inputRunning) return;
     try {
       inputStats.value = await gateway.inputStats();

@@ -17,6 +17,7 @@ import 'input_service.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated_io.dart';
 
 import 'session_service.dart';
+import 'video_service.dart';
 
 abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   RustLibApiImplPlatform({
@@ -40,6 +41,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SettingsDto dco_decode_box_autoadd_settings_dto(dynamic raw);
+
+  @protected
+  VideoConfigDto dco_decode_box_autoadd_video_config_dto(dynamic raw);
+
+  @protected
+  VideoFrameDto dco_decode_box_autoadd_video_frame_dto(dynamic raw);
 
   @protected
   WallPreviewDto dco_decode_box_autoadd_wall_preview_dto(dynamic raw);
@@ -96,6 +103,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   List<InputEventDto> dco_decode_list_input_event_dto(dynamic raw);
 
   @protected
+  List<int> dco_decode_list_prim_u_8_loose(dynamic raw);
+
+  @protected
   Uint8List dco_decode_list_prim_u_8_strict(dynamic raw);
 
   @protected
@@ -109,6 +119,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ControlFrameDto? dco_decode_opt_box_autoadd_control_frame_dto(dynamic raw);
+
+  @protected
+  VideoConfigDto? dco_decode_opt_box_autoadd_video_config_dto(dynamic raw);
+
+  @protected
+  VideoFrameDto? dco_decode_opt_box_autoadd_video_frame_dto(dynamic raw);
 
   @protected
   WallPreviewDto? dco_decode_opt_box_autoadd_wall_preview_dto(dynamic raw);
@@ -153,6 +169,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void dco_decode_unit(dynamic raw);
 
   @protected
+  VideoConfigDto dco_decode_video_config_dto(dynamic raw);
+
+  @protected
+  VideoFrameDto dco_decode_video_frame_dto(dynamic raw);
+
+  @protected
+  VideoStatsDto dco_decode_video_stats_dto(dynamic raw);
+
+  @protected
   WallPreviewDto dco_decode_wall_preview_dto(dynamic raw);
 
   @protected
@@ -174,6 +199,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   SettingsDto sse_decode_box_autoadd_settings_dto(SseDeserializer deserializer);
+
+  @protected
+  VideoConfigDto sse_decode_box_autoadd_video_config_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  VideoFrameDto sse_decode_box_autoadd_video_frame_dto(
+    SseDeserializer deserializer,
+  );
 
   @protected
   WallPreviewDto sse_decode_box_autoadd_wall_preview_dto(
@@ -238,6 +273,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  List<int> sse_decode_list_prim_u_8_loose(SseDeserializer deserializer);
+
+  @protected
   Uint8List sse_decode_list_prim_u_8_strict(SseDeserializer deserializer);
 
   @protected
@@ -255,6 +293,16 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   ControlFrameDto? sse_decode_opt_box_autoadd_control_frame_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  VideoConfigDto? sse_decode_opt_box_autoadd_video_config_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
+  VideoFrameDto? sse_decode_opt_box_autoadd_video_frame_dto(
     SseDeserializer deserializer,
   );
 
@@ -307,6 +355,15 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   void sse_decode_unit(SseDeserializer deserializer);
 
   @protected
+  VideoConfigDto sse_decode_video_config_dto(SseDeserializer deserializer);
+
+  @protected
+  VideoFrameDto sse_decode_video_frame_dto(SseDeserializer deserializer);
+
+  @protected
+  VideoStatsDto sse_decode_video_stats_dto(SseDeserializer deserializer);
+
+  @protected
   WallPreviewDto sse_decode_wall_preview_dto(SseDeserializer deserializer);
 
   @protected
@@ -330,6 +387,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_box_autoadd_settings_dto(
     SettingsDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_video_config_dto(
+    VideoConfigDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_box_autoadd_video_frame_dto(
+    VideoFrameDto self,
     SseSerializer serializer,
   );
 
@@ -412,6 +481,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_list_prim_u_8_loose(List<int> self, SseSerializer serializer);
+
+  @protected
   void sse_encode_list_prim_u_8_strict(
     Uint8List self,
     SseSerializer serializer,
@@ -435,6 +507,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   @protected
   void sse_encode_opt_box_autoadd_control_frame_dto(
     ControlFrameDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_video_config_dto(
+    VideoConfigDto? self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_opt_box_autoadd_video_frame_dto(
+    VideoFrameDto? self,
     SseSerializer serializer,
   );
 
@@ -497,6 +581,18 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_unit(void self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_video_config_dto(
+    VideoConfigDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
+  void sse_encode_video_frame_dto(VideoFrameDto self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_video_stats_dto(VideoStatsDto self, SseSerializer serializer);
 
   @protected
   void sse_encode_wall_preview_dto(

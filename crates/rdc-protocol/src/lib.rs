@@ -22,6 +22,7 @@ pub mod ports;
 pub mod stream;
 pub mod timestamp;
 pub mod version;
+pub mod video;
 
 // =====** 对外再导出 =====**
 
@@ -43,4 +44,10 @@ pub use timestamp::{deadline_us, FrameTiming, LatencyWindow, TIMING_CSV_HEADER};
 pub use version::{
     version_string, PROTOCOL_VERSION, PROTOCOL_VERSION_MAJOR, PROTOCOL_VERSION_MINOR,
     SIGNAL_VERSION,
+};
+pub use video::{
+    decode_video_message, encode_video_message, VideoCodec, VideoColorRange, VideoColorSpace,
+    VideoEvent, VideoFrame, VideoFrameHeader, VideoMessage, VideoReceiver, VideoStreamConfig,
+    VIDEO_FRAGMENT_BYTES, VIDEO_MAX_FRAME_BYTES, VIDEO_MAX_PARAMETER_SET_BYTES,
+    VIDEO_REASSEMBLY_WINDOW,
 };

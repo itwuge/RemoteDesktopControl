@@ -29,6 +29,9 @@ use crate::wall_service;
 /// 输入事件 DTO（定义见 `input_service`，此处再导出供 flutter_rust_bridge 扫描）。
 pub use crate::input_service::{InputEventDto, InputStatsDto};
 
+/// 远端视频订阅 DTO（定义见 `video_service`，此处再导出供 flutter_rust_bridge 扫描）。
+pub use crate::video_service::{VideoConfigDto, VideoFrameDto, VideoStatsDto};
+
 /// 剪贴板状态 DTO（定义见 `clipboard_service`）。
 pub use crate::clipboard_service::ClipboardStatusDto;
 
@@ -1050,6 +1053,91 @@ pub fn session_status() -> Result<SessionStatusDto, String> {
 /// 锁异常时返回错误文本；bye 失败只记录在报告中。
 pub fn session_disconnect(reason: String) -> Result<SessionTeardownDto, String> {
     session_service::disconnect(&reason)
+}
+
+// =====** 视频订阅与能力位回填（阶段 4） =====**
+
+/// 本端能力位（含文本 opt-in）。握手注册报文应上报这个值。
+///
+/// # Returns
+/// `Capabilities::DEFAULT | TEXT_INPUT` 的原始位图。
+///
+/// # Errors
+/// 不会失败。
+pub fn session_local_capabilities() -> u64 {
+    session_service::local_capabilities()
+}
+
+/// 写入握手得到的对端能力位，返回协商结果。
+///
+/// # Arguments
+/// * `peer_bits` - 对端注册报文里的能力位图
+///
+/// # Returns
+/// 双方按位与后的位图；Dart 用 bit13 决定是否发送文本。
+///
+/// # Errors
+/// 不会失败。
+pub fn session_set_peer_capabilities(peer_bits: u64) -> u64 {
+    session_service::set_peer_capabilities(peer_bits)
+}
+
+/// 读取当前协商结果（握手完成前为 0）。
+///
+/// # Returns
+/// 协商后的能力位图。
+///
+/// # Errors
+/// 不会失败。
+pub fn session_negotiated_capabilities() -> u64 {
+    session_service::negotiated_capabilities()
+}
+
+/// 喂入一条视频协议消息（传输层收到媒体包后调用）。
+///
+/// # Arguments
+/// * `bytes` - 视频消息原始字节（Meta/Frame/Fragment/Done）
+///
+/// # Returns
+/// 最新订阅统计（坏消息计入 `decodeErrors`，不 panic）。
+///
+/// # Errors
+/// 不会失败。
+pub fn video_ingest(bytes: Vec<u8>) -> VideoStatsDto {
+    crate::video_service::ingest(bytes)
+}
+
+/// 拉取一帧已重组的远端视频（空表示暂无新帧）。
+///
+/// # Returns
+/// Annex-B 帧 + 元数据；`null` 表示队列为空。
+///
+/// # Errors
+/// 不会失败。
+pub fn video_poll_frame() -> Option<VideoFrameDto> {
+    crate::video_service::poll_frame()
+}
+
+/// 读取视频订阅统计。
+///
+/// # Returns
+/// 重排/丢包/重新同步/队列计数。
+///
+/// # Errors
+/// 不会失败。
+pub fn video_stats() -> VideoStatsDto {
+    crate::video_service::stats()
+}
+
+/// 清空视频接收器与待取帧。
+///
+/// # Returns
+/// 清零后的统计。
+///
+/// # Errors
+/// 不会失败。
+pub fn video_reset() -> VideoStatsDto {
+    crate::video_service::reset()
 }
 
 // =====** S5-5 授权与权限页 =====**

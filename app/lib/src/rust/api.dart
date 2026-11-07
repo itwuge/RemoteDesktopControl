@@ -11,6 +11,7 @@ import 'input_service.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'session_service.dart';
+import 'video_service.dart';
 
 // These functions are ignored because they are not marked as `pub`: `append_audit`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `template_of`, `to_control_status_linux`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
 // These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
@@ -474,6 +475,80 @@ Future<SessionStatusDto> sessionStatus() =>
 /// 锁异常时返回错误文本；bye 失败只记录在报告中。
 Future<SessionTeardownDto> sessionDisconnect({required String reason}) =>
     RustLib.instance.api.crateApiSessionDisconnect(reason: reason);
+
+/// 本端能力位（含文本 opt-in）。握手注册报文应上报这个值。
+///
+/// # Returns
+/// `Capabilities::DEFAULT | TEXT_INPUT` 的原始位图。
+///
+/// # Errors
+/// 不会失败。
+Future<BigInt> sessionLocalCapabilities() =>
+    RustLib.instance.api.crateApiSessionLocalCapabilities();
+
+/// 写入握手得到的对端能力位，返回协商结果。
+///
+/// # Arguments
+/// * `peer_bits` - 对端注册报文里的能力位图
+///
+/// # Returns
+/// 双方按位与后的位图；Dart 用 bit13 决定是否发送文本。
+///
+/// # Errors
+/// 不会失败。
+Future<BigInt> sessionSetPeerCapabilities({required BigInt peerBits}) =>
+    RustLib.instance.api.crateApiSessionSetPeerCapabilities(peerBits: peerBits);
+
+/// 读取当前协商结果（握手完成前为 0）。
+///
+/// # Returns
+/// 协商后的能力位图。
+///
+/// # Errors
+/// 不会失败。
+Future<BigInt> sessionNegotiatedCapabilities() =>
+    RustLib.instance.api.crateApiSessionNegotiatedCapabilities();
+
+/// 喂入一条视频协议消息（传输层收到媒体包后调用）。
+///
+/// # Arguments
+/// * `bytes` - 视频消息原始字节（Meta/Frame/Fragment/Done）
+///
+/// # Returns
+/// 最新订阅统计（坏消息计入 `decodeErrors`，不 panic）。
+///
+/// # Errors
+/// 不会失败。
+Future<VideoStatsDto> videoIngest({required List<int> bytes}) =>
+    RustLib.instance.api.crateApiVideoIngest(bytes: bytes);
+
+/// 拉取一帧已重组的远端视频（空表示暂无新帧）。
+///
+/// # Returns
+/// Annex-B 帧 + 元数据；`null` 表示队列为空。
+///
+/// # Errors
+/// 不会失败。
+Future<VideoFrameDto?> videoPollFrame() =>
+    RustLib.instance.api.crateApiVideoPollFrame();
+
+/// 读取视频订阅统计。
+///
+/// # Returns
+/// 重排/丢包/重新同步/队列计数。
+///
+/// # Errors
+/// 不会失败。
+Future<VideoStatsDto> videoStats() => RustLib.instance.api.crateApiVideoStats();
+
+/// 清空视频接收器与待取帧。
+///
+/// # Returns
+/// 清零后的统计。
+///
+/// # Errors
+/// 不会失败。
+Future<VideoStatsDto> videoReset() => RustLib.instance.api.crateApiVideoReset();
 
 /// 读取权限页快照。
 ///

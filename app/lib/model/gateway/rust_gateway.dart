@@ -18,6 +18,7 @@ import '../../src/rust/file_service.dart' as rust_file;
 import '../../src/rust/frb_generated.dart';
 import '../../src/rust/input_service.dart' as rust_input;
 import '../../src/rust/session_service.dart' as rust_session;
+import '../../src/rust/video_service.dart' as rust_video;
 import 'rust_types.dart';
 
 /// Rust 核心的唯一调用入口。
@@ -654,6 +655,99 @@ class RustGateway {
       handlesDelta: dto.handlesDelta,
       portsReleased: dto.portsReleased,
       ok: dto.ok,
+      lastError: dto.lastError,
+    );
+  }
+
+  // =========** 能力位回填与远端视频订阅（阶段 4） =========
+
+  /// 本端能力位（含文本 opt-in），握手注册时上报。
+  Future<int> sessionLocalCapabilities() async {
+    _ensureInitialized();
+    return (await rust_api.sessionLocalCapabilities()).toInt();
+  }
+
+  /// 写入对端能力位，返回协商结果。
+  Future<int> sessionSetPeerCapabilities(int peerBits) async {
+    _ensureInitialized();
+    return (await rust_api.sessionSetPeerCapabilities(
+      peerBits: BigInt.from(peerBits),
+    )).toInt();
+  }
+
+  /// 读取当前协商结果（握手完成前为 0）。
+  Future<int> sessionNegotiatedCapabilities() async {
+    _ensureInitialized();
+    return (await rust_api.sessionNegotiatedCapabilities()).toInt();
+  }
+
+  /// 喂入一条视频协议消息（传输层收到后调用）。
+  Future<void> videoIngest(Uint8List bytes) async {
+    _ensureInitialized();
+    await rust_api.videoIngest(bytes: bytes);
+  }
+
+  /// 拉取一帧已重组的远端视频；`null` 表示暂无新帧。
+  Future<VideoFrameInfo?> pollVideoFrame() async {
+    _ensureInitialized();
+    final dto = await rust_api.videoPollFrame();
+    return dto == null ? null : _toVideoFrame(dto);
+  }
+
+  /// 读取视频订阅统计。
+  Future<VideoStatsInfo> videoStats() async {
+    _ensureInitialized();
+    return _toVideoStats(await rust_api.videoStats());
+  }
+
+  /// 清空视频接收器与待取帧。
+  Future<VideoStatsInfo> resetVideo() async {
+    _ensureInitialized();
+    return _toVideoStats(await rust_api.videoReset());
+  }
+
+  /// 视频元数据 DTO → 值对象。
+  VideoConfigInfo _toVideoConfig(rust_video.VideoConfigDto dto) {
+    return VideoConfigInfo(
+      streamId: dto.streamId,
+      configId: dto.configId,
+      width: dto.width,
+      height: dto.height,
+      fps: dto.fps,
+      codec: dto.codec,
+      colorSpace: dto.colorSpace,
+      colorRange: dto.colorRange,
+      parameterSetsInBand: dto.parameterSetsInBand,
+      spsLen: dto.spsLen,
+      ppsLen: dto.ppsLen,
+    );
+  }
+
+  /// 视频帧 DTO → 值对象。
+  VideoFrameInfo _toVideoFrame(rust_video.VideoFrameDto dto) {
+    return VideoFrameInfo(
+      streamId: dto.streamId,
+      frameId: dto.frameId,
+      ptsUs: dto.ptsUs.toInt(),
+      keyframe: dto.keyframe,
+      config: _toVideoConfig(dto.config),
+      data: dto.data,
+    );
+  }
+
+  /// 视频统计 DTO → 值对象。
+  VideoStatsInfo _toVideoStats(rust_video.VideoStatsDto dto) {
+    final config = dto.config;
+    return VideoStatsInfo(
+      config: config == null ? null : _toVideoConfig(config),
+      queued: dto.queued,
+      completed: dto.completed.toInt(),
+      dropped: dto.dropped.toInt(),
+      resyncs: dto.resyncs.toInt(),
+      queueDrops: dto.queueDrops.toInt(),
+      bytes: dto.bytes.toInt(),
+      needsKeyframe: dto.needsKeyframe,
+      decodeErrors: dto.decodeErrors.toInt(),
       lastError: dto.lastError,
     );
   }

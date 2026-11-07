@@ -1070,3 +1070,147 @@ class SessionTeardownInfo {
   /// 最近错误。
   final String? lastError;
 }
+
+// =====** 远端视频订阅（阶段 4） =====**
+
+/// 远端视频元数据快照。
+class VideoConfigInfo {
+  /// 创建元数据。
+  const VideoConfigInfo({
+    required this.streamId,
+    required this.configId,
+    required this.width,
+    required this.height,
+    required this.fps,
+    required this.codec,
+    required this.colorSpace,
+    required this.colorRange,
+    required this.parameterSetsInBand,
+    required this.spsLen,
+    required this.ppsLen,
+  });
+
+  /// 子码流编号。
+  final int streamId;
+
+  /// 配置版本号；变化即需要重建解码器。
+  final int configId;
+
+  /// 编码宽。
+  final int width;
+
+  /// 编码高。
+  final int height;
+
+  /// 目标帧率。
+  final int fps;
+
+  /// 编码格式（`h264`）。
+  final String codec;
+
+  /// 色彩空间（`bt709` / `bt601` / `srgb`）。
+  final String colorSpace;
+
+  /// 色彩范围（`limited` / `full`）。
+  final String colorRange;
+
+  /// SPS/PPS 是否随流。
+  final bool parameterSetsInBand;
+
+  /// 带外 SPS 字节数。
+  final int spsLen;
+
+  /// 带外 PPS 字节数。
+  final int ppsLen;
+}
+
+/// 桥接层重组完成的远端视频帧。
+class VideoFrameInfo {
+  /// 创建帧。
+  const VideoFrameInfo({
+    required this.streamId,
+    required this.frameId,
+    required this.ptsUs,
+    required this.keyframe,
+    required this.config,
+    required this.data,
+  });
+
+  /// 子码流编号。
+  final int streamId;
+
+  /// 帧号。
+  final int frameId;
+
+  /// 采集时间戳（微秒）。
+  final int ptsUs;
+
+  /// 是否 IDR。
+  final bool keyframe;
+
+  /// 元数据。
+  final VideoConfigInfo config;
+
+  /// Annex-B 字节。
+  final Uint8List data;
+}
+
+/// 视频订阅统计。
+class VideoStatsInfo {
+  /// 创建统计。
+  const VideoStatsInfo({
+    required this.config,
+    required this.queued,
+    required this.completed,
+    required this.dropped,
+    required this.resyncs,
+    required this.queueDrops,
+    required this.bytes,
+    required this.needsKeyframe,
+    required this.decodeErrors,
+    required this.lastError,
+  });
+
+  /// 空统计。
+  const VideoStatsInfo.empty()
+    : config = null,
+      queued = 0,
+      completed = 0,
+      dropped = 0,
+      resyncs = 0,
+      queueDrops = 0,
+      bytes = 0,
+      needsKeyframe = true,
+      decodeErrors = 0,
+      lastError = null;
+
+  /// 当前元数据。
+  final VideoConfigInfo? config;
+
+  /// 待拉取帧数。
+  final int queued;
+
+  /// 已完成帧数。
+  final int completed;
+
+  /// 丢弃帧数。
+  final int dropped;
+
+  /// 重新等待 IDR 次数。
+  final int resyncs;
+
+  /// 队列溢出丢帧数。
+  final int queueDrops;
+
+  /// 输出字节数。
+  final int bytes;
+
+  /// 是否在等关键帧。
+  final bool needsKeyframe;
+
+  /// 解码失败消息数。
+  final int decodeErrors;
+
+  /// 最近错误。
+  final String? lastError;
+}

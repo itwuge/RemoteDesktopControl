@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
-use rdc_protocol::{SignalEnvelope, SignalMessage};
+use rdc_protocol::{capability_bits, Capabilities, SignalEnvelope, SignalMessage};
 
 /// bye 往返等待上限：回环桩不超 1 ms，留余量给锁屏/调度抖动。
 const BYE_TIMEOUT: Duration = Duration::from_millis(800);
@@ -127,6 +127,64 @@ fn last_report() -> &'static Mutex<Option<SessionTeardownDto>> {
     LAST.get_or_init(|| Mutex::new(None))
 }
 
+/// 握手得到的对端能力位图；`None` 表示尚未握手。
+fn peer_capabilities() -> &'static Mutex<Option<u64>> {
+    static PEER: OnceLock<Mutex<Option<u64>>> = OnceLock::new();
+    PEER.get_or_init(|| Mutex::new(None))
+}
+
+// =====** 能力位协商 =====**
+
+/// 本端能力位：默认能力 + 文本输入。
+///
+/// 为什么文本输入要显式 opt-in：`Capabilities::DEFAULT` 被 Linux 注册路径复用，
+/// 而 Linux 注入端不支持文本；Android/Windows 这两条真正支持文本的端单独声明。
+#[must_use]
+pub fn local_capabilities() -> u64 {
+    Capabilities::DEFAULT
+        .with(capability_bits::TEXT_INPUT, true)
+        .raw()
+}
+
+/// 写入握手得到的对端能力位，返回协商结果。
+///
+/// 参数 [peer_bits]：对端注册报文里的位图（可能含未知位）。
+/// 返回：双方按位与后的能力位；Dart 侧据此决定是否发送文本。
+#[must_use]
+pub fn set_peer_capabilities(peer_bits: u64) -> u64 {
+    let negotiated = Capabilities::from_raw(local_capabilities())
+        .negotiate(Capabilities::from_raw(peer_bits))
+        .raw();
+    if let Ok(mut guard) = peer_capabilities().lock() {
+        *guard = Some(peer_bits);
+    }
+    negotiated
+}
+
+/// 读取当前协商结果。
+///
+/// 返回：尚未握手时返回 0；已握手时返回双方按位与的结果。
+#[must_use]
+pub fn negotiated_capabilities() -> u64 {
+    let peer = peer_capabilities()
+        .lock()
+        .ok()
+        .and_then(|guard| *guard);
+    match peer {
+        Some(bits) => Capabilities::from_raw(local_capabilities())
+            .negotiate(Capabilities::from_raw(bits))
+            .raw(),
+        None => 0,
+    }
+}
+
+/// 清空握手状态（新会话/断开时调用）。
+pub fn clear_peer_capabilities() {
+    if let Ok(mut guard) = peer_capabilities().lock() {
+        *guard = None;
+    }
+}
+
 // =====** 对外接口 =====**
 
 /// 建立回环会话链路（幂等：重复调用返回同一会话）。
@@ -167,6 +225,9 @@ pub fn start(role: &str) -> Result<SessionStatusDto, String> {
     };
     let status = status_of(&session);
     *guard = Some(session);
+    // 新会话还没有握手：清掉上一轮能力位与视频残留。
+    clear_peer_capabilities();
+    let _ = crate::video_service::reset();
     Ok(status)
 }
 
@@ -203,6 +264,8 @@ pub fn disconnect(reason: &str) -> Result<SessionTeardownDto, String> {
         return Ok(last.clone().unwrap_or_default());
     };
 
+    clear_peer_capabilities();
+    let _ = crate::video_service::reset();
     let mut report = SessionTeardownDto {
         session_id: session.session_id.clone(),
         role: session.role.clone(),

@@ -22,7 +22,26 @@ import 'package:rdc/model/video/video_frame_channel.dart';
 /// 只替身会话/输入接口的网关；不触达 FFI。
 class _FakeGateway extends RustGateway {
   final List<List<InputEventSpec>> pushes = <List<InputEventSpec>>[];
+  final List<VideoFrameInfo> videoFrames = <VideoFrameInfo>[];
   int startInputCalls = 0;
+  int negotiatedBits = 0;
+
+  @override
+  Future<int> sessionNegotiatedCapabilities() async => negotiatedBits;
+
+  @override
+  Future<VideoFrameInfo?> pollVideoFrame() async {
+    if (videoFrames.isEmpty) {
+      return null;
+    }
+    return videoFrames.removeAt(0);
+  }
+
+  @override
+  Future<VideoStatsInfo> videoStats() async => const VideoStatsInfo.empty();
+
+  @override
+  Future<VideoStatsInfo> resetVideo() async => const VideoStatsInfo.empty();
 
   @override
   Future<SessionStatusInfo> sessionStart(String role) async {
@@ -79,6 +98,37 @@ Uint8List _idrAccessUnit() {
   return Uint8List.fromList(<int>[...sps, ...pps, ...idr]);
 }
 
+VideoConfigInfo _config({
+  int configId = 1,
+  int width = 640,
+  int height = 360,
+}) {
+  return VideoConfigInfo(
+    streamId: 0,
+    configId: configId,
+    width: width,
+    height: height,
+    fps: 30,
+    codec: 'h264',
+    colorSpace: 'bt709',
+    colorRange: 'limited',
+    parameterSetsInBand: true,
+    spsLen: 0,
+    ppsLen: 0,
+  );
+}
+
+VideoFrameInfo _frame(Uint8List data, {int frameId = 1, bool keyframe = false, VideoConfigInfo? config}) {
+  return VideoFrameInfo(
+    streamId: 0,
+    frameId: frameId,
+    ptsUs: frameId * 33_000,
+    keyframe: keyframe,
+    config: config ?? _config(),
+    data: data,
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -86,14 +136,17 @@ void main() {
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
   final pushed = <Uint8List>[];
+  final configureCalls = <Map<dynamic, dynamic>>[];
 
   setUp(() {
     pushed.clear();
+    configureCalls.clear();
     messenger.setMockMethodCallHandler(channel, (call) async {
       switch (call.method) {
         case 'create':
           return <String, dynamic>{'textureId': 7};
         case 'configure':
+          configureCalls.add(call.arguments as Map<dynamic, dynamic>);
           return null;
         case 'push':
           final args = call.arguments as Map<dynamic, dynamic>;
@@ -174,6 +227,43 @@ void main() {
     expect(first.keyFrame, isTrue);
     expect(first.hasParameterSets, isTrue);
     expect(last.nalTypes, <int>[1]);
+
+    await controller.stopPreview();
+    controller.dispose();
+  });
+
+  test('桥接轮询：元数据变化触发重配并重置 IDR 门控', () async {
+    final gateway = _FakeGateway()..negotiatedBits = kTextInputCapabilityBit;
+    final controller = buildController(gateway);
+    await controller.startPreview();
+    expect(controller.canSendText, isTrue, reason: '握手位应回填到文本门控');
+
+    pushed.clear();
+    configureCalls.clear();
+    // 第一段：非 IDR 先到 → 丢弃；随后 IDR → 放行。
+    gateway.videoFrames
+      ..add(_frame(_pFrame(), frameId: 1))
+      ..add(_frame(_idrAccessUnit(), frameId: 2, keyframe: true));
+    await controller.pollRemoteVideoNow();
+    await controller.pollRemoteVideoNow();
+    await Future<void>.delayed(Duration.zero);
+    await controller.videoIdle;
+    expect(pushed, hasLength(1));
+
+    // 配置变更：宽高变化 → 重新 configure，且门控回到等 IDR。
+    final next = _config(configId: 2, width: 1280, height: 720);
+    gateway.videoFrames
+      ..add(_frame(_pFrame(), frameId: 3, config: next))
+      ..add(_frame(_idrAccessUnit(), frameId: 4, keyframe: true, config: next));
+    await controller.pollRemoteVideoNow();
+    await controller.pollRemoteVideoNow();
+    await Future<void>.delayed(Duration.zero);
+    await controller.videoIdle;
+
+    expect(configureCalls.last['width'], 1280);
+    expect(configureCalls.last['height'], 720);
+    expect(controller.preview.value?.width, 1280);
+    expect(pushed, hasLength(2), reason: '配置变更后的非 IDR 应先被丢弃');
 
     await controller.stopPreview();
     controller.dispose();
