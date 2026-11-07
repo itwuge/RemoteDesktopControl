@@ -1107,9 +1107,11 @@ version = "0.1.0"
 dependencies = [
  "flutter_rust_bridge",
  "rdc-capture",
+ "rdc-clipboard",
  "rdc-codec",
  "rdc-core",
  "rdc-decode",
+ "rdc-filetransfer",
  "rdc-input",
  "rdc-protocol",
  "windows",

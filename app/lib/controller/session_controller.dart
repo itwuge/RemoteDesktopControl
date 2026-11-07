@@ -243,6 +243,38 @@ class SessionController {
     fullscreen.value = !fullscreen.value;
   }
 
+  /// 启动剪贴板同步（回环两端）。
+  Future<ClipboardSyncInfo> startClipboard() => gateway.startClipboard();
+
+  /// 本机剪贴板外发到远端。
+  Future<ClipboardSyncInfo> clipboardSend() => gateway.clipboardSend();
+
+  /// 远端内容取回本机剪贴板。
+  Future<ClipboardSyncInfo> clipboardPull() => gateway.clipboardPull();
+
+  /// 模拟对端修改剪贴板内容。
+  Future<ClipboardSyncInfo> clipboardSetRemote(String text) =>
+      gateway.clipboardSetRemote(text);
+
+  /// 远端缓冲区文本（预览）。
+  Future<String> clipboardRemoteText() => gateway.clipboardRemoteText();
+
+  /// 本机剪贴板文本（预览）。
+  Future<String> clipboardLocalText() => gateway.clipboardLocalText();
+
+  /// 传输文件到接收目录；[interruptAfterChunks] 大于 0 时模拟断线续传。
+  Future<FileTransferInfo> sendFile(
+    String path, {
+    int interruptAfterChunks = 0,
+  }) {
+    return gateway.transferFile(
+      path,
+      interruptAfterChunks: interruptAfterChunks,
+      // 续传演示用 1 MiB 小块，正常传输走默认 4 MiB。
+      chunkSize: interruptAfterChunks > 0 ? 1048576 : 0,
+    );
+  }
+
   /// 释放监听器与管线。
   void dispose() {
     _statusTimer?.cancel();
@@ -270,6 +302,11 @@ class SessionController {
     }
     try {
       await gateway.stopInput();
+    } catch (_) {
+      // 窗口关闭路径，忽略失败。
+    }
+    try {
+      await gateway.stopClipboard();
     } catch (_) {
       // 窗口关闭路径，忽略失败。
     }

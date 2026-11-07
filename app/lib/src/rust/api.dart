@@ -3,6 +3,8 @@
 
 // ignore_for_file: invalid_use_of_internal_member, unused_import, unnecessary_import
 
+import 'clipboard_service.dart';
+import 'file_service.dart';
 import 'frb_generated.dart';
 import 'input_service.dart';
 
@@ -316,6 +318,111 @@ Future<InputStatsDto> inputStop() => RustLib.instance.api.crateApiInputStop();
 /// 不会失败。
 Future<InputStatsDto> inputStatus() =>
     RustLib.instance.api.crateApiInputStatus();
+
+/// 启动剪贴板同步（回环两端各一个状态机）。
+///
+/// # Returns
+/// 启动后的状态快照。
+///
+/// # Errors
+/// 平台剪贴板不可用时返回错误文本。
+Future<ClipboardStatusDto> clipboardStart() =>
+    RustLib.instance.api.crateApiClipboardStart();
+
+/// 把本机剪贴板文本发送到远端（模拟对端写入其剪贴板）。
+///
+/// # Returns
+/// 同步后的状态快照。
+///
+/// # Errors
+/// 通道未启动或本机剪贴板为空时返回错误文本。
+Future<ClipboardStatusDto> clipboardSend() =>
+    RustLib.instance.api.crateApiClipboardSend();
+
+/// 把远端内容取回本机剪贴板，并回读校验。
+///
+/// # Returns
+/// 同步后的状态快照（`verified` 表示回读一致）。
+///
+/// # Errors
+/// 通道未启动、远端为空或写入失败时返回错误文本。
+Future<ClipboardStatusDto> clipboardPull() =>
+    RustLib.instance.api.crateApiClipboardPull();
+
+/// 模拟对端修改剪贴板（用于验证远端 → 本机方向）。
+///
+/// # Arguments
+/// * `text` - 对端新的剪贴板文本
+///
+/// # Returns
+/// 更新后的状态快照。
+///
+/// # Errors
+/// 通道未启动时返回错误文本。
+Future<ClipboardStatusDto> clipboardSetRemote({required String text}) =>
+    RustLib.instance.api.crateApiClipboardSetRemote(text: text);
+
+/// 读取远端缓冲区内容（UI 展示用，不写回本机）。
+///
+/// # Returns
+/// 远端文本。
+///
+/// # Errors
+/// 通道未启动时返回错误文本。
+Future<String> clipboardRemoteText() =>
+    RustLib.instance.api.crateApiClipboardRemoteText();
+
+/// 读取本机剪贴板文本（UI 预览 / 验证）。
+///
+/// # Returns
+/// 本机剪贴板文本；无文本时为空串。
+///
+/// # Errors
+/// 通道未启动或读取失败时返回错误文本。
+Future<String> clipboardLocalText() =>
+    RustLib.instance.api.crateApiClipboardLocalText();
+
+/// 停止剪贴板同步并释放平台剪贴板句柄。
+///
+/// # Returns
+/// 收尾快照（`running=false`）。
+///
+/// # Errors
+/// 不会失败。
+Future<ClipboardStatusDto> clipboardStop() =>
+    RustLib.instance.api.crateApiClipboardStop();
+
+/// 读取剪贴板同步状态。
+///
+/// # Returns
+/// 运行中为实时快照，停止后为空快照。
+///
+/// # Errors
+/// 不会失败。
+Future<ClipboardStatusDto> clipboardStatus() =>
+    RustLib.instance.api.crateApiClipboardStatus();
+
+/// 传输一个文件到接收目录，并校验两端 SHA-256。
+///
+/// # Arguments
+/// * `path` - 源文件绝对路径
+/// * `interrupt_after_chunks` - 大于 0 时在该块后中断并续传（验证断点续传）
+/// * `chunk_size` - 分块大小，`0` 为默认 4 MiB
+///
+/// # Returns
+/// 两端哈希、字节数、续传信息。
+///
+/// # Errors
+/// 源文件不存在或校验失败时返回错误文本。
+Future<FileTransferDto> fileTransfer({
+  required String path,
+  required int interruptAfterChunks,
+  required BigInt chunkSize,
+}) => RustLib.instance.api.crateApiFileTransfer(
+  path: path,
+  interruptAfterChunks: interruptAfterChunks,
+  chunkSize: chunkSize,
+);
 
 /// 控制页预览状态。
 class ControlStatusDto {

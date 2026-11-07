@@ -25,6 +25,7 @@ import '../../core/theme/tokens.dart';
 import '../../model/gateway/rust_types.dart';
 import '../components/info_row.dart';
 import '../components/rdc_button.dart';
+import '../components/session_transfer_dialogs.dart';
 
 /// 远程控制页。
 class SessionPage extends StatefulWidget {
@@ -157,12 +158,6 @@ class _SessionPageState extends State<SessionPage> {
     } else if (details.focalPointDelta != Offset.zero) {
       _viewport.pan(details.focalPointDelta);
     }
-  }
-
-  /// 提示某功能待接线。
-  void _pending(BuildContext context) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text(AppStrings.pendingWiring)));
   }
 
   // =====** 输入注入：指针与键盘 =====**
@@ -491,12 +486,12 @@ class _SessionPageState extends State<SessionPage> {
       RdcButton(
         label: AppStrings.clipboard,
         icon: Icons.content_paste,
-        onPressed: () => _pending(context),
+        onPressed: () => showClipboardDialog(context, controller),
       ),
       RdcButton(
         label: AppStrings.files,
         icon: Icons.folder_open,
-        onPressed: () => _pending(context),
+        onPressed: () => showFileTransferDialog(context, controller),
       ),
     ];
     return Container(

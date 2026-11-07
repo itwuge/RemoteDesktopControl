@@ -4,10 +4,12 @@
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
 import 'api.dart';
+import 'clipboard_service.dart';
 
 import 'dart:async';
 import 'dart:convert';
 
+import 'file_service.dart';
 import 'frb_generated.dart';
 import 'frb_generated.io.dart'
     if (dart.library.js_interop) 'frb_generated.web.dart';
@@ -68,7 +70,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.13.0';
 
   @override
-  int get rustContentHash => 834813107;
+  int get rustContentHash => 1340074750;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -81,6 +83,22 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
 
 abstract class RustLibApi extends BaseApi {
   Future<String> crateApiBridgeStatus();
+
+  Future<String> crateApiClipboardLocalText();
+
+  Future<ClipboardStatusDto> crateApiClipboardPull();
+
+  Future<String> crateApiClipboardRemoteText();
+
+  Future<ClipboardStatusDto> crateApiClipboardSend();
+
+  Future<ClipboardStatusDto> crateApiClipboardSetRemote({required String text});
+
+  Future<ClipboardStatusDto> crateApiClipboardStart();
+
+  Future<ClipboardStatusDto> crateApiClipboardStatus();
+
+  Future<ClipboardStatusDto> crateApiClipboardStop();
 
   Future<ControlStatusDto> crateApiControlStart();
 
@@ -110,6 +128,12 @@ abstract class RustLibApi extends BaseApi {
   Future<DeviceListDto> crateApiDevicesSave({required List<DeviceDto> devices});
 
   Future<List<String>> crateApiDoctorReport();
+
+  Future<FileTransferDto> crateApiFileTransfer({
+    required String path,
+    required int interruptAfterChunks,
+    required BigInt chunkSize,
+  });
 
   Future<bool> crateApiInputAllowed({required String role});
 
@@ -183,7 +207,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "bridge_status", argNames: []);
 
   @override
-  Future<ControlStatusDto> crateApiControlStart() {
+  Future<String> crateApiClipboardLocalText() {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -192,6 +216,227 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             generalizedFrbRustBinding,
             serializer,
             funcId: 2,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiClipboardLocalTextConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClipboardLocalTextConstMeta =>
+      const TaskConstMeta(debugName: "clipboard_local_text", argNames: []);
+
+  @override
+  Future<ClipboardStatusDto> crateApiClipboardPull() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 3,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_clipboard_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiClipboardPullConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClipboardPullConstMeta =>
+      const TaskConstMeta(debugName: "clipboard_pull", argNames: []);
+
+  @override
+  Future<String> crateApiClipboardRemoteText() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 4,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiClipboardRemoteTextConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClipboardRemoteTextConstMeta =>
+      const TaskConstMeta(debugName: "clipboard_remote_text", argNames: []);
+
+  @override
+  Future<ClipboardStatusDto> crateApiClipboardSend() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_clipboard_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiClipboardSendConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClipboardSendConstMeta =>
+      const TaskConstMeta(debugName: "clipboard_send", argNames: []);
+
+  @override
+  Future<ClipboardStatusDto> crateApiClipboardSetRemote({
+    required String text,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(text, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_clipboard_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiClipboardSetRemoteConstMeta,
+        argValues: [text],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClipboardSetRemoteConstMeta => const TaskConstMeta(
+    debugName: "clipboard_set_remote",
+    argNames: ["text"],
+  );
+
+  @override
+  Future<ClipboardStatusDto> crateApiClipboardStart() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 7,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_clipboard_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiClipboardStartConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClipboardStartConstMeta =>
+      const TaskConstMeta(debugName: "clipboard_start", argNames: []);
+
+  @override
+  Future<ClipboardStatusDto> crateApiClipboardStatus() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 8,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_clipboard_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiClipboardStatusConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClipboardStatusConstMeta =>
+      const TaskConstMeta(debugName: "clipboard_status", argNames: []);
+
+  @override
+  Future<ClipboardStatusDto> crateApiClipboardStop() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 9,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_clipboard_status_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiClipboardStopConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiClipboardStopConstMeta =>
+      const TaskConstMeta(debugName: "clipboard_stop", argNames: []);
+
+  @override
+  Future<ControlStatusDto> crateApiControlStart() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 10,
             port: port_,
           );
         },
@@ -218,7 +463,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 3,
+            funcId: 11,
             port: port_,
           );
         },
@@ -245,7 +490,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 4,
+            funcId: 12,
             port: port_,
           );
         },
@@ -272,7 +517,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 5,
+            funcId: 13,
             port: port_,
           );
         },
@@ -306,7 +551,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 14,
             port: port_,
           );
         },
@@ -336,7 +581,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 7,
+            funcId: 15,
             port: port_,
           );
         },
@@ -372,7 +617,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 16,
             port: port_,
           );
         },
@@ -401,7 +646,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 17,
             port: port_,
           );
         },
@@ -431,7 +676,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 18,
             port: port_,
           );
         },
@@ -458,7 +703,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 11,
+            funcId: 19,
             port: port_,
           );
         },
@@ -477,6 +722,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "doctor_report", argNames: []);
 
   @override
+  Future<FileTransferDto> crateApiFileTransfer({
+    required String path,
+    required int interruptAfterChunks,
+    required BigInt chunkSize,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(path, serializer);
+          sse_encode_u_32(interruptAfterChunks, serializer);
+          sse_encode_u_64(chunkSize, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 20,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_file_transfer_dto,
+          decodeErrorData: sse_decode_String,
+        ),
+        constMeta: kCrateApiFileTransferConstMeta,
+        argValues: [path, interruptAfterChunks, chunkSize],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiFileTransferConstMeta => const TaskConstMeta(
+    debugName: "file_transfer",
+    argNames: ["path", "interruptAfterChunks", "chunkSize"],
+  );
+
+  @override
   Future<bool> crateApiInputAllowed({required String role}) {
     return handler.executeNormal(
       NormalTask(
@@ -486,7 +767,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 21,
             port: port_,
           );
         },
@@ -513,7 +794,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 13,
+            funcId: 22,
             port: port_,
           );
         },
@@ -543,7 +824,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 14,
+            funcId: 23,
             port: port_,
           );
         },
@@ -575,7 +856,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 15,
+            funcId: 24,
             port: port_,
           );
         },
@@ -604,7 +885,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 16,
+            funcId: 25,
             port: port_,
           );
         },
@@ -631,7 +912,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 17,
+            funcId: 26,
             port: port_,
           );
         },
@@ -658,7 +939,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 18,
+            funcId: 27,
             port: port_,
           );
         },
@@ -686,7 +967,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 19,
+            funcId: 28,
             port: port_,
           );
         },
@@ -713,7 +994,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 20,
+            funcId: 29,
             port: port_,
           );
         },
@@ -741,7 +1022,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 21,
+            funcId: 30,
             port: port_,
           );
         },
@@ -768,7 +1049,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 22,
+            funcId: 31,
             port: port_,
           );
         },
@@ -795,7 +1076,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 23,
+            funcId: 32,
             port: port_,
           );
         },
@@ -822,7 +1103,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 24,
+            funcId: 33,
             port: port_,
           );
         },
@@ -849,7 +1130,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 25,
+            funcId: 34,
             port: port_,
           );
         },
@@ -876,7 +1157,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 26,
+            funcId: 35,
             port: port_,
           );
         },
@@ -916,6 +1197,27 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   WallPreviewDto dco_decode_box_autoadd_wall_preview_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return dco_decode_wall_preview_dto(raw);
+  }
+
+  @protected
+  ClipboardStatusDto dco_decode_clipboard_status_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 11)
+      throw Exception('unexpected arr length: expect 11 but see ${arr.length}');
+    return ClipboardStatusDto(
+      running: dco_decode_bool(arr[0]),
+      remoteChars: dco_decode_u_64(arr[1]),
+      localChars: dco_decode_u_64(arr[2]),
+      sent: dco_decode_u_64(arr[3]),
+      applied: dco_decode_u_64(arr[4]),
+      skippedDuplicates: dco_decode_u_64(arr[5]),
+      skippedEchoes: dco_decode_u_64(arr[6]),
+      rejected: dco_decode_u_64(arr[7]),
+      lastHash: dco_decode_String(arr[8]),
+      verified: dco_decode_bool(arr[9]),
+      lastError: dco_decode_opt_String(arr[10]),
+    );
   }
 
   @protected
@@ -981,6 +1283,26 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   double dco_decode_f_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw as double;
+  }
+
+  @protected
+  FileTransferDto dco_decode_file_transfer_dto(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 10)
+      throw Exception('unexpected arr length: expect 10 but see ${arr.length}');
+    return FileTransferDto(
+      source: dco_decode_String(arr[0]),
+      dest: dco_decode_String(arr[1]),
+      bytes: dco_decode_u_64(arr[2]),
+      chunks: dco_decode_u_32(arr[3]),
+      sourceSha256: dco_decode_String(arr[4]),
+      destSha256: dco_decode_String(arr[5]),
+      equal: dco_decode_bool(arr[6]),
+      resumed: dco_decode_bool(arr[7]),
+      resumedBytes: dco_decode_u_64(arr[8]),
+      interrupted: dco_decode_bool(arr[9]),
+    );
   }
 
   @protected
@@ -1219,6 +1541,37 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  ClipboardStatusDto sse_decode_clipboard_status_dto(
+    SseDeserializer deserializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_running = sse_decode_bool(deserializer);
+    var var_remoteChars = sse_decode_u_64(deserializer);
+    var var_localChars = sse_decode_u_64(deserializer);
+    var var_sent = sse_decode_u_64(deserializer);
+    var var_applied = sse_decode_u_64(deserializer);
+    var var_skippedDuplicates = sse_decode_u_64(deserializer);
+    var var_skippedEchoes = sse_decode_u_64(deserializer);
+    var var_rejected = sse_decode_u_64(deserializer);
+    var var_lastHash = sse_decode_String(deserializer);
+    var var_verified = sse_decode_bool(deserializer);
+    var var_lastError = sse_decode_opt_String(deserializer);
+    return ClipboardStatusDto(
+      running: var_running,
+      remoteChars: var_remoteChars,
+      localChars: var_localChars,
+      sent: var_sent,
+      applied: var_applied,
+      skippedDuplicates: var_skippedDuplicates,
+      skippedEchoes: var_skippedEchoes,
+      rejected: var_rejected,
+      lastHash: var_lastHash,
+      verified: var_verified,
+      lastError: var_lastError,
+    );
+  }
+
+  @protected
   ControlStatusDto sse_decode_control_status_dto(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     var var_running = sse_decode_bool(deserializer);
@@ -1298,6 +1651,33 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   double sse_decode_f_64(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getFloat64();
+  }
+
+  @protected
+  FileTransferDto sse_decode_file_transfer_dto(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_source = sse_decode_String(deserializer);
+    var var_dest = sse_decode_String(deserializer);
+    var var_bytes = sse_decode_u_64(deserializer);
+    var var_chunks = sse_decode_u_32(deserializer);
+    var var_sourceSha256 = sse_decode_String(deserializer);
+    var var_destSha256 = sse_decode_String(deserializer);
+    var var_equal = sse_decode_bool(deserializer);
+    var var_resumed = sse_decode_bool(deserializer);
+    var var_resumedBytes = sse_decode_u_64(deserializer);
+    var var_interrupted = sse_decode_bool(deserializer);
+    return FileTransferDto(
+      source: var_source,
+      dest: var_dest,
+      bytes: var_bytes,
+      chunks: var_chunks,
+      sourceSha256: var_sourceSha256,
+      destSha256: var_destSha256,
+      equal: var_equal,
+      resumed: var_resumed,
+      resumedBytes: var_resumedBytes,
+      interrupted: var_interrupted,
+    );
   }
 
   @protected
@@ -1619,6 +1999,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  void sse_encode_clipboard_status_dto(
+    ClipboardStatusDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.running, serializer);
+    sse_encode_u_64(self.remoteChars, serializer);
+    sse_encode_u_64(self.localChars, serializer);
+    sse_encode_u_64(self.sent, serializer);
+    sse_encode_u_64(self.applied, serializer);
+    sse_encode_u_64(self.skippedDuplicates, serializer);
+    sse_encode_u_64(self.skippedEchoes, serializer);
+    sse_encode_u_64(self.rejected, serializer);
+    sse_encode_String(self.lastHash, serializer);
+    sse_encode_bool(self.verified, serializer);
+    sse_encode_opt_String(self.lastError, serializer);
+  }
+
+  @protected
   void sse_encode_control_status_dto(
     ControlStatusDto self,
     SseSerializer serializer,
@@ -1672,6 +2071,24 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   void sse_encode_f_64(double self, SseSerializer serializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     serializer.buffer.putFloat64(self);
+  }
+
+  @protected
+  void sse_encode_file_transfer_dto(
+    FileTransferDto self,
+    SseSerializer serializer,
+  ) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.source, serializer);
+    sse_encode_String(self.dest, serializer);
+    sse_encode_u_64(self.bytes, serializer);
+    sse_encode_u_32(self.chunks, serializer);
+    sse_encode_String(self.sourceSha256, serializer);
+    sse_encode_String(self.destSha256, serializer);
+    sse_encode_bool(self.equal, serializer);
+    sse_encode_bool(self.resumed, serializer);
+    sse_encode_u_64(self.resumedBytes, serializer);
+    sse_encode_bool(self.interrupted, serializer);
   }
 
   @protected

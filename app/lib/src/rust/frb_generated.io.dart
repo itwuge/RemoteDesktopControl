@@ -4,11 +4,13 @@
 // ignore_for_file: unused_import, unused_element, unnecessary_import, duplicate_ignore, invalid_use_of_internal_member, annotate_overrides, non_constant_identifier_names, curly_braces_in_flow_control_structures, prefer_const_literals_to_create_immutables, unused_field
 
 import 'api.dart';
+import 'clipboard_service.dart';
 
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi' as ffi;
 
+import 'file_service.dart';
 import 'frb_generated.dart';
 import 'input_service.dart';
 
@@ -35,6 +37,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   WallPreviewDto dco_decode_box_autoadd_wall_preview_dto(dynamic raw);
 
   @protected
+  ClipboardStatusDto dco_decode_clipboard_status_dto(dynamic raw);
+
+  @protected
   ControlStatusDto dco_decode_control_status_dto(dynamic raw);
 
   @protected
@@ -45,6 +50,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   double dco_decode_f_64(dynamic raw);
+
+  @protected
+  FileTransferDto dco_decode_file_transfer_dto(dynamic raw);
 
   @protected
   int dco_decode_i_32(dynamic raw);
@@ -118,6 +126,11 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  ClipboardStatusDto sse_decode_clipboard_status_dto(
+    SseDeserializer deserializer,
+  );
+
+  @protected
   ControlStatusDto sse_decode_control_status_dto(SseDeserializer deserializer);
 
   @protected
@@ -128,6 +141,9 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   double sse_decode_f_64(SseDeserializer deserializer);
+
+  @protected
+  FileTransferDto sse_decode_file_transfer_dto(SseDeserializer deserializer);
 
   @protected
   int sse_decode_i_32(SseDeserializer deserializer);
@@ -209,6 +225,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
   );
 
   @protected
+  void sse_encode_clipboard_status_dto(
+    ClipboardStatusDto self,
+    SseSerializer serializer,
+  );
+
+  @protected
   void sse_encode_control_status_dto(
     ControlStatusDto self,
     SseSerializer serializer,
@@ -222,6 +244,12 @@ abstract class RustLibApiImplPlatform extends BaseApiImpl<RustLibWire> {
 
   @protected
   void sse_encode_f_64(double self, SseSerializer serializer);
+
+  @protected
+  void sse_encode_file_transfer_dto(
+    FileTransferDto self,
+    SseSerializer serializer,
+  );
 
   @protected
   void sse_encode_i_32(int self, SseSerializer serializer);

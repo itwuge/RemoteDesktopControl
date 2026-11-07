@@ -531,3 +531,101 @@ class InputStatsInfo {
   /// 最近错误。
   final String? lastError;
 }
+
+/// 剪贴板同步状态（Rust → Dart）。
+class ClipboardSyncInfo {
+  /// 创建快照。
+  const ClipboardSyncInfo({
+    required this.running,
+    required this.remoteChars,
+    required this.localChars,
+    required this.sent,
+    required this.applied,
+    required this.skippedDuplicates,
+    required this.skippedEchoes,
+    required this.rejected,
+    required this.lastHash,
+    required this.verified,
+    required this.lastError,
+  });
+
+  /// 服务是否运行。
+  final bool running;
+
+  /// 远端缓冲区字符数。
+  final int remoteChars;
+
+  /// 最近外发文本字符数。
+  final int localChars;
+
+  /// 外发条数。
+  final int sent;
+
+  /// 写回条数。
+  final int applied;
+
+  /// 重复内容抑制次数。
+  final int skippedDuplicates;
+
+  /// 回环抑制次数。
+  final int skippedEchoes;
+
+  /// 超限拒绝次数。
+  final int rejected;
+
+  /// 最近内容 SHA-256。
+  final String lastHash;
+
+  /// 回读校验是否一致。
+  final bool verified;
+
+  /// 最近错误。
+  final String? lastError;
+}
+
+/// 文件传输结果（Rust → Dart）。
+class FileTransferInfo {
+  /// 创建结果。
+  const FileTransferInfo({
+    required this.source,
+    required this.dest,
+    required this.bytes,
+    required this.chunks,
+    required this.sourceSha256,
+    required this.destSha256,
+    required this.equal,
+    required this.resumed,
+    required this.resumedBytes,
+    required this.interrupted,
+  });
+
+  /// 源文件路径。
+  final String source;
+
+  /// 落盘路径。
+  final String dest;
+
+  /// 字节数。
+  final int bytes;
+
+  /// 分块数。
+  final int chunks;
+
+  /// 源文件 SHA-256。
+  final String sourceSha256;
+
+  /// 落盘文件 SHA-256。
+  final String destSha256;
+
+  /// 两端是否一致。
+  final bool equal;
+
+  /// 是否续传过。
+  final bool resumed;
+
+  /// 续传跳过的字节数。
+  final int resumedBytes;
+
+  /// 是否按测试参数中断过。
+  final bool interrupted;
+}

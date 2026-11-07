@@ -12,11 +12,19 @@ use rdc_core::s5::multi::{authorize_input, wall_capabilities, SessionRole};
 use rdc_core::s5::settings::AppSettings;
 use rdc_protocol::Capabilities;
 
+use crate::clipboard_service;
+use crate::file_service;
 use crate::input_service;
 use crate::wall_service;
 
 /// 输入事件 DTO（定义见 `input_service`，此处再导出供 flutter_rust_bridge 扫描）。
 pub use crate::input_service::{InputEventDto, InputStatsDto};
+
+/// 剪贴板状态 DTO（定义见 `clipboard_service`）。
+pub use crate::clipboard_service::ClipboardStatusDto;
+
+/// 文件传输结果 DTO（定义见 `file_service`）。
+pub use crate::file_service::FileTransferDto;
 
 // =====** 版本与平台 =====**
 
@@ -773,4 +781,117 @@ pub fn input_stop() -> Result<InputStatsDto, String> {
 /// 不会失败。
 pub fn input_status() -> Result<InputStatsDto, String> {
     input_service::status()
+}
+
+// =====** 剪贴板与文件（S5-4 块 2） =====**
+
+/// 启动剪贴板同步（回环两端各一个状态机）。
+///
+/// # Returns
+/// 启动后的状态快照。
+///
+/// # Errors
+/// 平台剪贴板不可用时返回错误文本。
+pub fn clipboard_start() -> Result<ClipboardStatusDto, String> {
+    clipboard_service::start()
+}
+
+/// 把本机剪贴板文本发送到远端（模拟对端写入其剪贴板）。
+///
+/// # Returns
+/// 同步后的状态快照。
+///
+/// # Errors
+/// 通道未启动或本机剪贴板为空时返回错误文本。
+pub fn clipboard_send() -> Result<ClipboardStatusDto, String> {
+    clipboard_service::send_local()
+}
+
+/// 把远端内容取回本机剪贴板，并回读校验。
+///
+/// # Returns
+/// 同步后的状态快照（`verified` 表示回读一致）。
+///
+/// # Errors
+/// 通道未启动、远端为空或写入失败时返回错误文本。
+pub fn clipboard_pull() -> Result<ClipboardStatusDto, String> {
+    clipboard_service::pull_remote()
+}
+
+/// 模拟对端修改剪贴板（用于验证远端 → 本机方向）。
+///
+/// # Arguments
+/// * `text` - 对端新的剪贴板文本
+///
+/// # Returns
+/// 更新后的状态快照。
+///
+/// # Errors
+/// 通道未启动时返回错误文本。
+pub fn clipboard_set_remote(text: String) -> Result<ClipboardStatusDto, String> {
+    clipboard_service::set_remote_text(text)
+}
+
+/// 读取远端缓冲区内容（UI 展示用，不写回本机）。
+///
+/// # Returns
+/// 远端文本。
+///
+/// # Errors
+/// 通道未启动时返回错误文本。
+pub fn clipboard_remote_text() -> Result<String, String> {
+    clipboard_service::remote_text()
+}
+
+/// 读取本机剪贴板文本（UI 预览 / 验证）。
+///
+/// # Returns
+/// 本机剪贴板文本；无文本时为空串。
+///
+/// # Errors
+/// 通道未启动或读取失败时返回错误文本。
+pub fn clipboard_local_text() -> Result<String, String> {
+    clipboard_service::local_text()
+}
+
+/// 停止剪贴板同步并释放平台剪贴板句柄。
+///
+/// # Returns
+/// 收尾快照（`running=false`）。
+///
+/// # Errors
+/// 不会失败。
+pub fn clipboard_stop() -> Result<ClipboardStatusDto, String> {
+    clipboard_service::stop()
+}
+
+/// 读取剪贴板同步状态。
+///
+/// # Returns
+/// 运行中为实时快照，停止后为空快照。
+///
+/// # Errors
+/// 不会失败。
+pub fn clipboard_status() -> Result<ClipboardStatusDto, String> {
+    clipboard_service::status()
+}
+
+/// 传输一个文件到接收目录，并校验两端 SHA-256。
+///
+/// # Arguments
+/// * `path` - 源文件绝对路径
+/// * `interrupt_after_chunks` - 大于 0 时在该块后中断并续传（验证断点续传）
+/// * `chunk_size` - 分块大小，`0` 为默认 4 MiB
+///
+/// # Returns
+/// 两端哈希、字节数、续传信息。
+///
+/// # Errors
+/// 源文件不存在或校验失败时返回错误文本。
+pub fn file_transfer(
+    path: String,
+    interrupt_after_chunks: u32,
+    chunk_size: u64,
+) -> Result<FileTransferDto, String> {
+    file_service::send(path, interrupt_after_chunks, chunk_size)
 }

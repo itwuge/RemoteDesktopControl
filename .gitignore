@@ -41,6 +41,7 @@ packaging/**/output/
 # --- 日志与运行期数据 ---
 *.log
 logs/
+app/rdc-control-logs/
 tmp/
 
 # --- 密钥/证书（绝不入库，CI 用 secrets 注入）---

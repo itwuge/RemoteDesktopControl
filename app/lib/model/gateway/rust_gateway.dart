@@ -13,6 +13,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import '../../core/utils/logger.dart';
 import '../../src/rust/api.dart' as rust_api;
+import '../../src/rust/clipboard_service.dart' as rust_clipboard;
+import '../../src/rust/file_service.dart' as rust_file;
 import '../../src/rust/frb_generated.dart';
 import '../../src/rust/input_service.dart' as rust_input;
 import 'rust_types.dart';
@@ -491,6 +493,100 @@ class RustGateway {
       lastY: dto.lastY,
       successRate: dto.successRate,
       lastError: dto.lastError,
+    );
+  }
+
+  // =========** 剪贴板与文件 =========
+
+  /// 启动剪贴板同步（回环两端）。
+  Future<ClipboardSyncInfo> startClipboard() async {
+    _ensureInitialized();
+    return _toClipboard(await rust_api.clipboardStart());
+  }
+
+  /// 本机剪贴板 → 远端。
+  Future<ClipboardSyncInfo> clipboardSend() async {
+    _ensureInitialized();
+    return _toClipboard(await rust_api.clipboardSend());
+  }
+
+  /// 远端 → 本机剪贴板（含回读校验）。
+  Future<ClipboardSyncInfo> clipboardPull() async {
+    _ensureInitialized();
+    return _toClipboard(await rust_api.clipboardPull());
+  }
+
+  /// 模拟对端修改剪贴板。
+  Future<ClipboardSyncInfo> clipboardSetRemote(String text) async {
+    _ensureInitialized();
+    return _toClipboard(await rust_api.clipboardSetRemote(text: text));
+  }
+
+  /// 读取远端缓冲区文本（预览）。
+  Future<String> clipboardRemoteText() async {
+    _ensureInitialized();
+    return rust_api.clipboardRemoteText();
+  }
+
+  /// 读取本机剪贴板文本（预览）。
+  Future<String> clipboardLocalText() async {
+    _ensureInitialized();
+    return rust_api.clipboardLocalText();
+  }
+
+  /// 停止剪贴板同步。
+  Future<ClipboardSyncInfo> stopClipboard() async {
+    _ensureInitialized();
+    return _toClipboard(await rust_api.clipboardStop());
+  }
+
+  /// 传输文件到接收目录并校验 SHA-256。
+  ///
+  /// [interruptAfterChunks] 大于 0 时模拟在第 N 块后断线并续传。
+  Future<FileTransferInfo> transferFile(
+    String path, {
+    int interruptAfterChunks = 0,
+    int chunkSize = 0,
+  }) async {
+    _ensureInitialized();
+    final dto = await rust_api.fileTransfer(
+      path: path,
+      interruptAfterChunks: interruptAfterChunks,
+      chunkSize: BigInt.from(chunkSize),
+    );
+    return _toFileTransfer(dto);
+  }
+
+  /// 剪贴板 DTO → 值对象。
+  ClipboardSyncInfo _toClipboard(rust_clipboard.ClipboardStatusDto dto) {
+    return ClipboardSyncInfo(
+      running: dto.running,
+      remoteChars: dto.remoteChars.toInt(),
+      localChars: dto.localChars.toInt(),
+      sent: dto.sent.toInt(),
+      applied: dto.applied.toInt(),
+      skippedDuplicates: dto.skippedDuplicates.toInt(),
+      skippedEchoes: dto.skippedEchoes.toInt(),
+      rejected: dto.rejected.toInt(),
+      lastHash: dto.lastHash,
+      verified: dto.verified,
+      lastError: dto.lastError,
+    );
+  }
+
+  /// 文件传输 DTO → 值对象。
+  FileTransferInfo _toFileTransfer(rust_file.FileTransferDto dto) {
+    return FileTransferInfo(
+      source: dto.source,
+      dest: dto.dest,
+      bytes: dto.bytes.toInt(),
+      chunks: dto.chunks,
+      sourceSha256: dto.sourceSha256,
+      destSha256: dto.destSha256,
+      equal: dto.equal,
+      resumed: dto.resumed,
+      resumedBytes: dto.resumedBytes.toInt(),
+      interrupted: dto.interrupted,
     );
   }
 
