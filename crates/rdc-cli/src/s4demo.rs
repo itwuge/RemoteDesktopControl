@@ -46,6 +46,10 @@ const INPUT_EVENTS: usize = 100;
 const INPUT_PACE: Duration = Duration::from_millis(6);
 /// 鼠标坐标允许的最大偏差（像素）。
 const INPUT_TOLERANCE_PX: i32 = 2;
+/// 采样到陈旧坐标时的最多重采次数（每次间隔 [`INPUT_SETTLE_STEP`]）。
+const INPUT_SETTLE_TRIES: u32 = 12;
+/// 重采间隔：系统偶发延迟处理注入输入时，等一次再读。
+const INPUT_SETTLE_STEP: Duration = Duration::from_millis(3);
 
 // =====** 会话配对 =====**
 
@@ -243,6 +247,7 @@ pub async fn run_input() -> DemoResult<()> {
     let host_view = view;
     let host_fut = async {
         let mut samples: Vec<(i32, i32)> = Vec::with_capacity(INPUT_EVENTS);
+        let mut settle_retries = 0usize;
         let result = match create_injector() {
             Ok(mut injector) => {
                 injector.set_viewport(host_view);
@@ -252,8 +257,28 @@ pub async fn run_input() -> DemoResult<()> {
                     INPUT_EVENTS as u32,
                     Some(INPUT_PACE),
                     |event| {
-                        if let InputEvent::Pointer(_) = event {
-                            if let Some(pos) = cursor_pos() {
+                        if let InputEvent::Pointer(pointer) = event {
+                            let target = (pointer.x, pointer.y);
+                            let in_tolerance = |pos: Option<(i32, i32)>| match pos {
+                                Some((x, y)) => {
+                                    (x - target.0).abs() <= INPUT_TOLERANCE_PX
+                                        && (y - target.1).abs() <= INPUT_TOLERANCE_PX
+                                }
+                                None => false,
+                            };
+                            // 注入后系统可能还没处理完，采到的是上一条目标的坐标；
+                            // 在有限窗口内重采，记录“稳定后”的位置。
+                            let mut sampled = cursor_pos();
+                            let mut tries = 0;
+                            while !in_tolerance(sampled) && tries < INPUT_SETTLE_TRIES {
+                                std::thread::sleep(INPUT_SETTLE_STEP);
+                                sampled = cursor_pos();
+                                tries += 1;
+                            }
+                            if tries > 0 {
+                                settle_retries += 1;
+                            }
+                            if let Some(pos) = sampled {
                                 samples.push(pos);
                             }
                         }
@@ -263,7 +288,7 @@ pub async fn run_input() -> DemoResult<()> {
             }
             Err(err) => Err(rdc_core::s4::S4Error::Input(err)),
         };
-        (result, samples)
+        (result, samples, settle_retries)
     };
 
     let ctrl_events = targets
@@ -284,7 +309,7 @@ pub async fn run_input() -> DemoResult<()> {
     ctrl_rt.close();
     let restored = set_cursor_pos(origin);
 
-    let (host_result, samples) = host_result;
+    let (host_result, samples, settle_retries) = host_result;
     let injected = host_result.map_err(|e| e.to_string())?;
     let counters = ctrl_result.map_err(|e| e.to_string())?;
 
@@ -308,7 +333,8 @@ pub async fn run_input() -> DemoResult<()> {
         samples.len()
     );
     println!(
-        "[input] 坐标比对：成功 {matched}/{}，最大偏差 {max_dev} px（阈值 ≤ {INPUT_TOLERANCE_PX} px）",
+        "[input] 坐标比对：成功 {matched}/{}，最大偏差 {max_dev} px（阈值 ≤ {INPUT_TOLERANCE_PX} px），\
+         重采 {settle_retries} 条",
         targets.len()
     );
     println!(
