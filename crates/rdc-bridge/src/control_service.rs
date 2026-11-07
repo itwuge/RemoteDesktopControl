@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use rdc_capture::{create_source, CaptureConfig, ChromaFormat, Frame, FrameSink};
 use rdc_codec::{create_encoder, CodecKind, VideoConfig, VideoChroma};
-use rdc_decode::{DecodedFrame, MfH264Decoder};
+use rdc_decode::{open_video_decoder, DecodedFrame, VideoDecoder};
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HMODULE};
@@ -380,7 +380,7 @@ struct PipelineParts {
     events: [HANDLE; 2],
     converter: VideoConverter,
     encoder: Box<dyn rdc_codec::VideoEncoder>,
-    decoder: MfH264Decoder,
+    decoder: Box<dyn VideoDecoder>,
 }
 
 /// 在管线线程内创建采集源、D3D11 资源、编码器与解码器，并启动采集。
@@ -457,22 +457,23 @@ fn setup_pipeline(
             low_latency: true,
         })
         .map_err(|error| format!("配置编码器失败: {error}"))?;
-    let decoder = match MfH264Decoder::open_with_device(&device, width, height, TARGET_FPS, true) {
-        Ok(decoder) => decoder,
-        Err(error) => {
-            stats.set_error(format!("硬件解码不可用，转系统内存路径: {error}"));
-            MfH264Decoder::open(width, height, TARGET_FPS, false)
-                .map_err(|error| format!("打开解码器失败: {error}"))?
-        }
-    };
-    let decoder_name = decoder.name().to_owned();
-    let decode_path = if decoder.is_hardware() {
-        "dxgi-texture"
-    } else {
-        "system-memory"
-    };
+    // 解码后端按构建 feature 与 `RDC_DECODER` 选择：默认 FFmpeg（d3d11va 直出纹理），
+    // 打开失败自动回退 MF，最终值反映在 `DecoderInfo` 里。
+    let decoder = open_video_decoder(Some(&device), width, height, TARGET_FPS, true)
+        .map_err(|error| format!("打开解码器失败: {error}"))?;
+    let decoder_info = decoder.info();
+    let decoder_name = format!("{}/{}", decoder_info.backend, decoder_info.name);
+    let decode_path = format!(
+        "{}/{}",
+        decoder_info.backend,
+        decoder_info.output.as_str()
+    );
+    eprintln!(
+        "[control] decoder={} ({})；输出类型待首帧确定",
+        decoder_info.backend, decoder_info.name
+    );
     Stats::set_text(&stats.decoder, decoder_name.clone());
-    Stats::set_text(&stats.decode_path, decode_path);
+    Stats::set_text(&stats.decode_path, decode_path.clone());
     let encoder_name = rdc_codec::probe_encoders()
         .hardware
         .first()
@@ -504,7 +505,7 @@ fn setup_pipeline(
         backend,
         encoder: encoder_name,
         decoder: decoder_name,
-        decode_path: decode_path.to_owned(),
+        decode_path,
     };
     let parts = PipelineParts {
         info,
@@ -553,6 +554,8 @@ fn run_pipeline(
     // 编码器输出时刻诊断：capture → packet，用来区分编码积压与解码积压。
     let mut pending_packet_ms: std::collections::VecDeque<u32> = std::collections::VecDeque::new();
     let mut enc_latency_us: u64 = 0;
+    // 一次送入可能解出 0..N 帧，复用缓冲避免每包分配。
+    let mut decoded_frames: Vec<DecodedFrame> = Vec::new();
     loop {
         if stop.load(Ordering::Relaxed) {
             break;
@@ -612,9 +615,18 @@ fn run_pipeline(
             if pending_packet_ms.len() > 32 {
                 pending_packet_ms.clear();
             }
-            match decoder.feed(&packet.data, packet.pts_ns / 1000) {
-                Ok(frames) => {
-                    for decoded in frames {
+            decoded_frames.clear();
+            let feed_result = decoder.feed_each(
+                &packet.data,
+                packet.pts_ns / 1000,
+                &mut |frame| {
+                    decoded_frames.push(frame);
+                    Ok(())
+                },
+            );
+            match feed_result {
+                Ok(()) => {
+                    for decoded in decoded_frames.drain(..) {
                         stats.decoded.fetch_add(1, Ordering::Relaxed);
                         // 编解码管线时延（不含 Flutter 合成），用于与画内回读互相校验。
                         if let Some(capture_ms) = pending_capture_ms.pop_front() {
@@ -672,6 +684,14 @@ fn run_pipeline(
             // bits/ms 即 kbit/s：窗口内编码字节数 × 8 ÷ 窗口毫秒数。
             let kbps = bytes_window * 8 / millis;
             stats.bitrate_kbps.store(kbps, Ordering::Relaxed);
+            // 输出类型要等首帧解出后才能确定（启动时是 unknown），每窗口刷新一次，
+            // 使控制页与 CSV 都反映真实路径（如 ffmpeg/dxgi-texture）。
+            let decode_info = decoder.info();
+            Stats::set_text(&stats.decoder, format!("{}/{}", decode_info.backend, decode_info.name));
+            Stats::set_text(
+                &stats.decode_path,
+                format!("{}/{}", decode_info.backend, decode_info.output.as_str()),
+            );
             if let Some(file) = log_file.as_mut() {
                 use std::io::Write;
                 let _ = writeln!(

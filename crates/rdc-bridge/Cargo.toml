@@ -31,5 +31,10 @@ rdc-filetransfer = { workspace = true }
 serde_json = { workspace = true }
 flutter_rust_bridge = { workspace = true }
 
+[features]
+# FFmpeg 解码后端（LGPL 共享构建）。发布包启用：应用默认走 FFmpeg，MF 保留回退。
+# 打开后构建必须提供 FFMPEG_DIR（见 crates/rdc-decode/build.rs）。
+ffmpeg = ["rdc-decode/ffmpeg"]
+
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true }

@@ -68,17 +68,16 @@ fn stage_runtime(root: &Path) {
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        // 只带解码必需的最小运行库；其余（avformat/avfilter/swscale/ffmpeg.exe）不随包。
-        // swresample 是 avcodec 的直接依赖（DLL 导入表要求），必须一起带。
+        // 只带解码必需的最小运行库；其余（avformat/avfilter/swscale/avdevice/ffmpeg.exe）不随包。
+        // S7 实测：avcodec-61.dll 只依赖 KERNEL32/msvcrt/avutil-59；avutil-59.dll 还依赖
+        // libwinpthread-1.dll（MinGW 构建的线程运行库），三者缺一不可。
         let needed = name.starts_with("avcodec-")
             || name.starts_with("avutil-")
-            || name.starts_with("swresample-");
+            || name == "libwinpthread-1.dll";
         if needed && name.ends_with(".dll") {
             let _ = std::fs::copy(entry.path(), profile_dir.join(name.as_ref()));
         }
     }
-    let license = root.join("LICENSE.txt");
-    if license.exists() {
-        let _ = std::fs::copy(license, profile_dir.join("FFMPEG-LICENSE-LGPLv3.txt"));
-    }
+    // 许可文本不在这里重复放置：打包脚本从 packaging/licenses 复制并附构建参数；
+    // 本函数只负责让 `cargo run` 能在 exe 旁边找到运行期 DLL。
 }

@@ -7,7 +7,8 @@
 //!
 //! 选择规则：
 //! - 以 `ffmpeg` feature 构建时默认 FFmpeg（S3f 实测 p99 35.8~41.2 ms vs MF 340 ms）；
-//!   `RDC_FFMPEG_MODE=d3d11` 时走 d3d11va 硬解并输出 GPU 纹理，否则单线程软解 + 系统内存 NV12。
+//!   有 D3D11 设备且 `prefer_hardware` 时默认走 d3d11va 硬解并输出 GPU 纹理
+//!   （S3e 实测 decode 0.86 ms/帧、delay=0）；`RDC_FFMPEG_MODE=soft` 可强制单线程软解 + 系统内存 NV12。
 //! - `RDC_DECODER=mf` 显式回退 Media Foundation；未启用 feature 时只能 MF。
 //! - FFmpeg 打开失败时回落 MF，并在 stderr 明确记录（报告里的 `decoder_path` 反映实际值）。
 
@@ -212,8 +213,11 @@ pub fn open_video_decoder(
         DecoderBackend::Ffmpeg => {
             #[cfg(feature = "ffmpeg")]
             {
-                let hw =
-                    prefer_hardware && std::env::var("RDC_FFMPEG_MODE").as_deref() == Ok("d3d11");
+                // 默认硬件：有设备就试 d3d11va（S7 玻璃到玻璃口径需要 GPU 直出纹理）；
+                // `RDC_FFMPEG_MODE=soft` 显式强制软解，便于矩阵对照。
+                let hw = prefer_hardware
+                    && device.is_some()
+                    && std::env::var("RDC_FFMPEG_MODE").as_deref() != Ok("soft");
                 match FfmpegH264Decoder::open_with_device(device, width, height, fps, hw) {
                     Ok(decoder) => return Ok(Box::new(decoder)),
                     Err(error) => {

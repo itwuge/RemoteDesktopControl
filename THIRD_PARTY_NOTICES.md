@@ -41,11 +41,25 @@
 发行包内含 `msvcp140.dll`、`vcruntime140.dll`、`vcruntime140_1.dll`（app-local 部署），
 按 Microsoft Visual Studio 可再发行组件许可随应用分发；这些文件不属于本仓库源码。
 
-## FFmpeg（默认不包含）
+## FFmpeg（LGPL-2.1-or-later，动态链接）
 
-`rdc-decode` 的 FFmpeg 解码后端由 Cargo feature `ffmpeg` 控制，**默认关闭**，发行包
-不包含任何 FFmpeg DLL。若使用者自行以该 feature 构建，需自行提供 LGPL 共享构建的
-FFmpeg 动态库并遵守 LGPL-2.1-or-later；本仓库不分发该二进制。
+发行包内含自建的精简 FFmpeg 共享库 `avcodec-*.dll` 与 `avutil-*.dll`（n7.1），仅启用
+H.264 解码 / H.264 parser / d3d11va 硬解与 file 协议。构建参数：
+`--disable-everything --enable-decoder=h264 --enable-parser=h264 --enable-protocol=file
+--disable-gpl --disable-libx264 --disable-libx265 --enable-d3d11va
+--enable-hwaccel=h264_d3d11va --enable-hwaccel=h264_d3d11va2
+--enable-shared --disable-static --disable-programs --disable-doc --disable-network --disable-autodetect`。
+
+- 许可：**LGPL-2.1-or-later**（未启用 GPL 组件，不含 x264/x265/avformat/avfilter/swscale）。
+- 链接方式：动态链接，DLL 未修改；使用者可按 LGPL 2.1 第 6 节替换为兼容版本。
+- 许可文本随包：`COPYING.LGPLv2.1`、`FFmpeg-LICENSE.md`；构建参数与 SHA-256 记录在
+  `FFMPEG-BUILD-INFO.txt`。
+- 运行时还带 `libwinpthread-1.dll`（mingw-w64 winpthreads，MIT 风格许可，文本见
+  `libwinpthread-COPYING.txt`），它是 `avutil-*.dll` 的直接依赖。
+- 源码获取：<https://git.ffmpeg.org/ffmpeg.git>（tag `n7.1`），或向分发者索取对应源码包。
+
+若以未启用 `ffmpeg` feature 的配置构建，发行包不含任何 FFmpeg DLL，此时运行时只能使用
+Media Foundation 解码（回退路径）。
 
 ## 许可文本获取
 
