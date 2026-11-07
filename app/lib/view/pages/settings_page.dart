@@ -1,99 +1,307 @@
 // ============================================================
-// 页面用途：设置页（中继 / 方向 / 文件传输）
+// 页面用途：设置页（网络与中继 / 编码参数 / 降级策略 / 快捷设置）
 //
 // 层级：view/pages
-// 被谁组装：home_page.dart 通过 Navigator 打开
+// 被谁组装：shell_page.dart
 // 数据来源：SettingsController（草稿设置、保存结果）
+// 布局规矩：上下单栏、分组框；标签在上控件在下；用按钮态替代开关
 // ============================================================
 
 import 'package:flutter/material.dart';
 
+import '../../controller/permission_controller.dart';
 import '../../controller/settings_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/utils/formatters.dart';
+import '../components/fields.dart';
 import '../components/info_row.dart';
+import '../components/rdc_button.dart';
 import '../components/section_card.dart';
+import 'permission_page.dart';
 
 /// 设置页。
 class SettingsPage extends StatefulWidget {
   /// 创建设置页。
   ///
-  /// [controller] 为设置状态与保存行为。
-  const SettingsPage({super.key, required this.controller});
+  /// [controller] 设置状态；[permission] 权限页控制器。
+  const SettingsPage({
+    super.key,
+    required this.controller,
+    required this.permission,
+  });
 
   /// 设置控制器。
   final SettingsController controller;
+
+  /// 权限页控制器。
+  final PermissionController permission;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
 
-/// 设置页状态：持有输入框控制器与保存反馈。
+/// 设置页状态。
 class _SettingsPageState extends State<SettingsPage> {
-  /// 中继地址输入框控制器；初值在 initState 中从草稿设置填充。
-  late final TextEditingController _relayAddressController;
+  /// 中继地址输入框。
+  late final TextEditingController _relayAddress;
 
   @override
   void initState() {
     super.initState();
-    _relayAddressController = TextEditingController(
+    _relayAddress = TextEditingController(
       text: widget.controller.settings.value.relayAddress,
     );
+    widget.controller.settings.addListener(_syncRelayAddress);
+    widget.controller.load();
+  }
+
+  /// 设置从磁盘加载后同步地址文本。
+  void _syncRelayAddress() {
+    final value = widget.controller.settings.value.relayAddress;
+    if (_relayAddress.text != value) {
+      _relayAddress.text = value;
+    }
   }
 
   @override
   void dispose() {
-    // 先移除监听再释放，避免析构顺序导致 setState after dispose。
-    _relayAddressController.dispose();
+    widget.controller.settings.removeListener(_syncRelayAddress);
+    _relayAddress.dispose();
     super.dispose();
   }
 
-  // =====** 组件：页面骨架 =====**
+  // =====** 组件：网络与中继 =====**
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text(AppStrings.settingsTitle)),
-      body: SafeArea(
-        child: ValueListenableBuilder(
-          valueListenable: widget.controller.settings,
-          builder: (context, settings, _) {
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(RdcTokens.spacePage),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 920),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildRelaySection(settings.allowRelay),
-                      const SizedBox(height: RdcTokens.spaceXl),
-                      _buildDisplaySection(),
-                      const SizedBox(height: RdcTokens.spaceXl),
-                      _buildTransferSection(settings.fileBandwidthRatio),
-                      const SizedBox(height: RdcTokens.spaceXl),
-                      _buildSaveButton(),
-                    ],
+  Widget _buildNetworkSection(bool allowRelay) {
+    return RdcSectionCard(
+      title: AppStrings.networkSection,
+      trailing: RdcStatusPill(
+        text: allowRelay ? '已开启' : '默认关闭',
+        color: allowRelay ? RdcTokens.danger : RdcTokens.success,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              RdcStateButton(
+                label: allowRelay ? AppStrings.relayOn : AppStrings.relayOff,
+                icon: Icons.cable,
+                active: allowRelay,
+                onPressed: () => _onRelayChanged(!allowRelay),
+              ),
+              const SizedBox(width: RdcTokens.spaceMd),
+              Expanded(
+                child: Text(
+                  allowRelay
+                      ? AppStrings.relayOnHint
+                      : AppStrings.relayOffHint,
+                  style: TextStyle(
+                    fontSize: RdcTokens.fontCaption,
+                    color: allowRelay ? RdcTokens.danger : RdcTokens.success,
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
               ),
-            );
-          },
-        ),
+            ],
+          ),
+          if (allowRelay) ...[
+            const SizedBox(height: RdcTokens.spaceLg),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RdcField(
+                  label: AppStrings.relayAddress,
+                  child: RdcTextField(
+                    controller: _relayAddress,
+                    hint: 'relay.example.com:21117',
+                    onChanged: widget.controller.setRelayAddress,
+                  ),
+                ),
+                const SizedBox(width: RdcTokens.spaceMd),
+                RdcField(
+                  label: AppStrings.policyLabel,
+                  expand: false,
+                  child: Row(
+                    children: [
+                      RdcStateButton(
+                        label: AppStrings.policyStrict,
+                        active: widget.controller.policyIndex == 0,
+                        onPressed: () =>
+                            widget.controller.setConnectionPolicyByIndex(0),
+                      ),
+                      const SizedBox(width: RdcTokens.spaceSm),
+                      RdcStateButton(
+                        label: AppStrings.policyAsk,
+                        active: widget.controller.policyIndex == 1,
+                        onPressed: () =>
+                            widget.controller.setConnectionPolicyByIndex(1),
+                      ),
+                      const SizedBox(width: RdcTokens.spaceSm),
+                      RdcStateButton(
+                        label: AppStrings.policyAuto,
+                        active: widget.controller.policyIndex == 2,
+                        onPressed: () =>
+                            widget.controller.setConnectionPolicyByIndex(2),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }
 
-  // =====** 组件：中继分组 =====**
+  // =====** 组件：编码参数 =====**
 
-  Widget _buildRelaySection(bool allowRelay) {
+  Widget _buildEncodingSection(int width, int height, int fps, double mbps) {
+    const presets = [
+      (1920, 1080, '1080p'),
+      (1280, 720, '720p'),
+      (854, 480, '480p'),
+    ];
     return RdcSectionCard(
-      title: AppStrings.relaySection,
-      trailing: RdcStatusPill(
-        text: allowRelay ? '已开启' : '严格 P2P',
-        color: allowRelay ? RdcTokens.danger : RdcTokens.success,
+      title: AppStrings.encodingSection,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          RdcField(
+            label: AppStrings.resolutionLabel,
+            child: Row(
+              children: [
+                for (final preset in presets) ...[
+                  if (preset != presets.first)
+                    const SizedBox(width: RdcTokens.spaceSm),
+                  RdcStateButton(
+                    label: preset.$3,
+                    active: width == preset.$1 && height == preset.$2,
+                    onPressed: () =>
+                        widget.controller.setVideoSize(preset.$1, preset.$2),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: RdcTokens.spaceMd),
+          RdcField(
+            label: AppStrings.fpsLabel,
+            expand: false,
+            child: Row(
+              children: [
+                for (final option in const [15, 30, 60]) ...[
+                  if (option != 15) const SizedBox(width: RdcTokens.spaceSm),
+                  RdcStateButton(
+                    label: '$option',
+                    active: fps == option,
+                    onPressed: () => widget.controller.setVideoFps(option),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: RdcTokens.spaceMd),
+          RdcField(
+            label: AppStrings.bitrateLabel,
+            expand: false,
+            child: Row(
+              children: [
+                for (final option in const [4.0, 8.0, 16.0]) ...[
+                  if (option != 4.0) const SizedBox(width: RdcTokens.spaceSm),
+                  RdcStateButton(
+                    label: '${option.toInt()} Mbps',
+                    active: mbps == option,
+                    onPressed: () => widget.controller.setVideoBitrate(option),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ),
+    );
+  }
+
+  // =====** 组件：降级策略 =====**
+
+  Widget _buildDegradationSection(bool autoReconnect) {
+    return RdcSectionCard(
+      title: AppStrings.degradationSection,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          RdcField(
+            label: AppStrings.orientationShort,
+            expand: false,
+            child: RdcStateButton(
+              label: const [
+                AppStrings.orientationFollow,
+                AppStrings.orientationLandscape,
+                AppStrings.orientationPortrait,
+              ][widget.controller.orientationIndex],
+              icon: Icons.screen_rotation,
+              active: true,
+              onPressed: () {
+                final next = (widget.controller.orientationIndex + 1) % 3;
+                widget.controller.setOrientationByIndex(next);
+              },
+            ),
+          ),
+          const SizedBox(width: RdcTokens.spaceMd),
+          RdcField(
+            label: AppStrings.autoReconnectLabel,
+            expand: false,
+            child: RdcStateButton(
+              label: autoReconnect ? '已开启' : '已关闭',
+              icon: Icons.refresh,
+              active: autoReconnect,
+              onPressed: () =>
+                  widget.controller.setAutoReconnect(!autoReconnect),
+            ),
+          ),
+          const SizedBox(width: RdcTokens.spaceMd),
+          RdcField(
+            label: AppStrings.bandwidthLabel,
+            child: Row(
+              children: [
+                Expanded(
+                  child: Slider(
+                    value: widget.controller.settings.value.fileBandwidthRatio,
+                    min: 0.1,
+                    max: 0.7,
+                    divisions: 6,
+                    label: Formatters.percent(
+                      widget.controller.settings.value.fileBandwidthRatio,
+                    ),
+                    onChanged: widget.controller.setFileBandwidthRatio,
+                  ),
+                ),
+                Text(
+                  Formatters.percent(
+                    widget.controller.settings.value.fileBandwidthRatio,
+                  ),
+                  style: const TextStyle(
+                    fontSize: RdcTokens.fontBody,
+                    color: RdcTokens.accent,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // =====** 组件：快捷设置 =====**
+
+  Widget _buildQuickSection() {
+    return RdcSectionCard(
+      title: AppStrings.quickSection,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -104,166 +312,76 @@ class _SettingsPageState extends State<SettingsPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      AppStrings.relayEnable,
-                      style: TextStyle(fontSize: RdcTokens.fontBody, color: RdcTokens.textPrimary),
+                      AppStrings.permissionEntry,
+                      style: TextStyle(
+                        fontSize: RdcTokens.fontBody,
+                        color: RdcTokens.textPrimary,
+                      ),
                     ),
                     SizedBox(height: 2),
                     Text(
-                      AppStrings.relayHint,
-                      style: TextStyle(fontSize: RdcTokens.fontCaption, color: RdcTokens.textMuted),
+                      AppStrings.permissionEntryHint,
+                      style: TextStyle(
+                        fontSize: RdcTokens.fontCaption,
+                        color: RdcTokens.textMuted,
+                      ),
                     ),
                   ],
                 ),
               ),
-              Switch(
-                value: allowRelay,
-                onChanged: (value) => _onRelayChanged(value),
+              RdcButton(
+                label: '管理',
+                icon: Icons.shield_outlined,
+                onPressed: _openPermission,
               ),
             ],
           ),
-          if (allowRelay) ...[
-            const SizedBox(height: RdcTokens.spaceMd),
-            TextField(
-              controller: _relayAddressController,
-              onChanged: widget.controller.setRelayAddress,
-              decoration: InputDecoration(
-                labelText: AppStrings.relayAddress,
-                hintText: 'relay.example.com:21117',
-                filled: true,
-                fillColor: RdcTokens.surfaceRaised,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RdcTokens.radiusControl),
-                  borderSide: const BorderSide(color: RdcTokens.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RdcTokens.radiusControl),
-                  borderSide: const BorderSide(color: RdcTokens.border),
-                ),
-              ),
-            ),
-            const SizedBox(height: RdcTokens.spaceMd),
-            const Text(
-              AppStrings.policyLabel,
-              style: TextStyle(fontSize: RdcTokens.fontBody, color: RdcTokens.textPrimary),
-            ),
-            const SizedBox(height: RdcTokens.spaceSm),
-            SegmentedButton<int>(
-              segments: const [
-                ButtonSegment(value: 0, label: Text(AppStrings.policyStrict)),
-                ButtonSegment(value: 1, label: Text(AppStrings.policyAsk)),
-                ButtonSegment(value: 2, label: Text(AppStrings.policyAuto)),
-              ],
-              selected: {widget.controller.policyIndex},
-              onSelectionChanged: (selection) =>
-                  widget.controller.setConnectionPolicyByIndex(selection.first),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // =====** 组件：显示与方向分组 =====**
-
-  Widget _buildDisplaySection() {
-    return RdcSectionCard(
-      title: AppStrings.displaySection,
-      child: DropdownButtonFormField<int>(
-        initialValue: widget.controller.orientationIndex,
-        decoration: InputDecoration(
-          labelText: AppStrings.orientationLabel,
-          filled: true,
-          fillColor: RdcTokens.surfaceRaised,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(RdcTokens.radiusControl),
-            borderSide: const BorderSide(color: RdcTokens.border),
-          ),
-        ),
-        items: const [
-          DropdownMenuItem(value: 0, child: Text(AppStrings.orientationFollow)),
-          DropdownMenuItem(value: 1, child: Text(AppStrings.orientationLandscape)),
-          DropdownMenuItem(value: 2, child: Text(AppStrings.orientationPortrait)),
-        ],
-        onChanged: (value) {
-          if (value != null) widget.controller.setOrientationByIndex(value);
-        },
-      ),
-    );
-  }
-
-  // =====** 组件：文件传输分组 =====**
-
-  Widget _buildTransferSection(double ratio) {
-    return RdcSectionCard(
-      title: AppStrings.transferSection,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+          const SizedBox(height: RdcTokens.spaceLg),
           Row(
             children: [
-              const Expanded(
-                child: Text(
-                  AppStrings.bandwidthLabel,
-                  style: TextStyle(fontSize: RdcTokens.fontBody, color: RdcTokens.textPrimary),
-                ),
-              ),
-              Text(
-                Formatters.percent(ratio),
-                style: const TextStyle(
-                  fontSize: RdcTokens.fontBody,
-                  color: RdcTokens.accent,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: ValueListenableBuilder(
+                  valueListenable: widget.controller.isSaving,
+                  builder: (context, saving, _) => RdcButton(
+                    label: saving ? '保存中…' : AppStrings.saveButton,
+                    icon: Icons.save,
+                    primary: true,
+                    onPressed: saving ? null : _save,
+                  ),
                 ),
               ),
             ],
           ),
-          Slider(
-            value: ratio,
-            min: 0.1,
-            max: 0.7,
-            divisions: 6,
-            label: Formatters.percent(ratio),
-            onChanged: widget.controller.setFileBandwidthRatio,
-          ),
-          const Text(
-            AppStrings.bandwidthHint,
-            style: TextStyle(fontSize: RdcTokens.fontCaption, color: RdcTokens.textMuted),
+          const SizedBox(height: RdcTokens.spaceSm),
+          Text(
+            '设置文件：${widget.controller.repository.filePath}',
+            style: const TextStyle(
+              fontSize: RdcTokens.fontCaption,
+              color: RdcTokens.textMuted,
+            ),
           ),
         ],
       ),
     );
   }
 
-  // =====** 组件：保存按钮 =====**
-
-  Widget _buildSaveButton() {
-    return ValueListenableBuilder(
-      valueListenable: widget.controller.isSaving,
-      builder: (context, saving, _) {
-        return SizedBox(
-          width: double.infinity,
-          child: FilledButton(
-            onPressed: saving ? null : _save,
-            child: Text(saving ? '保存中…' : AppStrings.saveButton),
-          ),
-        );
-      },
-    );
-  }
-
-  // =====** 行为：中继开关确认 =====**
+  // =====** 行为：中继确认 =====**
 
   Future<void> _onRelayChanged(bool value) async {
     if (!value) {
       widget.controller.setAllowRelay(false);
       return;
     }
-    // 开启中继属于高风险设置：必须显式确认，避免用户误触后流量走服务器。
+    // 开启中继属于高风险设置：必须显式确认，避免误触后流量走服务器。
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text(AppStrings.relayConfirmTitle),
-        content: const Text(AppStrings.relayConfirmBody),
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+        content: const SizedBox(
+          width: 380,
+          child: Text(AppStrings.relayConfirmBody),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -281,13 +399,54 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  // =====** 行为：保存 =====**
+  /// 打开远程访问权限页。
+  void _openPermission() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PermissionPage(controller: widget.permission),
+      ),
+    );
+  }
 
+  /// 保存并提示结果。
   Future<void> _save() async {
     await widget.controller.save();
     if (!mounted) return;
     final message = widget.controller.message.value;
     if (message == null) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  // =====** 组件：页面骨架 =====**
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(RdcTokens.spacePage),
+      child: ValueListenableBuilder(
+        valueListenable: widget.controller.settings,
+        builder: (context, settings, _) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _buildNetworkSection(settings.allowRelay),
+              const SizedBox(height: RdcTokens.spaceLg),
+              _buildEncodingSection(
+                settings.videoWidth,
+                settings.videoHeight,
+                settings.videoFps,
+                settings.videoBitrateMbps,
+              ),
+              const SizedBox(height: RdcTokens.spaceLg),
+              _buildDegradationSection(settings.autoReconnect),
+              const SizedBox(height: RdcTokens.spaceLg),
+              _buildQuickSection(),
+            ],
+          );
+        },
+      ),
+    );
   }
 }
