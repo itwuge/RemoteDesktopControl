@@ -1,0 +1,19 @@
+# ============================================================
+# rdc-filetransfer · crate 清单
+#
+# 用途：分块文件传输的状态机（分块计划、逐块 SHA-256、进度、断点续传）。
+# 层级：L3 交互层（独立于音视频热路径），向 rdc-core 提供发送/接收状态机。
+# 依赖纪律：不依赖 transport/capture/codec/decode，也不含网络与 UI。
+# ============================================================
+
+[package]
+name = "rdc-filetransfer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "RDC 分块文件传输"
+
+[dependencies]
+sha2 = { workspace = true }
+thiserror = { workspace = true }
