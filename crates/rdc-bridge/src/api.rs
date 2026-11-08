@@ -21,6 +21,7 @@ use rdc_protocol::Capabilities;
 use rdc_security::{fingerprint_from_b64, IdentityKeyPair};
 
 use crate::clipboard_service;
+use crate::error::{boundary_text, ApiError};
 use crate::file_service;
 use crate::input_service;
 use crate::session_service;
@@ -209,7 +210,7 @@ fn to_device_dto(record: &DeviceRecord) -> DeviceDto {
 /// 文件损坏或版本超前时返回错误文本。
 pub fn devices_load() -> Result<DeviceListDto, String> {
     let path = device_path();
-    let list = DeviceList::load(&path).map_err(|error| error.to_string())?;
+    let list = DeviceList::load(&path).map_err(boundary_text)?;
     Ok(DeviceListDto {
         devices: list.devices().into_iter().map(to_device_dto).collect(),
         path: path.display().to_string(),
@@ -228,13 +229,13 @@ pub fn devices_load() -> Result<DeviceListDto, String> {
 /// 原子写失败时返回错误文本。
 pub fn devices_save(devices: Vec<DeviceDto>) -> Result<DeviceListDto, String> {
     let path = device_path();
-    let mut list = DeviceList::load(&path).map_err(|error| error.to_string())?;
+    let mut list = DeviceList::load(&path).map_err(boundary_text)?;
     for device in devices {
         list.upsert_online(&device.device_id, &device.name, device.last_online_ms);
         list.set_trusted(&device.device_id, device.trusted);
         list.set_same_account(&device.device_id, device.same_account);
     }
-    list.save(&path).map_err(|error| error.to_string())?;
+    list.save(&path).map_err(boundary_text)?;
     Ok(DeviceListDto {
         devices: list.devices().into_iter().map(to_device_dto).collect(),
         path: path.display().to_string(),
@@ -259,10 +260,10 @@ pub fn device_add(
     trusted: bool,
 ) -> Result<DeviceListDto, String> {
     let path = device_path();
-    let mut list = DeviceList::load(&path).map_err(|error| error.to_string())?;
+    let mut list = DeviceList::load(&path).map_err(boundary_text)?;
     list.upsert_online(&device_id, &name, now_ms());
     list.set_trusted(&device_id, trusted);
-    list.save(&path).map_err(|error| error.to_string())?;
+    list.save(&path).map_err(boundary_text)?;
     Ok(DeviceListDto {
         devices: list.devices().into_iter().map(to_device_dto).collect(),
         path: path.display().to_string(),
@@ -289,13 +290,13 @@ pub fn device_update(
     same_account: bool,
 ) -> Result<DeviceListDto, String> {
     let path = device_path();
-    let mut list = DeviceList::load(&path).map_err(|error| error.to_string())?;
+    let mut list = DeviceList::load(&path).map_err(boundary_text)?;
     if !list.set_name(&device_id, &name) {
         return Err(format!("设备不存在或名称为空：{device_id}"));
     }
     list.set_trusted(&device_id, trusted);
     list.set_same_account(&device_id, same_account);
-    list.save(&path).map_err(|error| error.to_string())?;
+    list.save(&path).map_err(boundary_text)?;
     Ok(DeviceListDto {
         devices: list.devices().into_iter().map(to_device_dto).collect(),
         path: path.display().to_string(),
@@ -314,9 +315,9 @@ pub fn device_update(
 /// 读写失败时返回错误文本（设备不存在视为已删除，不报错）。
 pub fn device_remove(device_id: String) -> Result<DeviceListDto, String> {
     let path = device_path();
-    let mut list = DeviceList::load(&path).map_err(|error| error.to_string())?;
+    let mut list = DeviceList::load(&path).map_err(boundary_text)?;
     list.remove(&device_id);
-    list.save(&path).map_err(|error| error.to_string())?;
+    list.save(&path).map_err(boundary_text)?;
     Ok(DeviceListDto {
         devices: list.devices().into_iter().map(to_device_dto).collect(),
         path: path.display().to_string(),
@@ -449,7 +450,7 @@ pub fn settings_load() -> Result<SettingsDto, String> {
             removed.display()
         ));
     }
-    let settings = AppSettings::load(&path).map_err(|error| error.to_string())?;
+    let settings = AppSettings::load(&path).map_err(boundary_text)?;
     Ok(to_settings_dto(settings, path))
 }
 
@@ -466,8 +467,8 @@ pub fn settings_load() -> Result<SettingsDto, String> {
 pub fn settings_save(settings: SettingsDto) -> Result<SettingsDto, String> {
     let path = settings_path();
     let settings = from_settings_dto(settings);
-    settings.save(&path).map_err(|error| error.to_string())?;
-    let mut reloaded = AppSettings::load(&path).map_err(|error| error.to_string())?;
+    settings.save(&path).map_err(boundary_text)?;
+    let mut reloaded = AppSettings::load(&path).map_err(boundary_text)?;
     reloaded.sanitize();
     Ok(to_settings_dto(reloaded, path))
 }
@@ -1313,7 +1314,7 @@ fn hex_decode(text: &str) -> Result<Vec<u8>, String> {
 /// 读取或创建本机身份密钥。
 ///
 /// 为什么落盘：授权令牌的 owner 公钥必须跨进程稳定，否则签名与地址簿全部失效。
-fn load_or_create_identity() -> Result<IdentityKeyPair, String> {
+fn load_or_create_identity() -> Result<IdentityKeyPair, ApiError> {
     let path = identity_path();
     match std::fs::read_to_string(&path) {
         Ok(text) => {
@@ -1321,21 +1322,23 @@ fn load_or_create_identity() -> Result<IdentityKeyPair, String> {
             let seed: [u8; 32] = bytes
                 .as_slice()
                 .try_into()
-                .map_err(|_| "identity.seed 必须是 32 字节（64 位十六进制）".to_owned())?;
+                .map_err(|source| {
+                    ApiError::with_source("identity.seed 必须是 32 字节（64 位十六进制）", source)
+                })?;
             Ok(IdentityKeyPair::from_seed(&seed))
         }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+                std::fs::create_dir_all(parent).map_err(ApiError::from)?;
             }
             let identity = IdentityKeyPair::generate();
-            let mut file = std::fs::File::create(&path).map_err(|error| error.to_string())?;
+            let mut file = std::fs::File::create(&path).map_err(ApiError::from)?;
             file.write_all(hex_encode(&identity.to_seed_bytes()).as_bytes())
-                .map_err(|error| error.to_string())?;
-            file.sync_all().map_err(|error| error.to_string())?;
+                .map_err(ApiError::from)?;
+            file.sync_all().map_err(ApiError::from)?;
             Ok(identity)
         }
-        Err(err) => Err(format!("读取 identity.seed 失败：{err}")),
+        Err(err) => Err(ApiError::Message(format!("读取 identity.seed 失败：{err}"))),
     }
 }
 
@@ -1354,32 +1357,32 @@ fn safe_fingerprint(public_key_b64: &str) -> String {
 }
 
 /// 读取授权存储。
-fn load_grants() -> Result<GrantStore, String> {
-    GrantStore::load(grants_path()).map_err(|error| error.to_string())
+fn load_grants() -> Result<GrantStore, ApiError> {
+    GrantStore::load(grants_path()).map_err(ApiError::from)
 }
 
 /// 保存授权存储。
-fn save_grants(store: &GrantStore) -> Result<(), String> {
-    store.save(grants_path()).map_err(|error| error.to_string())
+fn save_grants(store: &GrantStore) -> Result<(), ApiError> {
+    store.save(grants_path()).map_err(ApiError::from)
 }
 
 /// 追加审计 JSONL。
-fn append_audit(log: &AuditLog) -> Result<(), String> {
+fn append_audit(log: &AuditLog) -> Result<(), ApiError> {
     if log.is_empty() {
         return Ok(());
     }
     let path = audit_path();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        std::fs::create_dir_all(parent).map_err(ApiError::from)?;
     }
     let mut file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
-        .map_err(|error| error.to_string())?;
+        .map_err(ApiError::from)?;
     file.write_all(log.to_jsonl().as_bytes())
-        .map_err(|error| error.to_string())?;
-    file.write_all(b"\n").map_err(|error| error.to_string())?;
+        .map_err(ApiError::from)?;
+    file.write_all(b"\n").map_err(ApiError::from)?;
     Ok(())
 }
 
@@ -1480,11 +1483,11 @@ fn to_trust_dto(record: &DeviceRecord, passwordless_enabled: bool) -> TrustDevic
 }
 
 /// 组装权限页快照。
-fn build_snapshot() -> Result<PermissionSnapshotDto, String> {
-    let settings = AppSettings::load(settings_path()).map_err(|error| error.to_string())?;
+fn build_snapshot() -> Result<PermissionSnapshotDto, ApiError> {
+    let settings = AppSettings::load(settings_path()).map_err(ApiError::from)?;
     let identity = load_or_create_identity()?;
     let store = load_grants()?;
-    let devices = DeviceList::load(device_path()).map_err(|error| error.to_string())?;
+    let devices = DeviceList::load(device_path()).map_err(ApiError::from)?;
     let status = session_service::status()?;
 
     let grants: Vec<GrantDto> = store.grants().iter().map(|record| to_grant_dto(record)).collect();
@@ -1559,11 +1562,14 @@ fn issue_and_store(
     now: u64,
     audit: &mut AuditLog,
     epoch_base: Option<u64>,
-) -> Result<(), String> {
+) -> Result<(), ApiError> {
     if grantee_pub.trim().is_empty() {
-        return Err("被授权方公钥不能为空（请先从已配对设备选择）".to_owned());
+        return Err(ApiError::Message(
+            "被授权方公钥不能为空（请先从已配对设备选择）".to_owned(),
+        ));
     }
-    fingerprint_from_b64(grantee_pub).map_err(|_| "被授权方公钥格式非法".to_owned())?;
+    fingerprint_from_b64(grantee_pub)
+        .map_err(|source| ApiError::with_source("被授权方公钥格式非法", source))?;
     let bits = template_bits(template).ok_or_else(|| format!("未知模板：{template}"))?;
     let validity = validity_from_days(validity_days)?;
     let identity = load_or_create_identity()?;
@@ -1595,7 +1601,7 @@ fn issue_and_store(
             now,
             audit,
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(ApiError::from)?;
     save_grants(&store)
 }
 
@@ -1607,7 +1613,7 @@ fn issue_and_store(
 /// # Errors
 /// 授权文件或设备文件损坏、身份无法落盘时返回错误文本。
 pub fn permission_snapshot() -> Result<PermissionSnapshotDto, String> {
-    build_snapshot()
+    build_snapshot().map_err(boundary_text)
 }
 
 /// 签发授权（按模板）。
@@ -1640,9 +1646,10 @@ pub fn grant_create(
         now_ms,
         &mut audit,
         None,
-    )?;
-    append_audit(&audit)?;
-    build_snapshot()
+    )
+    .map_err(boundary_text)?;
+    append_audit(&audit).map_err(boundary_text)?;
+    build_snapshot().map_err(boundary_text)
 }
 
 /// 为已配对设备签发授权。
@@ -1664,7 +1671,7 @@ pub fn grant_create_for_device(
     validity_days: u32,
     now_ms: u64,
 ) -> Result<PermissionSnapshotDto, String> {
-    let devices = DeviceList::load(device_path()).map_err(|error| error.to_string())?;
+    let devices = DeviceList::load(device_path()).map_err(boundary_text)?;
     let record = devices
         .get(&device_id)
         .ok_or_else(|| format!("设备不存在：{device_id}"))?;
@@ -1683,9 +1690,10 @@ pub fn grant_create_for_device(
         now_ms,
         &mut audit,
         None,
-    )?;
-    append_audit(&audit)?;
-    build_snapshot()
+    )
+    .map_err(boundary_text)?;
+    append_audit(&audit).map_err(boundary_text)?;
+    build_snapshot().map_err(boundary_text)
 }
 
 /// 削减授权权限（只能减，不能加）。
@@ -1706,13 +1714,13 @@ pub fn grant_update_perms(
     now_ms: u64,
 ) -> Result<PermissionSnapshotDto, String> {
     let mut audit = AuditLog::new(0);
-    let mut store = load_grants()?;
+    let mut store = load_grants().map_err(boundary_text)?;
     store
         .update_perms(&grant_id, PermBits::new(perms as u16), now_ms, &mut audit)
-        .map_err(|error| error.to_string())?;
-    save_grants(&store)?;
-    append_audit(&audit)?;
-    build_snapshot()
+        .map_err(boundary_text)?;
+    save_grants(&store).map_err(boundary_text)?;
+    append_audit(&audit).map_err(boundary_text)?;
+    build_snapshot().map_err(boundary_text)
 }
 
 /// 换模板重签（权限提升必须换新令牌，不能篡改旧令牌）。
@@ -1735,7 +1743,7 @@ pub fn grant_reissue(
     now_ms: u64,
 ) -> Result<PermissionSnapshotDto, String> {
     let mut audit = AuditLog::new(0);
-    let mut store = load_grants()?;
+    let mut store = load_grants().map_err(boundary_text)?;
     let old = store
         .get(&grant_id)
         .ok_or_else(|| format!("授权不存在：{grant_id}"))?
@@ -1752,16 +1760,17 @@ pub fn grant_reissue(
         &mut audit,
         // 新令牌基线取「吊销后」的世代，避免下一跳把新令牌判成回退。
         Some(store.revoked_epoch().saturating_add(1)),
-    )?;
+    )
+    .map_err(boundary_text)?;
     // issue_and_store 自己完成了加载/保存，这里必须重新加载，
     // 否则会用旧内存快照保存并丢掉刚签发的令牌。
-    store = load_grants()?;
+    store = load_grants().map_err(boundary_text)?;
     store
         .revoke(&grant_id, now_ms, &mut audit)
-        .map_err(|error| error.to_string())?;
-    save_grants(&store)?;
-    append_audit(&audit)?;
-    build_snapshot()
+        .map_err(boundary_text)?;
+    save_grants(&store).map_err(boundary_text)?;
+    append_audit(&audit).map_err(boundary_text)?;
+    build_snapshot().map_err(boundary_text)
 }
 
 /// 吊销授权（最终一致，UI 不得承诺「立即生效」）。
@@ -1777,13 +1786,13 @@ pub fn grant_reissue(
 /// 授权不存在或落盘失败时返回错误文本。
 pub fn grant_revoke(grant_id: String, now_ms: u64) -> Result<PermissionSnapshotDto, String> {
     let mut audit = AuditLog::new(0);
-    let mut store = load_grants()?;
+    let mut store = load_grants().map_err(boundary_text)?;
     store
         .revoke(&grant_id, now_ms, &mut audit)
-        .map_err(|error| error.to_string())?;
-    save_grants(&store)?;
-    append_audit(&audit)?;
-    build_snapshot()
+        .map_err(boundary_text)?;
+    save_grants(&store).map_err(boundary_text)?;
+    append_audit(&audit).map_err(boundary_text)?;
+    build_snapshot().map_err(boundary_text)
 }
 
 /// 从本机列表移除授权记录（不广播撤销）。
@@ -1797,10 +1806,10 @@ pub fn grant_revoke(grant_id: String, now_ms: u64) -> Result<PermissionSnapshotD
 /// # Errors
 /// 落盘失败时返回错误文本。
 pub fn grant_remove(grant_id: String) -> Result<PermissionSnapshotDto, String> {
-    let mut store = load_grants()?;
+    let mut store = load_grants().map_err(boundary_text)?;
     store.remove(&grant_id);
-    save_grants(&store)?;
-    build_snapshot()
+    save_grants(&store).map_err(boundary_text)?;
+    build_snapshot().map_err(boundary_text)
 }
 
 /// 立即停止远程访问：停输入 → 断会话 → 落闸门 → 审计。
@@ -1829,13 +1838,13 @@ pub fn remote_access_stop(now_ms: u64) -> Result<RemoteStopDto, String> {
         Err(error) => (true, false, error.clone()),
     };
 
-    let mut settings = AppSettings::load(settings_path()).map_err(|error| error.to_string())?;
+    let mut settings = AppSettings::load(settings_path()).map_err(boundary_text)?;
     settings.remote_access_enabled = false;
     settings
         .save(settings_path())
-        .map_err(|error| error.to_string())?;
+        .map_err(boundary_text)?;
     let gate = serde_json::json!({ "stopped_ms": now_ms });
-    std::fs::write(resume_gate_path(), gate.to_string()).map_err(|error| error.to_string())?;
+    std::fs::write(resume_gate_path(), gate.to_string()).map_err(boundary_text)?;
 
     let mut audit = AuditLog::new(0);
     audit.record(
@@ -1856,7 +1865,7 @@ pub fn remote_access_stop(now_ms: u64) -> Result<RemoteStopDto, String> {
         audit_written,
         resume_requires_confirm: true,
         stopped_at_ms: now_ms,
-        snapshot: build_snapshot()?,
+        snapshot: build_snapshot().map_err(boundary_text)?,
     })
 }
 
@@ -1878,11 +1887,11 @@ pub fn remote_access_resume(
     if !confirm {
         return Err("恢复远程访问需要本机二次确认".to_owned());
     }
-    let mut settings = AppSettings::load(settings_path()).map_err(|error| error.to_string())?;
+    let mut settings = AppSettings::load(settings_path()).map_err(boundary_text)?;
     settings.remote_access_enabled = true;
     settings
         .save(settings_path())
-        .map_err(|error| error.to_string())?;
+        .map_err(boundary_text)?;
     match std::fs::remove_file(resume_gate_path()) {
         Ok(()) => {}
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
@@ -1898,8 +1907,8 @@ pub fn remote_access_resume(
         Some("remote_access_enabled=true"),
         "allowed",
     );
-    append_audit(&audit)?;
-    build_snapshot()
+    append_audit(&audit).map_err(boundary_text)?;
+    build_snapshot().map_err(boundary_text)
 }
 
 /// 写入一台设备的身份公钥（配对成功后调用；页面无此入口，供配对流程使用）。
@@ -1917,18 +1926,19 @@ pub fn device_set_public_key(
     device_id: String,
     public_key_b64: String,
 ) -> Result<PermissionSnapshotDto, String> {
-    let mut devices = DeviceList::load(device_path()).map_err(|error| error.to_string())?;
+    let mut devices = DeviceList::load(device_path()).map_err(boundary_text)?;
     if devices.get(&device_id).is_none() {
         return Err(format!("设备不存在：{device_id}"));
     }
     if !public_key_b64.is_empty() {
-        fingerprint_from_b64(&public_key_b64).map_err(|_| "公钥格式非法".to_owned())?;
+        fingerprint_from_b64(&public_key_b64)
+            .map_err(|source| boundary_text(ApiError::with_source("公钥格式非法", source)))?;
     }
     devices.set_public_key(&device_id, &public_key_b64);
     devices
         .save(device_path())
-        .map_err(|error| error.to_string())?;
-    build_snapshot()
+        .map_err(boundary_text)?;
+    build_snapshot().map_err(boundary_text)
 }
 
 #[cfg(test)]
