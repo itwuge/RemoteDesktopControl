@@ -276,7 +276,7 @@ impl MfH264Session {
         // 注意：AMD 等驱动不实现 IMFTransform 上的 IMFAttributes 查询（cast 会返回
         // E_NOINTERFACE），必须走 `GetAttributes()` 拿到属性存储，否则解锁静默失效，
         // 随后的 SetInputType 会返回 0xC00D6D77（MF_E_TRANSFORM_ASYNC_MFT_NOT_SUPPORTED）。
-        let events: Option<IMFMediaEventGenerator> = transform.cast().ok();
+        let events: Option<IMFMediaEventGenerator> = transform.cast().ok(); // gate-allow R-C-2: cast 失败即同步 MFT（无事件源），属能力探测的正常分支
         if events.is_some() {
             let attrs = unsafe { transform.GetAttributes() }.map_err(|e| {
                 CodecError::EncoderFailure(format!("GetAttributes({name}): {e}"))
@@ -333,7 +333,7 @@ impl MfH264Session {
 
         // 序列头可能要到首帧后才出现；先取一次，为空时由上层在编码后补齐。
         let seq_header = unsafe { read_sequence_header(&output) }.unwrap_or_default();
-        let codec_api: Option<ICodecAPI> = transform.cast().ok();
+        let codec_api: Option<ICodecAPI> = transform.cast().ok(); // gate-allow R-C-2: 部分 MFT 不实现 ICodecAPI，None 是合法能力缺失
 
         let mut session = Self {
             transform,

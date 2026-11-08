@@ -219,7 +219,9 @@ fn spawn_reader(mut stream: TcpStream) -> Result<Receiver<protocol::Packet>, Str
 fn run(args: &linux_impl::Args) -> Result<(), String> {
     // 1) 连接被控端。
     let stream = TcpStream::connect(&args.connect).map_err(|error| format!("连接 {} 失败: {error}", args.connect))?;
-    stream.set_nodelay(true).ok();
+    if let Err(error) = stream.set_nodelay(true) {
+        eprintln!("CLIENT_WARN set_nodelay 失败，Nagle 生效会抬高本次时延测量: {error}");
+    }
     let mut writer = stream.try_clone().map_err(|error| format!("克隆 socket 失败: {error}"))?;
     let rx = spawn_reader(stream)?;
     println!("CLIENT_CONNECT addr={} pid={}", args.connect, std::process::id());

@@ -436,7 +436,7 @@ impl MfH264Decoder {
                 .ActivateObject()
                 .map_err(|e| DecodeError::DecoderUnavailable(format!("ActivateObject({name}): {e}")))?
         };
-        let events: Option<IMFMediaEventGenerator> = transform.cast().ok();
+        let events: Option<IMFMediaEventGenerator> = transform.cast().ok(); // gate-allow R-C-2: cast 失败即同步解码 MFT（无事件源），属能力探测的正常分支
         if events.is_some() {
             // 异步 MFT 必须先解锁，否则设置类型返回 MF_E_TRANSFORM_ASYNC_MFT_NOT_SUPPORTED。
             let attrs = unsafe { transform.GetAttributes() }

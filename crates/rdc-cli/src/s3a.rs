@@ -466,16 +466,26 @@ fn install_ctrl_handler() {
 /// 无硬件编码器、采集/编码失败、解码校验失败或未达门槛时返回错误。
 fn run_pipeline(progress: &Progress, log_dir: &Path) -> S3aResult<()> {
     // 逐帧原始数据：采集侧由 ChannelSink 写，编码侧由编码线程写（失败即降级为无日志）。
-    let capture_log = FrameLog::create(
+    let capture_log = match FrameLog::create(
         &log_dir.join("capture-frames.csv"),
         "frame_id,pts_ns,interval_us,capture_cost_us,dirty_rects,move_rects,status",
-    )
-    .ok();
-    let encode_log = FrameLog::create(
+    ) {
+        Ok(log) => Some(log),
+        Err(error) => {
+            eprintln!("[s3a] 采集帧日志不可用，降级为无日志: {error}");
+            None
+        }
+    };
+    let encode_log = match FrameLog::create(
         &log_dir.join("encode-frames.csv"),
         "index,pts_ns,bytes,keyframe,cost_us",
-    )
-    .ok();
+    ) {
+        Ok(log) => Some(log),
+        Err(error) => {
+            eprintln!("[s3a] 编码帧日志不可用，降级为无日志: {error}");
+            None
+        }
+    };
 
     // 1) 编码器能力探测：先证明「有没有硬件」，再决定是否继续。
     progress.touch();

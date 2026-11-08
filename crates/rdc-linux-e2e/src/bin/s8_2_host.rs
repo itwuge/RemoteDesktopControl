@@ -207,7 +207,9 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
     let listener = TcpListener::bind(&args.listen).map_err(|error| format!("监听 {} 失败: {error}", args.listen))?;
     println!("HOST_LISTEN addr={} pid={}", args.listen, std::process::id());
     let (stream, peer) = listener.accept().map_err(|error| format!("accept 失败: {error}"))?;
-    stream.set_nodelay(true).ok();
+    if let Err(error) = stream.set_nodelay(true) {
+        eprintln!("HOST_WARN set_nodelay 失败，Nagle 生效会抬高本次时延测量: {error}");
+    }
     println!("HOST_ACCEPT peer={peer}");
     let mut writer = stream.try_clone().map_err(|error| format!("克隆 socket 失败: {error}"))?;
     protocol::Packet {
