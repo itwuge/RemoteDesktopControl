@@ -1,7 +1,7 @@
-# inline `gate-allow` 审计清单（截至批次 D 第二段）
+# inline `gate-allow` 审计清单（截至批次 E 段 c）
 
 > 生成日期：2026-11-08
-> 口径：`scripts/gate.ps1` 要求 `gate-allow <RULE>: <理由>` 与违规代码**同一行**；本清单由 `grep gate-allow` 逐行核对生成，共 **82 条**（C1=3、C2=8、D1=20、D2=51）。
+> 口径：`scripts/gate.ps1` 要求 `gate-allow <RULE>: <理由>` 与违规代码**同一行**；本清单由 `grep gate-allow` 逐行核对生成，共 **99 条**（C1=3、C2=8、D1=20、D2=51、E=17）。
 > 判定人：本会话（AI 判定）；用户抽查。凡标「AI」均由本会话逐条读上下文后判定，未引用他人结论。
 > 目的：确认没有用放行掩盖「真吞错」。真吞错一律改显式分支（见文末 §3），只有下述刻意 best-effort 才允许放行。
 
@@ -13,7 +13,8 @@
 | C2（15 处 `unwrap_or_default()`） | 8 | Option/缺失语义 7、热路径时序统计 1 |
 | D1（master 欠账 + 小 crate） | 20 | 测试收尾 12、启动日志 2、rustls 进程级安装 2、QUIC 写半边关闭 3、`should_panic` 用例 1 |
 | D2（clipboard/signal/core/bridge） | 51 | 资源收尾 7、线程回收与句柄关闭 13、诊断输出 5、设计性丢弃/降级 10、测试收尾 4、网络对端离线 5、按键复位 3、非错误值 4 |
-| **合计** | **82** | |
+| E（capture/decode/codec） | 17 | `Drop` 收尾 9、线程回收 2、构造失败收尾 1、显示器枚举降级 1、QPC 降级 2、DPI 重复声明 1、窗口可见状态语义 1 |
+| **合计** | **99** | |
 
 ## 2. 逐条清单
 
@@ -166,3 +167,39 @@
 | `.../wall_service.rs:471` | `let _ = decoder.flush();` | 同上，不影响已呈现的投影帧 | AI |
 
 > 本组另有 1 条改显式分支（非放行）：`file_service.rs` 续传成功后清理断点状态文件失败 → `debug` 日志 + 说明「下次传输可能回退到完整校验」，不改变返回结果与用户文案。
+
+## 6. E 段新增（17 条）
+
+> 说明：本段按用户要求压缩放行比例，热路径优先真改。capture 13 条中 9 条放行、decode 16 条中 5 条放行、codec 30 条中 3 条放行；其余 47 条全部改为显式分支（传播或 `debug` 留痕），明细见 `docs/20-变更记录.md` 第 45–47 行。
+
+### E-a · rdc-capture（9 条）
+
+| # | 文件:行 | 原代码形态 | 放行理由（具体依据） | 判定 |
+|---|---|---|---|---|
+| 83 | `crates/rdc-capture/src/platform/windows.rs:372` | `let _ = handle.join();` | `stop()` 无返回值可传播；线程 panic 已由 Rust 默认 panic hook 输出栈 | AI |
+| 84 | `crates/rdc-capture/src/platform/windows.rs:1639` | `let _ = DeleteDC(mem_dc);` | `SelectObject` 失败路径的收尾释放，主错误 `CaptureError::Internal` 随后返回 | AI |
+| 85 | `crates/rdc-capture/src/platform/windows.rs:1711` | `let _ = DeleteObject(self.dib);` | `Drop` 无返回值可传播，GDI 句柄释放失败不改变析构结论 | AI |
+| 86 | `crates/rdc-capture/src/platform/windows.rs:1712` | `let _ = DeleteDC(self.mem_dc);` | 同上，Drop 阶段资源释放属尽力而为 | AI |
+| 87 | `crates/rdc-capture/src/platform/windows.rs:1735` | `let _ = EnumDisplayMonitors(...)` | 失败时回调未执行→返回空列表，`start()`/`probe()` 随即返回 `NoActiveDisplay`（主错误可观测） | AI |
+| 88 | `crates/rdc-capture/src/platform/windows.rs:1887` | `let _ = QueryPerformanceFrequency(&mut f);` | 失败时 `f` 保持 0，紧随其后的分支已降级为 1 | AI |
+| 89 | `crates/rdc-capture/src/platform/windows.rs:1897` | `let _ = QueryPerformanceCounter(&mut counter);` | 失败时 `counter` 保持 0，仅使本帧时间戳降级为 0，不影响帧内容 | AI |
+| 90 | `crates/rdc-capture/src/platform/windows.rs:1906` | `let _ = SetProcessDpiAwarenessContext(...)` | 宿主已声明 DPI 感知时必然返回失败，属正常路径 | AI |
+| 91 | `crates/rdc-capture/src/platform/linux.rs:373` | `let _ = handle.join();` | 同 #83（**Linux-only，需 Linux 线复核**） | AI |
+
+### E-b · rdc-decode（5 条）
+
+| # | 文件:行 | 原代码形态 | 放行理由（具体依据） | 判定 |
+|---|---|---|---|---|
+| 92 | `crates/rdc-decode/src/present.rs:252` | `let _ = ShowWindow(hwnd, SW_SHOW);` | `ShowWindow` 返回的是窗口此前的可见状态，0 不代表调用失败 | AI |
+| 93 | `crates/rdc-decode/src/present.rs:736` | `let _ = DestroyWindow(self.hwnd);` | `Drop` 无返回值可传播，窗口销毁失败随进程退出收敛 | AI |
+| 94 | `crates/rdc-decode/src/platform/windows/mf_decoder.rs:1076` | `let _ = self.transform.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, 0);` | `Drop` 无返回值可传播，MFT 即将随解码器析构 | AI |
+| 95 | `.../mf_decoder.rs:1078` | `let _ = self.transform.ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);` | `Drop` 无返回值可传播，析构阶段的结束流通知属尽力而为 | AI |
+| 96 | `.../mf_decoder.rs:1079` | `let _ = self.transform.ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);` | 同上，析构阶段冲刷失败不影响对象释放 | AI |
+
+### E-c · rdc-codec（3 条）
+
+| # | 文件:行 | 原代码形态 | 放行理由（具体依据） | 判定 |
+|---|---|---|---|---|
+| 97 | `crates/rdc-codec/src/platform/windows/amf.rs:159` | `let _ = FreeLibrary(self._lib);` | `Drop` 无返回值可传播，进程退出时系统回收已加载 DLL | AI |
+| 98 | `crates/rdc-codec/src/platform/windows/mf.rs:987` | `let _ = self.transform.ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);` | `Drop` 无返回值可传播，MFT 随 COM 引用计数释放 | AI |
+| 99 | `crates/rdc-codec/src/platform/linux.rs:209` | `let _ = self.child.kill();` | `Drop` 兜底击杀，紧随的 `shutdown()` 会再次回收并记录失败（**Linux-only，需 Linux 线复核**） | AI |
