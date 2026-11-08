@@ -1,4 +1,4 @@
-#ifndef RUNNER_RENDER_FALLBACK_H_
+﻿#ifndef RUNNER_RENDER_FALLBACK_H_
 #define RUNNER_RENDER_FALLBACK_H_
 
 #include <windows.h>

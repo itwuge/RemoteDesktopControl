@@ -174,6 +174,19 @@ class SettingsRepository {
     if (override != null) return override;
 
     if (Platform.isWindows) {
+      // 安装版配置随安装目录（<exe>\config），安装器已授予当前用户写权限；
+      // 开发运行或便携解压未预建 config 时仍退回 %APPDATA%\RDC。
+      try {
+        final exeDir = File(Platform.resolvedExecutable).parent;
+        final installed = Directory(
+          '${exeDir.path}${Platform.pathSeparator}config',
+        );
+        if (installed.existsSync()) {
+          return installed.path;
+        }
+      } on FileSystemException {
+        // 拿不到可执行文件路径时继续走 %APPDATA% 回退。
+      }
       final appData = Platform.environment['APPDATA'];
       if (appData != null && appData.isNotEmpty) {
         return '$appData${Platform.pathSeparator}RDC';

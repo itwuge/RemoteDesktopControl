@@ -1,18 +1,21 @@
 # RDC 远程桌面控制
 
-Windows 桌面远程控制工具（预发布版 0.1.1）。Rust 核心 + Flutter 桌面端，画面走自建
+Windows 桌面远程控制工具（预发布版 0.2.0）。Rust 核心 + Flutter 桌面端，画面走自建
 QUIC 通道，授权用离线可校验的 `grant_token`，支持多账号共享控制、接管与踢出。
 
 ## 三步跑起来
 
-1. **拿到产物**：安装 `dist/RDC-0.1.1-windows-x64-setup.exe`，或解压
-   `dist/RDC-0.1.1-windows-portable.zip` 后直接运行 `rdc.exe`（无需安装）。
+1. **拿到产物**：安装 `dist/RDC-0.2.0-windows-x64-setup.exe`，或解压
+   `dist/RDC-0.2.0-windows-portable.zip` 后直接运行 `rdc.exe`（无需安装）。
    产物带同名 `.sha256`，可用 `Get-FileHash <文件> -Algorithm SHA256` 核对。
-2. **启动**：双击 `rdc.exe`。首次启动会在 `%APPDATA%\RDC` 生成本机身份密钥与配置。
+   安装版固定装到 `C:\Program Files\RDC`，配置与日志在 `C:\Program Files\RDC\config`。
+2. **启动**：双击 `rdc.exe`。安装版首次启动会在安装目录的 `config` 下生成本机身份密钥与配置
+   （便携版为 `%APPDATA%\RDC`）。
    主界面左侧是设备、屏幕墙、控制、权限四页。
 3. **连一台机器**：对方也在「设备」页可见后，在「权限」页给对方签发授权
    （只观看 / 可操作 / 完全控制）；未信任设备需要配对码，已加入信任表的设备走免密
-   密钥认证。授权、接管、踢出都会写入审计（`%APPDATA%\RDC\s5-audit.jsonl`）。
+   密钥认证。授权、接管、踢出都会写入审计（安装版 `config\s5-audit.jsonl`，
+   便携版 `%APPDATA%\RDC\s5-audit.jsonl`）。
 
 命令行自检（不启动界面）：
 
@@ -32,8 +35,8 @@ rdc-cli.exe s5-5          # 授权、接管、踢出、免密的可判定验证
   后人工复验，自动化只覆盖到内核与数据链路。
 - **无自动更新、无崩溃上报、无账号云同步**。账号服务不可达时按本地信任表回退，账号不
   参与端到端加密，授权令牌不进信令包头。
-- **FFmpeg 解码默认关闭**，产物不含任何 FFmpeg DLL；需要时自行以 `--features ffmpeg`
-  构建并遵守 LGPL。
+- **FFmpeg 解码为可选组件**：构建机存在 LGPL 共享构建（`FFMPEG_DIR` 或
+  `C:\dev\ffmpeg-out`）时产物默认携带 avcodec/avutil；否则仅走 MF 解码。
 
 ## 目录说明
 

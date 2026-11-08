@@ -1,4 +1,4 @@
-#include "utils.h"
+﻿#include "utils.h"
 
 #include <flutter_windows.h>
 #include <io.h>
@@ -85,6 +85,20 @@ std::mutex& StartupLogMutex() {
 }
 
 std::wstring ResolveUserDataDirectory() {
+  // 安装版配置随安装目录（<exe 所在目录>\config）；安装器负责创建该目录
+  // 并只对它授予当前用户写权限。开发运行或便携解压未预建 config 时退回 %APPDATA%\RDC。
+  wchar_t module[MAX_PATH * 2];
+  DWORD module_length = ::GetModuleFileNameW(nullptr, module, MAX_PATH * 2);
+  if (module_length != 0 && module_length < MAX_PATH * 2) {
+    std::filesystem::path installed =
+        std::filesystem::path(module).parent_path() / L"config";
+    DWORD attributes = ::GetFileAttributesW(installed.c_str());
+    if (attributes != INVALID_FILE_ATTRIBUTES &&
+        (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+      return installed.wstring();
+    }
+  }
+
   constexpr DWORD kAppDataCapacity = MAX_PATH * 2;
   wchar_t appdata[kAppDataCapacity];
   DWORD appdata_length = ::GetEnvironmentVariableW(L"APPDATA", appdata, kAppDataCapacity);

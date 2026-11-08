@@ -1,4 +1,4 @@
-#include "render_fallback.h"
+﻿#include "render_fallback.h"
 
 #include <commctrl.h>
 #include <shellapi.h>
@@ -230,7 +230,7 @@ bool UpdateStatusText(const std::wstring& text) {
 void OpenLogDirectory(HWND window) {
   std::wstring dir = StartupLogDirectoryWide();
   if (dir.empty()) {
-    ::MessageBoxW(window, L"日志目录不可用：无法定位 %APPDATA% 目录。",
+    ::MessageBoxW(window, L"日志目录不可用：无法定位配置目录。",
                  L"RDR-001", MB_OK | MB_ICONWARNING);
     return;
   }
@@ -239,8 +239,8 @@ void OpenLogDirectory(HWND window) {
                                            nullptr, nullptr, SW_SHOWNORMAL);
   if (reinterpret_cast<INT_PTR>(result) <= 32) {
     ::MessageBoxW(window,
-                 L"打不开日志目录。请手动访问：\r\n"
-                 L"%APPDATA%\\RDC\\logs",
+                 L"打不开日志目录。请手动访问安装目录下的 config\\logs"
+                 L"（未安装运行时为 %APPDATA%\\RDC\\logs）。",
                  L"RDR-001", MB_OK | MB_ICONWARNING);
   }
 }

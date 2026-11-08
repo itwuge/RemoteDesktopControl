@@ -1,4 +1,4 @@
-#ifndef RUNNER_UTILS_H_
+﻿#ifndef RUNNER_UTILS_H_
 #define RUNNER_UTILS_H_
 
 #include <string>
@@ -16,9 +16,10 @@ std::string Utf8FromUtf16(const wchar_t* utf16_string);
 // encoded in UTF-8. Returns an empty std::vector<std::string> on failure.
 std::vector<std::string> GetCommandLineArguments();
 
-// Appends one timestamped line to %APPDATA%\RDC\logs\startup.log, creating
-// the directory when missing. Thread-safe; failures are silently ignored so
-// logging can never take the app down.
+// Appends one timestamped line to the config log (<install>\config\logs\startup.log;
+// 未安装运行时退回 %APPDATA%\RDC\logs\startup.log), creating the directory when
+// missing. Thread-safe; failures are silently ignored so logging can never take
+// the app down.
 void AppendStartupLog(const std::string& line);
 
 // Returns the primary display adapter description (diagnostics only).
@@ -49,7 +50,7 @@ std::wstring StartupLogFilePathWide();
 std::wstring StartupLogDirectoryWide();
 
 // Persisted render mode: "compat" 表示上一次用户选择了兼容渲染，其余为 "standard".
-// 文件位置：%APPDATA%\RDC\render_mode.txt。
+// 文件位置：<安装目录>\config\render_mode.txt（未安装运行时为 %APPDATA%\RDC\render_mode.txt）。
 std::string ReadRenderModeSetting();
 bool WriteRenderModeSetting(const std::string& mode);
 

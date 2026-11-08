@@ -91,8 +91,19 @@ pub fn doctor_report() -> Vec<String> {
 
 // =====** 配置路径 =====**
 
-/// 本机配置目录（`%APPDATA%\RDC`），缺失时退回临时目录。
+/// 本机配置目录：安装版优先用 `<exe 所在目录>\config`（安装器已预建并授予用户写权限），
+/// 开发运行或未安装时退回 `%APPDATA%\RDC`，两者都不可用时退回临时目录。
 fn config_dir() -> PathBuf {
+    // 安装目录在 Program Files 下程序文件只读，只有 config 子目录对普通用户可写；
+    // 先判定该目录是否存在，避免开发机误把 exe 同级的无关 config 当配置目录。
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let installed = dir.join("config");
+            if installed.is_dir() {
+                return installed;
+            }
+        }
+    }
     if let Ok(appdata) = std::env::var("APPDATA") {
         if !appdata.trim().is_empty() {
             return PathBuf::from(appdata).join("RDC");
