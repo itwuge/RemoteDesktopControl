@@ -11,7 +11,8 @@
 //!
 //! 许可：LGPL v3 共享构建，动态链接；禁止静态链接，禁止链接 GPL 组件。
 
-use std::ffi::{c_char, c_void};
+use std::ffi::{c_char, c_void, CStr};
+use std::sync::Once;
 
 use windows::core::Interface;
 use windows::Win32::Graphics::Direct3D11::ID3D11Device;
@@ -60,7 +61,43 @@ struct RdcFfStats {
 /// 帧回调签名（返回非 0 表示中止）。
 type FrameCb = extern "C" fn(*mut c_void, *const RdcFfFrame) -> i32;
 
+/// shim 日志回调签名：`level` 用 `AV_LOG_*` 数值，`msg` 是已经格式化好的整行。
+type LogCb = extern "C" fn(i32, *const c_char);
+
+/// `AV_LOG_ERROR`（libavutil/log.h）。
+const AV_LOG_ERROR: i32 = 16;
+/// `AV_LOG_WARNING`。
+const AV_LOG_WARNING: i32 = 24;
+/// `AV_LOG_INFO`。
+const AV_LOG_INFO: i32 = 32;
+/// `AV_LOG_VERBOSE`。
+const AV_LOG_VERBOSE: i32 = 40;
+
+/// 把 shim 日志转发到 `tracing`，保持原文（不添删任何字符）。
+extern "C" fn log_trampoline(level: i32, msg: *const c_char) {
+    if msg.is_null() {
+        return;
+    }
+    let text = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
+    match level {
+        l if l <= AV_LOG_ERROR => tracing::error!(target: "rdc_decode::ffmpeg", "{text}"),
+        l if l <= AV_LOG_WARNING => tracing::warn!(target: "rdc_decode::ffmpeg", "{text}"),
+        l if l <= AV_LOG_INFO => tracing::info!(target: "rdc_decode::ffmpeg", "{text}"),
+        l if l <= AV_LOG_VERBOSE => tracing::debug!(target: "rdc_decode::ffmpeg", "{text}"),
+        _ => tracing::trace!(target: "rdc_decode::ffmpeg", "{text}"),
+    }
+}
+
+/// shim 的回调是进程级状态，用 `Once` 只注册一次。
+static LOGGER_ONCE: Once = Once::new();
+
+/// 注册 shim 日志出口（幂等）。注册失败不可能发生，`Once` 保证并发安全。
+fn ensure_logger_registered() {
+    LOGGER_ONCE.call_once(|| unsafe { rdff_set_logger(Some(log_trampoline)) });
+}
+
 extern "C" {
+    fn rdff_set_logger(cb: Option<LogCb>);
     fn rdff_create(
         threads: i32,
         low_delay: i32,
@@ -242,6 +279,8 @@ impl FfmpegH264Decoder {
         prefer_hardware: bool,
     ) -> Result<Self, DecodeError> {
         let use_hw = prefer_hardware && device.is_some();
+        // 必须先接好日志出口：shim 的 create/open/feed 都会打诊断。
+        ensure_logger_registered();
         let mut handle: *mut c_void = std::ptr::null_mut();
         let mut err = [0 as c_char; ERR_LEN];
         // 单线程：绝不启用 frame-level 多线程（那会引入 (N−1) 帧延迟）。

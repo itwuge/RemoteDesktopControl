@@ -42,6 +42,51 @@ typedef struct RdcFfFrame {
 
 typedef int (*RdcFfFrameCb)(void *ctx, const RdcFfFrame *frame);
 
+/* 单一日志出口。Rust 侧注册回调后走 `tracing`；未注册时回落到 stderr，
+ * 每行内容与旧版直接写 stderr 的格式逐字一致，且回退只提示一次。 */
+typedef void (*RdcFfLogFn)(int level, const char *msg);
+
+static RdcFfLogFn g_log_fn = NULL;
+static int g_log_fallback_hinted = 0;
+
+/* 注册日志回调；传 NULL 表示取消注册（回到 stderr 回退）。 */
+void rdff_set_logger(RdcFfLogFn fn) {
+    g_log_fn = fn;
+}
+
+/* 回退出口：只有这里写 stderr，格式保持「整行 + 换行」。 */
+static void emit_stderr_line(const char *line) {
+    fputs(line, stderr);
+    fputc('\n', stderr);
+}
+
+static void rdff_vlog(int level, const char *fmt, va_list ap) {
+    char buf[1024];
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    /* FFmpeg 自身日志自带行尾换行，而 [ffdec] 文案不带；统一去掉行尾换行，
+     * 由出口各加一次，保证 stderr 回退的字节与旧版一致、tracing 侧也不多空行。 */
+    size_t len = strlen(buf);
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
+        buf[--len] = '\0';
+    }
+    if (g_log_fn) {
+        g_log_fn(level, buf);
+        return;
+    }
+    if (!g_log_fallback_hinted) {
+        g_log_fallback_hinted = 1;
+        emit_stderr_line("[ffdec] 日志回调未注册，回落到 stderr（仅提示一次）");
+    }
+    emit_stderr_line(buf);
+}
+
+static void rdff_log(int level, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    rdff_vlog(level, fmt, ap);
+    va_end(ap);
+}
+
 /* 累计统计：解码（send+receive）、NV12 整理拷贝各自耗时，供分段报告。 */
 typedef struct RdcFfStats {
     int64_t feeds;
@@ -146,9 +191,9 @@ static int drain_frames(RdcFfDec *d, RdcFfFrameCb cb, void *cbctx, char *err, in
 
         if (!d->logged_fmt) {
             d->logged_fmt = 1;
-            fprintf(stderr, "[ffdec] first frame format=%s hw_device_ctx=%s\n",
-                    av_get_pix_fmt_name((enum AVPixelFormat)d->frame->format),
-                    d->ctx->hw_device_ctx ? "yes" : "no");
+            rdff_log(AV_LOG_INFO, "[ffdec] first frame format=%s hw_device_ctx=%s",
+                     av_get_pix_fmt_name((enum AVPixelFormat)d->frame->format),
+                     d->ctx->hw_device_ctx ? "yes" : "no");
         }
         if (d->frame->format == AV_PIX_FMT_D3D11) {
             /* data[0] 是 ID3D11Texture2D*，data[1] 是数组下标；由 AVFrame 持有纹理引用，
@@ -181,25 +226,25 @@ static int drain_frames(RdcFfDec *d, RdcFfFrameCb cb, void *cbctx, char *err, in
     static int logged_err = 0;
     if (!logged_err) {
         logged_err = 1;
-        fprintf(stderr,
-                "[ffdec] receive err=%d pix_fmt=%s sw_pix=%s hw_frames=%p coded=%dx%d\n",
-                ret, av_get_pix_fmt_name(d->ctx->pix_fmt),
-                av_get_pix_fmt_name(d->ctx->sw_pix_fmt), (void *)d->ctx->hw_frames_ctx,
-                d->ctx->coded_width, d->ctx->coded_height);
+        rdff_log(AV_LOG_ERROR,
+                 "[ffdec] receive err=%d pix_fmt=%s sw_pix=%s hw_frames=%p coded=%dx%d",
+                 ret, av_get_pix_fmt_name(d->ctx->pix_fmt),
+                 av_get_pix_fmt_name(d->ctx->sw_pix_fmt), (void *)d->ctx->hw_frames_ctx,
+                 d->ctx->coded_width, d->ctx->coded_height);
     }
     set_av_err(err, errlen, "avcodec_receive_frame", ret);
     return ret;
 }
 
-/* FFmpeg 只保留 warning 及以下级别，直接写 stderr；用于诊断硬解/软解的实际选择。 */
+/* FFmpeg 只保留 warning 及以下级别，统一交给同一日志出口；用于诊断硬解/软解的实际选择。 */
 static void rdff_log_cb(void *avcl, int level, const char *fmt, va_list vl) {
     (void)avcl;
     if (level > AV_LOG_WARNING) {
         return;
     }
-    fprintf(stderr, "[ffav] ");
-    vfprintf(stderr, fmt, vl);
-    fprintf(stderr, "\n");
+    char body[1024];
+    vsnprintf(body, sizeof(body), fmt, vl);
+    rdff_log(level, "[ffav] %s", body);
 }
 
 /* 创建解码器实例（未 open）。threads<=0 表示默认；low_delay!=0 打开低延迟标志。 */
@@ -247,11 +292,20 @@ static enum AVPixelFormat rdff_get_format(AVCodecContext *ctx, const enum AVPixe
     static int logged = 0;
     if (!logged) {
         logged = 1;
-        fprintf(stderr, "[ffdec] get_format choices:");
+        char line[1024];
+        int off = snprintf(line, sizeof(line), "[ffdec] get_format choices:");
         for (const enum AVPixelFormat *p = fmt; p && *p != AV_PIX_FMT_NONE; ++p) {
-            fprintf(stderr, " %s", av_get_pix_fmt_name(*p));
+            const char *name = av_get_pix_fmt_name(*p);
+            int room = (int)sizeof(line) - off;
+            if (room <= 1) {
+                break;
+            }
+            int n = snprintf(line + off, (size_t)room, " %s", name ? name : "(null)");
+            if (n > 0) {
+                off += (n < room) ? n : (room - 1);
+            }
         }
-        fprintf(stderr, "\n");
+        rdff_log(AV_LOG_INFO, "%s", line);
     }
     for (const enum AVPixelFormat *p = fmt; p && *p != AV_PIX_FMT_NONE; ++p) {
         if (*p == AV_PIX_FMT_D3D11) {
@@ -332,8 +386,8 @@ int rdff_feed(RdcFfDec *d, const unsigned char *data, int32_t len, int64_t pts_u
     d->pkt->data = NULL;
     d->pkt->size = 0;
     if (ret < 0) {
-        fprintf(stderr, "[ffdec] send failed rc=%d pix_fmt=%s hw_frames=%p\n", ret,
-                av_get_pix_fmt_name(d->ctx->pix_fmt), (void *)d->ctx->hw_frames_ctx);
+        rdff_log(AV_LOG_ERROR, "[ffdec] send failed rc=%d pix_fmt=%s hw_frames=%p", ret,
+                 av_get_pix_fmt_name(d->ctx->pix_fmt), (void *)d->ctx->hw_frames_ctx);
         set_av_err(err, errlen, "avcodec_send_packet", ret);
         return ret;
     }
