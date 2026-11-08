@@ -99,11 +99,45 @@
 验证边界：该行在 Windows 宿主不参与编译，`cargo build/clippy/test --workspace` 只能证明
 「未改坏其它平台」；**必须由 Linux 线复跑实编实证**。
 
+### 2.6 跨目标覆盖实测（Windows 宿主 → `--target x86_64-unknown-linux-gnu`）
+
+**先明确边界：Windows 目标的 `cargo clippy --workspace --all-targets` 不编译
+`#[cfg(target_os = "linux")]` / `#[cfg(unix)]` 分支**，所以「0 violations」不等于「全平台通过」。
+为缩小盲区，本地（rustc 1.99.1 / clippy 0.1.99，2026-10-13）以 Linux 目标加跑了一次
+`cargo clippy --all-targets -- -D warnings`：
+
+| crate | 结果 | 说明 |
+|---|---|---|
+| `rdc-codec`、`rdc-input`、`rdc-capture`、`rdc-clipboard`、`rdc-decode`、`rdc-protocol`、`rdc-runtime`、`rdc-diag`、`rdc-filetransfer`、`rdc-relay`、`rdc-security`、`rdc-transport` | 通过（0 warning） | codec / input / capture 的 `platform/linux.rs` 本次被**实际编译**（type-check + clippy） |
+| `rdc-linux-e2e` | 5 条既有 lint | 见 §2.7；与本批改动无关 |
+| `rdc-core`、`rdc-cli`、`rdc-bridge`、`rdc-connect` | 无法运行 | 依赖链中 `ring v0.17.14` 的构建脚本需要 `x86_64-linux-gnu-gcc`，宿主缺失；`rdc-bridge` 另有 dart-sys / flutter_rust_bridge 构建依赖 |
+
+结论：§2.5 那一行以及 `rdc-input` / `rdc-capture` 的 Linux 分支，已在 Windows 宿主用 Linux
+目标**实际编译过**；其余 4 个 crate 的 Linux 分支仍只能由 Linux 线覆盖，不能算已验证。
+
+### 2.7 跨目标新暴露的既有 lint（`rdc-linux-e2e`，5 条，本轮不改）
+
+> 与 §2.5 同属「Windows 不可见」，但机制不同：不是缺 `use`，而是换目标后才触发的 clippy lint。
+
+| 文件:行 | lint | 说明 |
+|---|---|---|
+| `src/bin/s8_2_client.rs:208` | `while_let_loop` | 既有 `loop { match read_packet(...) }` 写法 |
+| `src/bin/s8_2_client.rs:285` | `while_let_loop` | 同上 |
+| `src/bin/s8_2_client.rs:382` | `ptr_arg` | `&mut Vec` 可改 `&mut [_]` |
+| `src/bin/s8_2_loop.rs:150` | `while_let_loop` | 同上 |
+| `src/bin/s8_2_host.rs:386` | `while_let_loop` | 同上 |
+
+这 5 条**未出现在** Linux 线先前的 6 条 clippy 清单里，本轮判断为本机 clippy 0.1.99
+（新于 Linux 线所用工具链）的版本漂移噪声，故**不改代码**；待 Linux 线用其真实工具链复跑
+确认后再决定是否处置。`rdc-linux-e2e` 的 bin 均以 `#[cfg(target_os = "linux")]` 逐项包裹，
+Windows 编译时是空壳，这也是它们此前从未被本地检查覆盖的原因。
+
 ## 3. 数据缺口（仅剩 4 条）
 
 本会话在 Windows 上复跑 `cargo build --workspace --all-targets`，结果 **0 warning**；
 另尝试 `cargo check --target x86_64-unknown-linux-gnu --workspace --all-targets`，
 因缺少 `x86_64-linux-gnu-gcc`（cc-rs 构建脚本失败）在早期退出，未产出任何 rustc warning。
+后续按 crate 拆开跑，12 个 crate 已跨目标通过、4 个被 `ring`/dart-sys 构建脚本挡住（见 §2.6）。
 因此仍未定位的 4 条只能在 Linux 原始日志中补齐。
 
 ## 4. 处理计划
