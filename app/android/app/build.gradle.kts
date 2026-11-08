@@ -51,6 +51,18 @@ android {
     }
 
     buildTypes {
+        // =====** 仅 debug 追加 x86_64（Android 模拟器） =====**
+        // 交付包虽走 debug 构建，但只编译 arm64 的 Rust 库（见 packaging/android/build_apk.sh），
+        // 因此不会带上 x86_64 的 .so；release 分支与交付脚本都不读取本节。
+        // 实测说明：Flutter 3.47.9 的 Gradle 插件会向 defaultConfig 注入
+        // [armeabi-v7a, arm64-v8a, x86_64]，单个 ABI 的实际内容由 jniLibs 决定；
+        // 本行把「debug 支持 x86_64」从插件的隐式行为改为显式声明。
+        debug {
+            ndk {
+                abiFilters += listOf("x86_64")
+            }
+        }
+
         release {
             // 暂用 debug 签名（CI 提供正式 keystore 时再切换，见 packaging/android）。
             signingConfig = signingConfigs.getByName("debug")
