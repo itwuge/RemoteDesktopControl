@@ -156,7 +156,7 @@ impl Drop for AmfEncoder {
             unsafe { (self.close)() };
         }
         unsafe {
-            let _ = FreeLibrary(self._lib);
+            let _ = FreeLibrary(self._lib); // gate-allow R-C-2: Drop 无返回值可传播，进程退出时系统回收已加载 DLL
         }
     }
 }

@@ -176,8 +176,11 @@ impl PlatformEncoder {
         if self.started.is_none() {
             self.started = Some(Instant::now());
         }
-        // 首帧编码后驱动通常才写入 SPS/PPS，这里顺手刷新一次，供封装模块使用。
-        let _ = session.refresh_sequence_header();
+        // 首帧编码后驱动通常才写入 SPS/PPS，这里刷新一次供封装模块使用；
+        // 取不到序列头时封装会等待下一次刷新，这里留痕便于定位「解码端黑屏」。
+        if session.refresh_sequence_header().is_empty() {
+            tracing::debug!("[enc] 首帧后仍无 SPS/PPS，封装等待序列头");
+        }
         Ok(packets)
     }
 

@@ -137,7 +137,9 @@ impl Mp4Writer {
                 .map_err(|e| CodecError::EncoderFailure(format!("IMFMediaBuffer::Lock: {e}")))?;
             // 目标缓冲由 MF 分配，长度即 payload.len()；这里按等长拷贝后再 Unlock。
             std::ptr::copy_nonoverlapping(payload.as_ptr(), ptr, payload.len());
-            let _ = buffer.Unlock();
+            buffer
+                .Unlock()
+                .map_err(|e| CodecError::EncoderFailure(format!("IMFMediaBuffer::Unlock: {e}")))?;
             buffer
                 .SetCurrentLength(payload.len() as u32)
                 .map_err(|e| CodecError::EncoderFailure(format!("SetCurrentLength: {e}")))?;

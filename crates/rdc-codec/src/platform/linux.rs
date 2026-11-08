@@ -160,11 +160,15 @@ impl Session {
     /// 不会失败；进程异常退出按正常结束处理。
     fn shutdown(&mut self) {
         if let Some(tx) = self.tx.take() {
-            let _ = tx.send(Job::Eof);
+            if let Err(error) = tx.send(Job::Eof) {
+                tracing::debug!("[codec/linux] 关闭信号发送失败（写线程已退出）: {error}");
+            }
             drop(tx);
         }
         if let Some(writer) = self.writer.take() {
-            let _ = writer.join();
+            if let Err(error) = writer.join() {
+                tracing::debug!("[codec/linux] 写线程异常退出: {error:?}");
+            }
         }
         // ffmpeg 在 stdin EOF 后冲刷剩余帧；超时则 kill，保证读线程能退出。
         let deadline = Instant::now() + FLUSH_TIMEOUT;
@@ -173,8 +177,12 @@ impl Session {
                 Ok(Some(_)) | Err(_) => break,
                 Ok(None) => {
                     if Instant::now() >= deadline {
-                        let _ = self.child.kill();
-                        let _ = self.child.wait();
+                        if let Err(error) = self.child.kill() {
+                            tracing::debug!("[codec/linux] 冲刷超时后 kill 失败: {error}");
+                        }
+                        if let Err(error) = self.child.wait() {
+                            tracing::debug!("[codec/linux] 冲刷超时后 wait 失败: {error}");
+                        }
                         break;
                     }
                     thread::sleep(Duration::from_millis(10));
@@ -182,7 +190,9 @@ impl Session {
             }
         }
         if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
+            if let Err(error) = reader.join() {
+                tracing::debug!("[codec/linux] 读线程异常退出: {error:?}");
+            }
         }
     }
 }
@@ -196,7 +206,7 @@ impl Drop for Session {
     /// # Errors
     /// 不会失败。
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        let _ = self.child.kill(); // gate-allow R-C-2: Drop 兜底击杀，紧随的 shutdown 会再次回收并记录失败
         self.shutdown();
     }
 }
@@ -558,12 +568,17 @@ fn emit_au(data: &[u8], pending: &Arc<Mutex<VecDeque<(u64, Instant)>>>, tx: &Sen
         .and_then(|mut queue| queue.pop_front())
         .unwrap_or((0, Instant::now()));
     let keyframe = nal_ranges(data).iter().any(|(_, _, kind)| *kind == 5);
-    let _ = tx.send(RawAu {
-        data: data.to_vec(),
-        pts_ns,
-        submitted,
-        keyframe,
-    });
+    if tx
+        .send(RawAu {
+            data: data.to_vec(),
+            pts_ns,
+            submitted,
+            keyframe,
+        })
+        .is_err()
+    {
+        tracing::debug!("[codec/linux] 访问单元无处投递（接收端已关闭）");
+    }
 }
 
 // =====** VideoEncoder 实现 =====**
@@ -624,8 +639,12 @@ impl VideoEncoder for PlatformEncoder {
         let (tx, writer, rx, reader) = match spawn_pumps(&mut child, pending.clone()) {
             Ok(pumps) => pumps,
             Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
+                if let Err(kill_error) = child.kill() {
+                    tracing::debug!("[codec/linux] 建管道失败后 kill 也失败: {kill_error}");
+                }
+                if let Err(wait_error) = child.wait() {
+                    tracing::debug!("[codec/linux] 建管道失败后 wait 也失败: {wait_error}");
+                }
                 return Err(error);
             }
         };

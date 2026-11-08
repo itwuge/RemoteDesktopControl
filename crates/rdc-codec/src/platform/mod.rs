@@ -57,18 +57,16 @@ pub fn create_encoder(kind: CodecKind) -> Result<Box<dyn VideoEncoder>, CodecErr
 ///
 /// # Errors
 /// 非桌面平台返回 [`CodecError::Unsupported`]。
-pub fn create_encoder_selected(kind: CodecKind) -> Result<EncoderSelection, CodecError> {
+pub fn create_encoder_selected(_kind: CodecKind) -> Result<EncoderSelection, CodecError> {
     #[cfg(target_os = "windows")]
     {
         // kind 在校验阶段过滤：Windows 后端 S3a 只实现 H.264。
-        let _ = kind;
         selection::select_windows()
     }
 
     #[cfg(target_os = "macos")]
     {
         // S1 忽略 kind：stage3 将按 kind 选择 VideoToolbox 的 HEVC / H.264 / AV1。
-        let _ = kind;
         Ok(EncoderSelection {
             encoder: Box::new(macos::PlatformEncoder::new()),
             backend: "videotoolbox".to_owned(),
@@ -79,7 +77,6 @@ pub fn create_encoder_selected(kind: CodecKind) -> Result<EncoderSelection, Code
     #[cfg(target_os = "linux")]
     {
         // Linux 走外部 ffmpeg/libx264 软编；kind 由 configure 校验（当前仅 H.264）。
-        let _ = kind;
         Ok(EncoderSelection {
             encoder: Box::new(linux::PlatformEncoder::new()),
             backend: "ffmpeg-libx264".to_owned(),
@@ -90,7 +87,6 @@ pub fn create_encoder_selected(kind: CodecKind) -> Result<EncoderSelection, Code
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         // 移动端与其它目标没有硬件编码后端，按契约回退到 Unsupported。
-        let _ = kind;
         Err(CodecError::Unsupported)
     }
 }

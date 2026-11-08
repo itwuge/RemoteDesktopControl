@@ -363,8 +363,14 @@ impl MfH264Session {
             sum_alloc_us: 0,
             sum_convert_us: 0,
         };
-        // 码控参数属于可选能力：不支持时不阻断会话，由上层报告「热更新不可用」。
-        let _ = session.apply_runtime_params(cfg);
+        // 码控参数属于可选能力：不支持时不阻断会话，但失败必须留痕，
+        // 便于核对「热更新不可用」而非静默退化。
+        if let Err(error) = session.apply_runtime_params(cfg) {
+            tracing::info!(
+                "[enc] 运行期码控参数未完全下发({}): {error}",
+                session.name()
+            );
+        }
         unsafe {
             session
                 .transform
@@ -545,7 +551,10 @@ impl MfH264Session {
     /// 取回失败返回 [`CodecError::EncoderFailure`]。
     pub fn drain(&mut self) -> Result<Vec<EncodedSample>, CodecError> {
         unsafe {
-            let _ = self.transform.ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0);
+            // DRAIN 是取出缓存帧的前提；失败直接上报，避免后续等到无输出的「空 drain」。
+            self.transform
+                .ProcessMessage(MFT_MESSAGE_COMMAND_DRAIN, 0)
+                .map_err(|e| CodecError::EncoderFailure(format!("DRAIN: {e}")))?;
         }
         let mut outs = Vec::new();
         // drain 最多残留 1~2 帧；上限 8 防止异常 MFT 死循环。
@@ -561,14 +570,23 @@ impl MfH264Session {
                 None => break,
             }
         }
+        // 收尾状态切换：已取到的帧（outs）优先返回，收尾失败只降级记录，避免丢掉已编码数据。
         unsafe {
-            let _ = self
+            if let Err(error) = self
                 .transform
-                .ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
-            let _ = self.transform.ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
-            let _ = self
+                .ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0)
+            {
+                tracing::debug!("[enc] END_OF_STREAM 收尾失败: {error}");
+            }
+            if let Err(error) = self.transform.ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0) {
+                tracing::debug!("[enc] FLUSH 收尾失败: {error}");
+            }
+            if let Err(error) = self
                 .transform
-                .ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
+                .ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0)
+            {
+                tracing::debug!("[enc] END_STREAMING 收尾失败: {error}");
+            }
         }
         Ok(outs)
     }
@@ -639,10 +657,12 @@ impl MfH264Session {
                 &CODECAPI_AVEncCommonRateControlMode,
                 VARIANT::from(RATE_CONTROL_DRIVER_DEFAULT),
             )?;
-            let _ = self.set_codec_value(
-                &CODECAPI_AVEncCommonMaxBitRate,
-                VARIANT::from(cfg.target_bitrate_bps.saturating_mul(5) / 4),
-            );
+            let max_ok = self
+                .set_codec_value(
+                    &CODECAPI_AVEncCommonMaxBitRate,
+                    VARIANT::from(cfg.target_bitrate_bps.saturating_mul(5) / 4),
+                )
+                .is_ok();
             let mean_ok = self
                 .set_codec_value(
                     &CODECAPI_AVEncCommonMeanBitRate,
@@ -655,7 +675,7 @@ impl MfH264Session {
                     VARIANT::from(RATE_CONTROL_DRIVER_DEFAULT),
                 )
                 .is_ok();
-            tracing::info!("[enc] codecapi rate_control: mean={mean_ok} mode={RATE_CONTROL_DRIVER_DEFAULT}:{mode_ok}");
+            tracing::info!("[enc] codecapi rate_control: mean={mean_ok} max={max_ok} mode={RATE_CONTROL_DRIVER_DEFAULT}:{mode_ok}");
             // CODECAPI 的低延迟是 VT_BOOL；此前用 VT_UI4 等于没生效（调研结论）。
             let low_latency = BoolVariant::new(cfg.low_latency);
             let low_ok = self
@@ -741,7 +761,10 @@ impl MfH264Session {
                 .map_err(|e| CodecError::EncoderFailure(format!("IMFMediaBuffer::Lock: {e}")))?;
             let dst = std::slice::from_raw_parts_mut(data, max_len as usize);
             let convert = crate::nv12::rgba_to_nv12(rgba, self.width, self.height, dst);
-            let _ = buffer.Unlock();
+            if let Err(error) = buffer.Unlock() {
+                // 数据已写入缓冲；Unlock 失败会留下锁定状态，转换结果仍随后返回，这里降级留痕。
+                tracing::debug!("[enc] 输入缓冲 Unlock 失败: {error}");
+            }
             convert
         };
         let convert_us = convert_start.elapsed().as_micros() as u64;
@@ -760,8 +783,12 @@ impl MfH264Session {
                 .SetSampleDuration(duration_100ns)
                 .map_err(|e| CodecError::EncoderFailure(format!("SetSampleDuration: {e}")))?;
             if self.force_key {
-                // 不支持 ForceKeyFrame 的编码器忽略错误，由 GOP 兜底。
-                let _ = self.set_codec_value(&CODECAPI_AVEncVideoForceKeyFrame, VARIANT::from(1u32));
+                // 不支持 ForceKeyFrame 的编码器由 GOP 兜底，但失败要留痕以便核对关键帧节奏。
+                if let Err(error) =
+                    self.set_codec_value(&CODECAPI_AVEncVideoForceKeyFrame, VARIANT::from(1u32))
+                {
+                    tracing::debug!("[enc] ForceKeyFrame 不支持: {error}");
+                }
                 // 只对本帧生效：不清标志会让后续每一帧都请求 IDR，
                 // 实测会把单帧编码成本抬到 45ms 量级并让码率偏离目标（D18/D19 根因）。
                 self.force_key = false;
@@ -907,22 +934,22 @@ impl MfH264Session {
             match result {
                 Ok(()) => {}
                 Err(e) if e.code() == MF_E_TRANSFORM_NEED_MORE_INPUT => {
-                    let _ = ManuallyDrop::take(&mut out.pSample);
+                    drop(ManuallyDrop::take(&mut out.pSample));
                     return Ok(None);
                 }
                 Err(e) if e.code() == MF_E_TRANSFORM_STREAM_CHANGE => {
-                    let _ = ManuallyDrop::take(&mut out.pSample);
+                    drop(ManuallyDrop::take(&mut out.pSample));
                     return Err(CodecError::EncoderFailure(
                         "编码器输出格式变化，需重建会话".to_owned(),
                     ));
                 }
                 Err(e) => {
-                    let _ = ManuallyDrop::take(&mut out.pSample);
+                    drop(ManuallyDrop::take(&mut out.pSample));
                     return Err(CodecError::EncoderFailure(format!("ProcessOutput: {e}")));
                 }
             }
             let sample = ManuallyDrop::take(&mut out.pSample);
-            let _ = ManuallyDrop::take(&mut out.pEvents);
+            drop(ManuallyDrop::take(&mut out.pEvents));
             let Some(sample) = sample else {
                 return Ok(None);
             };
@@ -957,9 +984,7 @@ impl Drop for MfH264Session {
     /// 结束流并释放 MFT（COM 引用计数减一）。
     fn drop(&mut self) {
         unsafe {
-            let _ = self
-                .transform
-                .ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);
+            let _ = self.transform.ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0); // gate-allow R-C-2: Drop 无返回值可传播，MFT 随 COM 引用计数释放
         }
     }
 }
@@ -1077,7 +1102,10 @@ unsafe fn extract_sample(sample: &IMFSample) -> Result<EncodedSample, CodecError
         .Lock(&mut ptr, Some(&mut max_len), Some(&mut cur_len))
         .map_err(|e| CodecError::EncoderFailure(format!("Lock: {e}")))?;
     let data = std::slice::from_raw_parts(ptr, cur_len as usize).to_vec();
-    let _ = buffer.Unlock();
+    if let Err(error) = buffer.Unlock() {
+        // 码流已复制到 Vec；Unlock 失败不丢帧，但必须留痕。
+        tracing::debug!("[enc] 输出缓冲 Unlock 失败: {error}");
+    }
     Ok(EncodedSample {
         data,
         keyframe,
