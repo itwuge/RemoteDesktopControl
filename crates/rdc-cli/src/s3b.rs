@@ -15,11 +15,16 @@ type S3bResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// 默认帧数（300 帧 ≈ 5 s @60fps）。
 const DEFAULT_FRAMES: u32 = 300;
+// 以下判据只在 Windows 实现（windows_impl）里使用；非 Windows 走不支持分支，
+// 不加 cfg 会在 Linux 上被判 dead_code（-D warnings 下直接失败）。
 /// 目标帧率。
+#[cfg(target_os = "windows")]
 const TARGET_FPS: u32 = 60;
 /// 目标码率（bps）。
+#[cfg(target_os = "windows")]
 const TARGET_BITRATE: u32 = 8_000_000;
 /// 单轮消息泵最大间隔门槛（毫秒）：超过即视为主线程被长时间占用。
+#[cfg(target_os = "windows")]
 const PUMP_GAP_LIMIT_MS: u64 = 100;
 
 /// 解析 `--frames N`，缺省用 [`DEFAULT_FRAMES`]。
@@ -58,7 +63,7 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
     #[cfg(not(target_os = "windows"))]
     {
         let _frames = frames;
-        return Err("S3b-2 上屏自检只实现于 Windows".into());
+        Err("S3b-2 上屏自检只实现于 Windows".into())
     }
     #[cfg(target_os = "windows")]
     {

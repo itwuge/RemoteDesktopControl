@@ -14,8 +14,10 @@ use std::error::Error;
 type S3bResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// 判据：单帧提交成本 p99 上限（微秒），与 S3a 相同，用户明确不改。
+#[cfg(target_os = "windows")]
 const PUSH_P99_LIMIT_US: u64 = 8_000;
 /// 判据：实测码率相对目标的最大偏差。
+#[cfg(target_os = "windows")]
 const BITRATE_TOLERANCE: f64 = 0.20;
 
 /// 命令行参数。
@@ -79,7 +81,7 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
     #[cfg(not(target_os = "windows"))]
     {
         let _options = options;
-        return Err("S3b-3 只实现于 Windows（MF 硬件编码）".into());
+        Err("S3b-3 只实现于 Windows（MF 硬件编码）".into())
     }
     #[cfg(target_os = "windows")]
     {

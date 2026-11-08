@@ -14,10 +14,13 @@ type S3bResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 /// 默认持续秒数。
 const DEFAULT_SECS: u64 = 10;
 /// host 监听端口。
+#[cfg(target_os = "windows")]
 const HOST_PORT: u16 = 45000;
 /// ctrl 绑定端口。
+#[cfg(target_os = "windows")]
 const CTRL_PORT: u16 = 45100;
 /// 目标码率（bps）。
+#[cfg(target_os = "windows")]
 const TARGET_BITRATE: u32 = 8_000_000;
 
 /// 命令行参数。
@@ -81,7 +84,7 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
     #[cfg(not(target_os = "windows"))]
     {
         let _unused = (role, options);
-        return Err("S3b-4 只实现于 Windows".into());
+        Err("S3b-4 只实现于 Windows".into())
     }
     #[cfg(target_os = "windows")]
     {
