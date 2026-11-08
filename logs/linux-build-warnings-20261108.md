@@ -79,6 +79,26 @@
 即为前两类的 dead_code；剩余 **4 条未标注 crate 的 rustc warning** 尚缺原始日志，**不编造
 文件:行:内容**，待 Linux 线转交原始构建日志后逐字补入。
 
+### 2.5 Linux 复跑新暴露（第二类：Windows 不可见、Linux 才暴露）
+
+> **第二类问题的定义**：代码位于 `#[cfg(target_os = "linux")]` / `#[cfg(unix)]` 分支（或被
+> 这类 `mod` 引入的 `platform/linux.rs`），使用了裸 `debug!` / `info!` / `warn!` / `error!`，
+> 但所在文件没有对应的 `use tracing::...`。Windows 宿主完全不编译这些分支，
+> `cargo build/clippy -- -D warnings` 也发现不了，**只有 Linux 实编才暴露**。
+> 与 §2.1/§2.2 的区别：那两类是跨平台可见的 rustc/clippy 诊断，这一类是「平台条件编译遮蔽」。
+
+| # | 类型 | crate | 文件:行 | 内容 | 处置 |
+|---|---|---|---|---|---|
+| 27 | 编译错误（Linux） | `rdc-codec` | `src/platform/linux.rs:723` | `debug!(error = %error, "ffmpeg 写线程已退出，帧未写入")` 裸调用；文件无 `use tracing::debug;`，同文件其余 8 处均为 `tracing::debug!` 全限定 | 改为 `tracing::debug!(...)` 全限定，与文件既有风格一致；**未新增 `use`**。人读文案逐字不变 |
+
+全仓同类扫描（判据：「裸宏调用」且「文件内无对应 `use tracing::<宏>`」）：除上述 1 处外
+**0 命中**。`rdc-capture/src/platform/linux.rs`、`rdc-capture/src/platform/windows.rs`、
+`rdc-input/src/platform/linux.rs` 中的裸宏均有文件级 `use tracing::{debug, info, warn}` 覆盖，
+不构成同类问题。
+
+验证边界：该行在 Windows 宿主不参与编译，`cargo build/clippy/test --workspace` 只能证明
+「未改坏其它平台」；**必须由 Linux 线复跑实编实证**。
+
 ## 3. 数据缺口（仅剩 4 条）
 
 本会话在 Windows 上复跑 `cargo build --workspace --all-targets`，结果 **0 warning**；

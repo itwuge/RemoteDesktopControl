@@ -720,7 +720,7 @@ impl VideoEncoder for PlatformEncoder {
                 // `SendError<Job>` 携带整帧载荷且 `Job` 未实现 `Debug`，无法作为
                 // `Error` source 装箱；这里显式消费并记录「通道已关闭」这一事实，
                 // 人读文案与旧实现逐字一致。
-                debug!(error = %error, "ffmpeg 写线程已退出，帧未写入");
+                tracing::debug!(error = %error, "ffmpeg 写线程已退出，帧未写入");
                 Err(CodecError::EncoderFailure("ffmpeg 写线程已退出".into()))
             }
         }
