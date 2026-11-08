@@ -457,10 +457,14 @@ impl MfH264Decoder {
                 attrs
                     .SetUINT32(&MF_TRANSFORM_ASYNC_UNLOCK, 1)
                     .map_err(|e| DecodeError::DecoderUnavailable(format!("异步解锁({name}): {e}")))?;
-                // 低时延对解码同样有意义；老驱动不认该属性时不阻断。
-                let _ = attrs.SetUINT32(&MF_LOW_LATENCY, 1);
+                // 低时延对解码同样有意义；老驱动不认该属性时不阻断，但保留诊断。
+                if let Err(error) = attrs.SetUINT32(&MF_LOW_LATENCY, 1) {
+                    tracing::debug!(error = %error, "MF_LOW_LATENCY 不被该解码器接受，低时延改由 CODECAPI 尝试");
+                }
                 // 4C：把 MFT 可持有/分配的输出样本上限压到 1（一进一出），减少内部积压。
-                let _ = attrs.SetUINT32(&MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, 1);
+                if let Err(error) = attrs.SetUINT32(&MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, 1) {
+                    tracing::debug!(error = %error, "MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT 不被接受，解码器可能内部积压");
+                }
             }
         }
         // CODECAPI 低延迟是 VT_BOOL；属性形式 (MF_LOW_LATENCY) 在部分 in-box 解码器上不生效。
@@ -833,11 +837,11 @@ impl MfH264Decoder {
                 match result {
                     Ok(()) => {}
                     Err(e) if e.code() == MF_E_TRANSFORM_NEED_MORE_INPUT => {
-                        let _ = ManuallyDrop::take(&mut out.pSample);
+                        drop(ManuallyDrop::take(&mut out.pSample));
                         return Ok(None);
                     }
                     Err(e) if e.code() == MF_E_TRANSFORM_STREAM_CHANGE => {
-                        let _ = ManuallyDrop::take(&mut out.pSample);
+                        drop(ManuallyDrop::take(&mut out.pSample));
                         // 解码器在首帧后要求重设输出类型（分辨率/格式确认），重设后重试一次。
                         let available = self.transform.GetOutputAvailableType(0, 0).map_err(|e| {
                             DecodeError::DecodeFailure(format!("GetOutputAvailableType: {e}"))
@@ -848,14 +852,14 @@ impl MfH264Decoder {
                         continue;
                     }
                     Err(e) => {
-                        let _ = ManuallyDrop::take(&mut out.pSample);
+                        drop(ManuallyDrop::take(&mut out.pSample));
                         return Err(DecodeError::DecodeFailure(format!("ProcessOutput: {e}")));
                     }
                 }
                 let sample = ManuallyDrop::take(&mut out.pSample).ok_or_else(|| {
                     DecodeError::DecodeFailure("ProcessOutput 成功但没有输出样本".to_owned())
                 })?;
-                let _ = ManuallyDrop::take(&mut out.pEvents);
+                drop(ManuallyDrop::take(&mut out.pEvents));
                 return Ok(Some(self.extract_frame(&sample)?));
             }
         }
@@ -964,13 +968,17 @@ impl MfH264Decoder {
                 .saturating_mul(3)
                 / 2;
             if (len as usize) < expected {
-                let _ = buffer.Unlock();
+                if let Err(error) = buffer.Unlock() {
+                    tracing::debug!(error = %error, "输出长度校验失败后解锁缓冲也失败");
+                }
                 return Err(DecodeError::DecodeFailure(format!(
                     "解码输出长度 {len} 小于 NV12 期望 {expected}"
                 )));
             }
             let data = std::slice::from_raw_parts(ptr, expected).to_vec();
-            let _ = buffer.Unlock();
+            buffer
+                .Unlock()
+                .map_err(|e| DecodeError::DecodeFailure(format!("Unlock(out): {e}")))?;
             Ok(DecodedFrame {
                 ts_us: self.sample_ts_100ns(sample) / 10,
                 width: self.width,
@@ -1065,12 +1073,10 @@ impl Drop for MfH264Decoder {
         unsafe {
             // 先解绑设备管理器，再结束流：否则 MFT 可能在释放时仍持有设备引用。
             if self.d3d.is_some() {
-                let _ = self.transform.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, 0);
+                let _ = self.transform.ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER, 0); // gate-allow R-C-2: Drop 无返回值可传播，MFT 即将随解码器析构
             }
-            let _ = self
-                .transform
-                .ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0);
-            let _ = self.transform.ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0);
+            let _ = self.transform.ProcessMessage(MFT_MESSAGE_NOTIFY_END_OF_STREAM, 0); // gate-allow R-C-2: Drop 无返回值可传播，析构阶段的结束流通知属尽力而为
+            let _ = self.transform.ProcessMessage(MFT_MESSAGE_COMMAND_FLUSH, 0); // gate-allow R-C-2: 同上，析构阶段冲刷失败不影响对象释放
         }
     }
 }

@@ -249,7 +249,7 @@ impl PresentWindow {
             )));
         }
         unsafe {
-            let _ = ShowWindow(hwnd, SW_SHOW);
+            let _ = ShowWindow(hwnd, SW_SHOW); // gate-allow R-C-2: ShowWindow 返回的是窗口此前的可见状态，0 不代表调用失败
         }
 
         let mut device: Option<ID3D11Device> = None;
@@ -275,7 +275,12 @@ impl PresentWindow {
         // MFT 会在自己的线程里调用该设备，必须打开多线程保护。
         if let Ok(multithread) = device.cast::<ID3D10Multithread>() {
             unsafe {
-                let _ = multithread.SetMultithreadProtected(true);
+                if !multithread.SetMultithreadProtected(true).as_bool() {
+                    return Err(DecodeError::PresentFailure(format!(
+                        "SetMultithreadProtected 失败: {}",
+                        std::io::Error::last_os_error()
+                    )));
+                }
             }
         }
 
@@ -417,7 +422,9 @@ impl PresentWindow {
         let mut message = MSG::default();
         unsafe {
             while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
-                let _ = TranslateMessage(&message);
+                if !TranslateMessage(&message).as_bool() {
+                    tracing::debug!("TranslateMessage 失败，跳过该消息的字符翻译");
+                }
                 DispatchMessageW(&message);
                 count += 1;
             }
@@ -587,7 +594,7 @@ impl PresentWindow {
                 self.context
                     .CopyResource(self.readback.as_ref().unwrap(), &backbuffer);
             }
-            let _ = ManuallyDrop::take(&mut stream.pInputSurface);
+            drop(ManuallyDrop::take(&mut stream.pInputSurface));
             self.swapchain
                 .Present(self.sync_interval, 0)
                 .ok()
@@ -726,7 +733,7 @@ impl PresentWindow {
 impl Drop for PresentWindow {
     fn drop(&mut self) {
         unsafe {
-            let _ = DestroyWindow(self.hwnd);
+            let _ = DestroyWindow(self.hwnd); // gate-allow R-C-2: Drop 无返回值可传播，窗口销毁失败随进程退出收敛
         }
     }
 }
