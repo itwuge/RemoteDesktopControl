@@ -314,8 +314,8 @@ Linux 被控端 `rdc-serve` 的 **S8-2 明文 TCP 协议**（`kind 1..4`，见
 | B2 | **通过**：`cargo test -p rdc-protocol -p rdc-bridge` → `rdc-bridge 27/27`（含 `direct_session` 6 条）、`rdc-protocol 45/45`，0 failed | 同上 |
 | B3 | **通过**：`flutter analyze` → `No issues found!`（21.1 s） | 同上 |
 | B4 | **通过**：`flutter test` → `41/41 All tests passed!` | 同上 |
-| B5 | **未覆盖**：本机无 Android SDK / JDK / NDK / cargo-ndk / Gradle 缓存，`flutter doctor` 明确 `Unable to locate Android SDK` | `flutter doctor -v` |
-| B6 | **未覆盖**：无 adb、无真机、无模拟器 | `flutter devices` |
+| B5 | **通过（VM 构建）**：Ubuntu VM `192.168.37.130` 执行 `packaging/android/build_apk.sh` 退出码 0（debug 签名），产出 `dist/RDC-0.1.0-android-arm64-v8a-debug.apk` 79,232,753 B，APK 内含 `lib/arm64-v8a/librdc_bridge.so`；SHA-256 已本地复算 | VM `/home/wuge/build.log` |
+| B6 | **未通过（环境 ABI 卡点）**：VM 内 x86_64 模拟器 `rdc_a33` 安装报 `INSTALL_FAILED_NO_MATCHING_ABIS`（APK 仅 `arm64-v8a`，模拟器 `ro.product.cpu.abilist` 仅 `x86_64`）；`pidof=3417` 属于上一轮遗留的 x86_64 旧包（`lastUpdateTime=05:17:54`），**不得作为新包启动证据** | `adb install` / `dumpsys package` |
 | C1 | **代码就绪**：直连对话框含 IP/端口字段与字段级校验（端口 1..65535），未做设备验证 | `session_page.dart` |
 | C2 | **宿主已验证**：连接被拒/超时/无 CONFIG/参数校验 4 条异常路径由 D2–D5 实跑通过；跨机真实网络未覆盖 | §2.13 D 组 |
 | C3 | **未覆盖**：需被控端 `rdc-serve` + 设备；本轮只做宿主编译 | — |
@@ -357,6 +357,25 @@ Linux 被控端 `rdc-serve` 的 **S8-2 明文 TCP 协议**（`kind 1..4`，见
 
 **结论**：C2/C5 从「部分覆盖」升为「宿主已验证（Rust 会话层）」。
 **仍保持未验证**：真机/模拟器上的画面解码上屏（C3）、触摸命中与中文 IME 回读（C4）、跨机时钟延迟 p50/p99。
+
+---
+
+### 2.14 2026-11-08 VM 构建记录（guard 全程留痕）
+
+| 项 | 实测 |
+|---|---|
+| 守卫 1 · 宿主可用内存 | **21.57 GB**（阈值 4 GB，通过），总内存 31.91 GB |
+| VM | `Desktop\Ubuntu 22.04 64位`，启动后 `vmrun getGuestIPAddress` = `192.168.37.130`，ping 通 |
+| VM 工具链 | Flutter 3.47.9 / JDK 17.0.20.1 / SDK `platforms`+`build-tools` / NDK 28.2.13676358 / cargo-ndk + `aarch64-linux-android` / Gradle 缓存 4.6 G / 磁盘 70 G 空闲 |
+| 同步方式 | 本地 `tar.gz`（排除 `.git`/`target`/`dist`/`app/build`/`.dart_tool`）1.8 MB → `/home/wuge/rdc-android-sync`（新建目录）；**未触碰** `rdc/`、`rdc-linux/`、`rdc-serve/`、`rdc-android-src/`、`rdc-shots/` 及任何系统配置 |
+| 构建命令 | `su - wuge -c 'cd ~/rdc-android-sync && bash packaging/android/build_apk.sh'` |
+| 结果 | 退出码 0；`Running Gradle task 'assembleDebug'… 84.4s` → `✓ Built build/app/outputs/flutter-apk/app-debug.apk` |
+| 产物 | `dist/RDC-0.1.0-android-arm64-v8a-debug.apk` 79,232,753 B；`SHA-256 e10eb5754ca4e6633484892158cdf23f45d286f17cead0cfac328bd172bf72e7`（VM 端与本地复算一致） |
+| 包内 ABI | 仅 `lib/arm64-v8a/`（含 `librdc_bridge.so`、`libflutter.so`） |
+| **环境偏差 1** | VM 上 `flutter pub get` 将 3 个传递依赖解析到更新版本（`meta 1.18.3→1.19.0`、`vector_math 2.4.0→2.4.4`、`vm_service` 同版本），并输出 `Changed 29 dependencies`；本轮 APK 与本地 `pubspec.lock` **不完全同源**，下一轮须把 lock 固化后再出包 |
+| **环境偏差 2** | Flutter 警告：app 直接应用 Kotlin Gradle Plugin，后续 Flutter 版本将构建失败，需迁移 Built-in Kotlin |
+| 设备验证 | 模拟器 `rdc_a33`（x86_64，`/dev/kvm` 可用）70 s 冷启动成功；`adb install` 报 `INSTALL_FAILED_NO_MATCHING_ABIS`，三项验收（能装/能启动/能填地址连上）**全部未验证** |
+| 收尾 | `adb emu kill` + `vmrun stop … soft`，`vmrun list` = 0；宿主可用内存回到 **23.25 GB** |
 
 ---
 
