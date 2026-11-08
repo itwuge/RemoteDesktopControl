@@ -1,7 +1,7 @@
-# inline `gate-allow` 审计清单（截至批次 D 第一段）
+# inline `gate-allow` 审计清单（截至批次 D 第二段）
 
 > 生成日期：2026-11-08
-> 口径：`scripts/gate.ps1` 要求 `gate-allow <RULE>: <理由>` 与违规代码**同一行**；本清单由 `grep gate-allow` 逐行核对生成，共 **31 条**（C1=3、C2=8、D1=20）。
+> 口径：`scripts/gate.ps1` 要求 `gate-allow <RULE>: <理由>` 与违规代码**同一行**；本清单由 `grep gate-allow` 逐行核对生成，共 **82 条**（C1=3、C2=8、D1=20、D2=51）。
 > 判定人：本会话（AI 判定）；用户抽查。凡标「AI」均由本会话逐条读上下文后判定，未引用他人结论。
 > 目的：确认没有用放行掩盖「真吞错」。真吞错一律改显式分支（见文末 §3），只有下述刻意 best-effort 才允许放行。
 
@@ -11,8 +11,9 @@
 |---|---|---|
 | C1（批次 C 前 7 处 `.ok()`） | 3 | MFT 能力探测 3 |
 | C2（15 处 `unwrap_or_default()`） | 8 | Option/缺失语义 7、热路径时序统计 1 |
-| D1（本批 master 欠账 + 小 crate） | 20 | 测试收尾 12、启动日志 2、rustls 进程级安装 2、QUIC 写半边关闭 3、`should_panic` 用例 1 |
-| **合计** | **31** | |
+| D1（master 欠账 + 小 crate） | 20 | 测试收尾 12、启动日志 2、rustls 进程级安装 2、QUIC 写半边关闭 3、`should_panic` 用例 1 |
+| D2（clipboard/signal/core/bridge） | 51 | 资源收尾 7、线程回收与句柄关闭 13、诊断输出 5、设计性丢弃/降级 10、测试收尾 4、网络对端离线 5、按键复位 3、非错误值 4 |
+| **合计** | **82** | |
 
 ## 2. 逐条清单
 
@@ -78,3 +79,90 @@
 3. 3 条 MFT 能力探测（#1–3）的 `cast().ok()` 失败等价于「该 MFT 不需要事件源/不实现该接口」，属探测结果。
 4. 2 条启动日志、2 条 rustls 进程级安装、3 条 QUIC 写半边关闭：均属重复执行无害或由后续调用链兜底，无静默丢失的可诊断信息。
 5. 如需推翻任一条，请给出具体反例（什么情况下该 `Err` 会导致用户可见故障），我会改回显式分支并补日志，而不是继续放行。
+
+## 5. D2 新增（51 条）
+
+### D2a · rdc-clipboard（7 条，Windows API 资源收尾）
+
+| 文件:行 | 原代码形态 | 放行理由 | 判定 |
+|---|---|---|---|
+| `crates/rdc-clipboard/src/platform/windows.rs:81` | `let _ = GlobalUnlock(hglobal);` | 读取已完成，解锁失败只代表引用计数已归零，无可恢复动作 | AI |
+| `.../windows.rs:84` | `let _ = CloseClipboard();` | 关闭剪贴板必须无条件尝试，失败不影响已读到的文本结果 | AI |
+| `.../windows.rs:98` | `let _ = GlobalFree(hmem);` | `GlobalLock` 失败后的释放属收尾，主错误随后返回 | AI |
+| `.../windows.rs:102` | `let _ = GlobalUnlock(hmem);` | 交给系统前必须尝试解锁，失败会由 `SetClipboardData` 自行报错 | AI |
+| `.../windows.rs:105` | `let _ = GlobalFree(hmem);` | 打开剪贴板失败的收尾释放，主错误随后返回 | AI |
+| `.../windows.rs:115` | `let _ = CloseClipboard();` | 关闭剪贴板必须无条件尝试，失败不影响写入结果 | AI |
+| `.../windows.rs:117` | `let _ = GlobalFree(hmem);` | `SetClipboardData` 失败时释放所有权内存属收尾，主错误随后返回 | AI |
+
+### D2a · rdc-signal（5 条）
+
+| 文件:行 | 原代码形态 | 放行理由 | 判定 |
+|---|---|---|---|
+| `crates/rdc-signal/src/server.rs:138` | `let _ = install_default();` | 进程级 CryptoProvider 已装好时返回 `Err`，重复安装无害 | AI |
+| `.../server.rs:681` | `let _ = push_to_peer(...)` | 队列满时内部已记 `warn`，`false` 表示对端离线，无需上层重复处理 | AI |
+| `.../server.rs:690` | `let _ = push_to_peer(...)` | 同上 | AI |
+| `.../server.rs:737` | `let _ = push_to_peer(...)` | 同上 | AI |
+| `.../server.rs:788` | `let _ = push_to_peer(...)` | 同上 | AI |
+
+> 本组另有 4 条改显式分支（非放行）：`server.rs` 2 处注册/通用响应写入 + 2 处 oneshot 通知，失败时补 `debug` 日志。
+
+### D2b · rdc-core（4 条，均为测试收尾）
+
+| 文件:行 | 原代码形态 | 放行理由 | 判定 |
+|---|---|---|---|
+| `crates/rdc-core/src/s5/devices.rs:442` | `let _ = remove_dir_all(&dir);` | `#[cfg(test)]` 收尾删除独立临时目录，失败不影响断言结论 | AI |
+| `.../devices.rs:462` | 同上 | 同上 | AI |
+| `.../devices.rs:496` | 同上 | 同上 | AI |
+| `crates/rdc-core/src/s5/grant.rs:2293` | 同上 | 同上 | AI |
+
+### D2c · rdc-bridge / control_service.rs（18 条）
+
+| 文件:行 | 原代码形态 | 放行理由 | 判定 |
+|---|---|---|---|
+| `.../control_service.rs:374` | `let _ = running.join.map(...)` | 回收旧管线线程，panic 已由 panic hook 记录，无恢复动作 | AI |
+| `.../control_service.rs:391` | `let _ = setup_tx.send(Ok(...))` | 启动结果回传通道接收端可能已超时退出，不影响线程继续 | AI |
+| `.../control_service.rs:395` | `let _ = setup_tx.send(Err(...))` | 同上，接收端已超时时由 `start()` 返回超时错误 | AI |
+| `.../control_service.rs:403` | `let _ = join.join();` | 回收已报错线程，具体错误已由 setup 通道取回并返回 | AI |
+| `.../control_service.rs:456` | `let _ = join.join();` | 文档约定 join 失败不视为业务错误 | AI |
+| `.../control_service.rs:738` | `let _ = SetMultithreadProtected(true)` | D3D11 线程保护为可选优化，失败按单线程约束使用 | AI |
+| `.../control_service.rs:1435` | `let _ = writeln!(trace...)` | `RDC_FRAME_TRACE` 诊断 CSV，写失败不得中断预览 | AI |
+| `.../control_service.rs:1451` | `let _ = SetEvent(events[index])` | 呈现同步事件设置失败无恢复动作，下一帧继续尝试 | AI |
+| `.../control_service.rs:1485` | `let _ = writeln!(metrics...)` | 逐秒指标 CSV 属诊断输出，写失败不得中断预览 | AI |
+| `.../control_service.rs:1543` | `let _ = readback_us;` | 非错误值，预留计时变量显式消费以避免未使用告警 | AI |
+| `.../control_service.rs:1551` | `let _ = join.join();` | 编码线程已收到停止标志，join 失败不改变收尾结论 | AI |
+| `.../control_service.rs:1556` | `let _ = CloseHandle(events[0])` | 线程退出时关闭事件句柄，失败仅可能由句柄已失效引起 | AI |
+| `.../control_service.rs:1557` | `let _ = CloseHandle(events[1])` | 同上 | AI |
+| `.../control_service.rs:1812` | `let _ = ManuallyDrop::take(...)` | 非错误值，take 只为结束借用并释放输入纹理所有权 | AI |
+| `.../control_service.rs:1972` | `let _ = QueryPerformanceFrequency(...)` | 失败时 `value` 保持 0，`qpc_us` 已降级返回 0 | AI |
+| `.../control_service.rs:1978` | `let _ = QueryPerformanceCounter(...)` | 失败时 `counter` 保持 0，`qpc_us` 已降级返回 0 | AI |
+| `.../control_service.rs:2002` | `let _ = writeln!(header)` | 明细 CSV 表头属诊断输出，失败不影响预览 | AI |
+| `.../control_service.rs:2023` | `let _ = writeln!(header)` | 指标 CSV 表头属诊断输出，失败不影响预览 | AI |
+
+### D2c · rdc-bridge / control_service_linux.rs（8 条，**Linux-only，需 Linux 线复核**）
+
+| 文件:行 | 原代码形态 | 放行理由 | 判定 |
+|---|---|---|---|
+| `.../control_service_linux.rs:216` | `let _ = guard.take();` | 非错误值，清空已退出服务的状态槽，旧 Service 随 take 释放 | AI |
+| `.../control_service_linux.rs:249` | `let _ = host_main(...)` | 线程入口把错误写入共享快照，返回值无需重复上报 | AI |
+| `.../control_service_linux.rs:258` | `let _ = client_main(...)` | 同上 | AI |
+| `.../control_service_linux.rs:304` | `let _ = service.host.join()` | 停链路时回收 host 线程，join 失败不改变停止结论 | AI |
+| `.../control_service_linux.rs:305` | `let _ = service.client.join()` | 同上，回收 client 线程 | AI |
+| `.../control_service_linux.rs:529` | `let _ = window_frames;` | 非错误值，预留计数变量显式消费以避免未使用告警 | AI |
+| `.../control_service_linux.rs:544` | `let _ = Packet{...}.write_to(...)` | 冲刷尾包到已建立的流，写失败说明对端已断开 | AI |
+| `.../control_service_linux.rs:552` | `let _ = Packet{BYE}.write_to(...)` | 结束通知写给已建立的流，写失败说明对端已断开 | AI |
+
+### D2c · rdc-bridge / 其余文件（9 条）
+
+| 文件:行 | 原代码形态 | 放行理由 | 判定 |
+|---|---|---|---|
+| `.../input_service.rs:400` | `let _ = join.join();` | 注入线程已收到停止标志，join 失败不改变清理结论 | AI |
+| `.../input_service.rs:407` | `let _ = injector.inject(Key(...))` | 停止时必须尽力抬起按键，单键失败继续处理其余按键 | AI |
+| `.../input_service.rs:418` | `let _ = injector.inject(Pointer(...))` | 停止时必须尽力抬起鼠标键，单键失败继续处理其余按键 | AI |
+| `.../session_service.rs:506` | `let _ = GetProcessHandleCount(...)` | 句柄计数仅用于诊断展示，失败时保持 0 | AI |
+| `.../wall_service.rs:177` | `let _ = join.join();` | 回收上一轮投影线程，panic 已由 panic hook 记录 | AI |
+| `.../wall_service.rs:231` | `let _ = join.join();` | 投影线程已收到停止标志，join 失败不改变停止结论 | AI |
+| `.../wall_service.rs:296` | `let _ = self.tx.try_send(...)` | 投影有界队列满时丢当前帧是设计行为，背压由上游采集降速 | AI |
+| `.../wall_service.rs:468` | `let _ = thumbnail.flush();` | 线程退出前冲刷编码器尾包，失败无恢复动作 | AI |
+| `.../wall_service.rs:471` | `let _ = decoder.flush();` | 同上，不影响已呈现的投影帧 | AI |
+
+> 本组另有 1 条改显式分支（非放行）：`file_service.rs` 续传成功后清理断点状态文件失败 → `debug` 日志 + 说明「下次传输可能回退到完整校验」，不改变返回结果与用户文案。
