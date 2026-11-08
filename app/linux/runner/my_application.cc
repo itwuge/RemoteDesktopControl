@@ -1,3 +1,4 @@
+// 用途：Linux runner 的 GtkApplication 实现（创建 GtkWindow 并启动 Flutter engine）。
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>

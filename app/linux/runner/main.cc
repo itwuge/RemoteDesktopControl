@@ -1,3 +1,4 @@
+// 用途：Linux runner 进程入口（创建 MyApplication 并进入 GTK 主循环）。
 #include "my_application.h"
 
 int main(int argc, char** argv) {

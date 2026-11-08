@@ -1,3 +1,4 @@
+﻿// 用途：Windows runner 资源 ID 定义（由 Runner.rc 引用）。
 //{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
 // Used by Runner.rc

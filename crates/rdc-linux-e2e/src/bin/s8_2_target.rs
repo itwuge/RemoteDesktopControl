@@ -1,4 +1,4 @@
-//! s8_2_target · 目标控件（被点击验证用）
+//! 用途：s8_2_target · 目标控件（被点击验证用）
 //!
 //! 运行：`DISPLAY=:0 cargo run -p rdc-linux-e2e --bin s8_2_target -- --x 200 --y 150 --out /tmp/s8-2-target.log`
 //!

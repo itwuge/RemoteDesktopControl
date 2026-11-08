@@ -1,5 +1,7 @@
-#ifndef RUNNER_UTILS_H_
+﻿#ifndef RUNNER_UTILS_H_
 #define RUNNER_UTILS_H_
+
+// 用途：Windows runner 工具函数声明（控制台附着、宽字符转 UTF-8、命令行、启动日志）。
 
 #include <string>
 #include <vector>

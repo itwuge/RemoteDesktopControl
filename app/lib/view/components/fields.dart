@@ -4,6 +4,8 @@
 // 数据来源：调用方传入 label 与 child
 // ============================================================
 
+// =====** 组件：表单字段容器（标签在上、控件在下） =====**
+
 import 'package:flutter/material.dart';
 
 import '../../core/l10n/strings.dart';

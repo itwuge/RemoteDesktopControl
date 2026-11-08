@@ -1,4 +1,4 @@
-// rdc-codec / AMF shim 实现（H.264，D3D11 输入）
+// 用途：rdc-codec / AMF shim 实现（H.264，D3D11 输入）。
 //
 // 编译方式见 shim/build_amf.ps1（MinGW g++）：
 //   g++ -std=c++17 -O2 -I <amf-include> -c amf_enc.cpp -o amf_enc.o

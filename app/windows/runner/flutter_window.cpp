@@ -1,4 +1,5 @@
-﻿#include "flutter_window.h"
+﻿// 用途：Flutter Windows runner 主窗口实现（创建 Flutter view、渲染后端诊断与尺寸同步）。
+#include "flutter_window.h"
 
 #include <windows.h>
 

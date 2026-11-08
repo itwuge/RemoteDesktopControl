@@ -1,4 +1,4 @@
-//! 桥接层 Linux 接口自检（S8-3 E1/E8 证据）
+//! 用途：桥接层 Linux 接口自检（S8-3 E1/E8 证据）
 //!
 //! 运行：`cargo run -p rdc-bridge --release --example linux_api_check`
 //!

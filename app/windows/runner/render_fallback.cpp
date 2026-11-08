@@ -1,3 +1,4 @@
+﻿// 用途：原生 GDI 保底窗口实现（渲染失败时保证提示可见、可操作、可截图取证）。
 #include "render_fallback.h"
 
 #include <commctrl.h>

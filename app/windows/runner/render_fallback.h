@@ -1,5 +1,7 @@
-#ifndef RUNNER_RENDER_FALLBACK_H_
+﻿#ifndef RUNNER_RENDER_FALLBACK_H_
 #define RUNNER_RENDER_FALLBACK_H_
+
+// 用途：原生 GDI 保底窗口接口（渲染失败时绘制可操作提示，错误码 RDR-001）。
 
 #include <windows.h>
 

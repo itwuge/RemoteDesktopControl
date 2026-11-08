@@ -5,6 +5,8 @@
 // 被谁调用：model/gateway/rust_gateway.dart、controller/home_controller.dart
 // ============================================================
 
+// =========** 数据模型：FFI 返回值对应的 Dart 值对象 =========**
+
 import 'dart:typed_data';
 
 /// Rust 核心的版本与运行环境信息。

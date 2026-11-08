@@ -205,6 +205,7 @@ impl EstablishedSession {
     }
 }
 
+//[握手必须按 docs/07 的报文顺序串行完成] 因此这里用单条双向流，不做并发读。
 /// 在已建立的直连上运行安全握手。
 ///
 /// # Arguments
@@ -217,7 +218,6 @@ impl EstablishedSession {
 ///
 /// # Errors
 /// 握手消息非法、验签失败、PAKE 不一致或状态机拒绝时返回 [`ConnectError::Security`]。
-//[握手必须按 docs/07 的报文顺序串行完成] 因此这里用单条双向流，不做并发读。
 pub async fn establish(
     direct: DirectConnection,
     mut handshake: SessionHandshake,

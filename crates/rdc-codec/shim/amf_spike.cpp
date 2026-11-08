@@ -1,4 +1,4 @@
-// AMF spike：实测 1080p 下的 push 耗时、首包延迟、CBR 码率与纹理直入路径。
+// 用途：AMF spike 测量程序：实测 1080p 下的 push 耗时、首包延迟、CBR 码率与纹理直入路径。
 //
 // 编译（见 build_amf.ps1）：
 //   g++ -std=c++17 -O2 -I <amf-include> amf_enc.cpp amf_spike.cpp -o amf_spike.exe \

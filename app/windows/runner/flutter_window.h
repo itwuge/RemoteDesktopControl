@@ -1,5 +1,7 @@
-#ifndef RUNNER_FLUTTER_WINDOW_H_
+﻿#ifndef RUNNER_FLUTTER_WINDOW_H_
 #define RUNNER_FLUTTER_WINDOW_H_
+
+// 用途：Flutter Windows runner 主窗口声明（继承 Win32Window，承载 Flutter view）。
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>

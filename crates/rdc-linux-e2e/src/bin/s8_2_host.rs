@@ -1,4 +1,4 @@
-//! s8_2_host · 最小被控服务：采集→软编→TCP 推流 + 接收输入并注入
+//! 用途：s8_2_host · 最小被控服务：采集→软编→TCP 推流 + 接收输入并注入
 //!
 //! 运行：`DISPLAY=:0 cargo run -p rdc-linux-e2e --bin s8_2_host -- --listen 127.0.0.1:45900 --secs 60`
 //!

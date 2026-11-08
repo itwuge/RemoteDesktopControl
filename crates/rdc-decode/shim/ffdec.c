@@ -1,5 +1,5 @@
+// 用途：rdc-decode / FFmpeg H.264 解码 C shim
 /*
- * rdc-decode / FFmpeg H.264 解码 C shim
  *
  * 层级：L3 编解码层 · 平台适配最内层
  * 用途：把 libavcodec 的「送包 → 收帧」循环收敛成极小的 C ABI，供 Rust 侧

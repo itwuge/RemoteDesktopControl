@@ -1,3 +1,4 @@
+﻿// 用途：Win32 窗口基类实现（窗口注册、创建、缩放与 DPI 消息处理）。
 #include "win32_window.h"
 
 #include <dwmapi.h>

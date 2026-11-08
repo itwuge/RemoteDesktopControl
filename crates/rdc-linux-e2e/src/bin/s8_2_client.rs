@@ -1,4 +1,4 @@
-//! s8_2_client · 第二进程控制端：接收画面→解码→上屏，自动定位绿块并点击
+//! 用途：s8_2_client · 第二进程控制端：接收画面→解码→上屏，自动定位绿块并点击
 //!
 //! 运行：`DISPLAY=:0 cargo run -p rdc-linux-e2e --bin s8_2_client -- --connect 127.0.0.1:45900 --secs 60 --clicks 10`
 //!

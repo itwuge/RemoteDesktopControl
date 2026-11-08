@@ -1,5 +1,7 @@
-#ifndef RUNNER_WIN32_WINDOW_H_
+﻿#ifndef RUNNER_WIN32_WINDOW_H_
 #define RUNNER_WIN32_WINDOW_H_
+
+// 用途：Win32 窗口基类声明（DPI 感知、窗口创建与消息分发，供 runner 派生）。
 
 #include <windows.h>
 

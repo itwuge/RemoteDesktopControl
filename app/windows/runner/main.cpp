@@ -1,4 +1,5 @@
-﻿#include <flutter/dart_project.h>
+﻿// 用途：Flutter Windows runner 进程入口（命令行解析、渲染后端选择与主窗口启动）。
+#include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 
