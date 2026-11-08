@@ -207,8 +207,12 @@ impl Decoder {
                 Ok(Some(_)) | Err(_) => break,
                 Ok(None) => {
                     if std::time::Instant::now() >= deadline {
-                        let _ = self.child.kill();
-                        let _ = self.child.wait();
+                        if let Err(error) = self.child.kill() {
+                            tracing::debug!("[decoder] 退出超时后 kill 失败: {error}");
+                        }
+                        if let Err(error) = self.child.wait() {
+                            tracing::debug!("[decoder] 退出超时后 wait 失败: {error}");
+                        }
                         break;
                     }
                     thread::sleep(std::time::Duration::from_millis(5));
@@ -216,7 +220,9 @@ impl Decoder {
             }
         }
         if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
+            if let Err(error) = reader.join() {
+                tracing::debug!("[decoder] 读线程异常退出: {error:?}");
+            }
         }
     }
 }
@@ -275,11 +281,11 @@ impl Drop for Decoder {
     /// # Errors
     /// 不会失败。
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        let _ = self.child.kill(); // gate-allow R-C-2: Drop 无返回值可传播，kill 后紧接 take(stdin) 解除管道阻塞
         self.stdin.take();
         if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
+            let _ = reader.join(); // gate-allow R-C-2: Drop 无返回值可传播，读线程 panic 不影响解码器析构
         }
-        let _ = self.child.wait();
+        let _ = self.child.wait(); // gate-allow R-C-2: Drop 无返回值可传播，进程退出由系统回收
     }
 }

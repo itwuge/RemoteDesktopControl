@@ -168,8 +168,10 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
             Ok(Some(event)) => match event {
                 x11rb::protocol::Event::Expose(expose) => {
                     if expose.count == 0 {
-                        let _ = conn.poly_fill_rectangle(window, gc, &[rect]);
-                        let _ = conn.flush();
+                        conn.poly_fill_rectangle(window, gc, &[rect])
+                            .map_err(|error| format!("绘制目标窗口失败: {error}"))?;
+                        conn.flush()
+                            .map_err(|error| format!("刷新 X11 请求失败: {error}"))?;
                     }
                 }
                 x11rb::protocol::Event::ButtonPress(press) => {
@@ -181,8 +183,10 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
                         i32::from(press.root_y),
                         press.detail
                     );
-                    let _ = file.write_all(line.as_bytes());
-                    let _ = file.flush();
+                    file.write_all(line.as_bytes())
+                        .map_err(|error| format!("写入点击记录失败: {error}"))?;
+                    file.flush()
+                        .map_err(|error| format!("刷新点击记录失败: {error}"))?;
                     print!("TARGET_PRESS {line}");
                 }
                 _ => {}
@@ -194,8 +198,8 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
             break;
         }
     }
-    let _ = conn.destroy_window(window);
-    let _ = conn.free_gc(gc);
-    let _ = conn.flush();
+    let _ = conn.destroy_window(window); // gate-allow R-C-2: 收尾释放无返回值，连接关闭后资源由 X server 回收
+    let _ = conn.free_gc(gc); // gate-allow R-C-2: 收尾释放无返回值，GC 随连接关闭回收
+    let _ = conn.flush(); // gate-allow R-C-2: 收尾冲刷无返回值，主流程已返回 Ok
     Ok(())
 }

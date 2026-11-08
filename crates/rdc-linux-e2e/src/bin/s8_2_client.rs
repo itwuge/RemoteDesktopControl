@@ -353,12 +353,16 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
     }
 
     // 通知被控端断开。
-    let _ = protocol::Packet {
+    let bye = protocol::Packet {
         kind: protocol::KIND_BYE,
         payload: Vec::new(),
+    };
+    if let Err(error) = bye.write_to(&mut writer) {
+        eprintln!("[client] 断开通知发送失败: {error}");
     }
-    .write_to(&mut writer);
-    let _ = writer.flush();
+    if let Err(error) = writer.flush() {
+        eprintln!("[client] 发送缓冲冲刷失败: {error}");
+    }
     finish(args, &mut display, &mut decoder, packets, frames, &mut latencies, &click_points, decode_errors, moves_done, pts_regressions)
 }
 
@@ -378,9 +382,7 @@ fn finish(
     pts_regressions: u64,
 ) -> Result<(), String> {
     decoder.finish();
-    while let Some(frame) = decoder.poll() {
-        let _ = frame;
-    }
+    while decoder.poll().is_some() {}
     // latencies 以纳秒记录（CLOCK_MONOTONIC），JSON 里统一换算成微秒。
     let p50 = percentile(latencies, 0.50) / 1000;
     let p99 = percentile(latencies, 0.99) / 1000;

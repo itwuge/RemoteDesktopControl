@@ -199,7 +199,9 @@ impl Display {
                         if expose.count == 0 {
                             let last = self.last.clone();
                             if let Some(last) = last {
-                                let _ = self.present(&last);
+                                if let Err(error) = self.present(&last) {
+                                    tracing::debug!("[display] 上屏失败: {error}");
+                                }
                             }
                         }
                     }
@@ -247,8 +249,8 @@ impl Display {
     /// # Errors
     /// 不会失败。
     pub fn destroy(self) {
-        let _ = self.conn.destroy_window(self.window);
-        let _ = self.conn.free_gc(self.gc);
-        let _ = self.conn.flush();
+        let _ = self.conn.destroy_window(self.window); // gate-allow R-C-2: 销毁路径无返回值，窗口关闭后连接随即断开
+        let _ = self.conn.free_gc(self.gc); // gate-allow R-C-2: 销毁路径无返回值，GC 随连接断开释放
+        let _ = self.conn.flush(); // gate-allow R-C-2: 销毁路径无返回值，连接关闭时服务端丢弃残留请求
     }
 }

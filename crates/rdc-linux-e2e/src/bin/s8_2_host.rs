@@ -288,7 +288,9 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
     }
 
     source.stop();
-    let _ = writer.flush();
+    writer
+        .flush()
+        .map_err(|error| format!("发送缓冲冲刷失败: {error}"))?;
     let rest = {
         let mut guard = encoder.lock().map_err(|_| "编码器锁被污染")?;
         guard
@@ -300,18 +302,22 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
         bytes_total += packet.data.len() as u64;
         packets += 1;
         let payload = protocol::video_payload(packet.pts_ns, packet.is_keyframe, &packet.data);
-        let _ = protocol::Packet {
+        protocol::Packet {
             kind: protocol::KIND_VIDEO,
             payload,
         }
-        .write_to(&mut writer);
+        .write_to(&mut writer)
+        .map_err(|error| format!("视频包写入失败: {error}"))?;
     }
-    let _ = protocol::Packet {
+    protocol::Packet {
         kind: protocol::KIND_BYE,
         payload: Vec::new(),
     }
-    .write_to(&mut writer);
-    let _ = writer.flush();
+    .write_to(&mut writer)
+    .map_err(|error| format!("断开通知写入失败: {error}"))?;
+    writer
+        .flush()
+        .map_err(|error| format!("发送缓冲冲刷失败: {error}"))?;
 
     let secs = start.elapsed().as_secs_f64().max(0.001);
     let backend = {
