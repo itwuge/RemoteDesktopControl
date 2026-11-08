@@ -1292,7 +1292,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-bridge"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "flutter_rust_bridge",
  "rdc-capture",
@@ -1312,7 +1312,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-capture"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "libc",
  "rdc-protocol",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-cli"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "rdc-capture",
  "rdc-clipboard",
@@ -1349,7 +1349,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-clipboard"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "sha2",
  "thiserror",
@@ -1359,7 +1359,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-codec"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "rdc-protocol",
  "rdc-runtime",
@@ -1370,7 +1370,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-connect"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "base64",
  "quinn",
@@ -1387,7 +1387,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-core"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "rdc-capture",
  "rdc-clipboard",
@@ -1408,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-decode"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "cc",
  "rdc-protocol",
@@ -1419,7 +1419,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-filetransfer"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "sha2",
  "thiserror",
@@ -1427,7 +1427,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-input"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "libc",
  "rdc-protocol",
@@ -1442,7 +1442,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-linux-e2e"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "libc",
  "rdc-capture",
@@ -1454,7 +1454,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-protocol"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "base64",
  "serde",
@@ -1464,7 +1464,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-relay"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "rdc-protocol",
  "rdc-security",
@@ -1474,14 +1474,14 @@ dependencies = [
 
 [[package]]
 name = "rdc-runtime"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "tracing",
 ]
 
 [[package]]
 name = "rdc-security"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "aes-gcm",
  "base64",
@@ -1504,7 +1504,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-signal"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "base64",
  "quinn",
@@ -1521,7 +1521,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-transport"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "rdc-protocol",
  "rdc-runtime",
@@ -1532,7 +1532,7 @@ dependencies = [
 
 [[package]]
 name = "rdc-update"
-version = "0.1.2"
+version = "0.3.0"
 dependencies = [
  "base64",
  "rdc-security",

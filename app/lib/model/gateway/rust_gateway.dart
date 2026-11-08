@@ -141,7 +141,7 @@ class RustGateway {
 
   /// 当前编译版本号（与安装包、更新清单同源）。
   ///
-  /// 返回：语义化版本字符串（如 `0.1.1`）。
+  /// 返回：语义化版本字符串（如 `0.3.0`）。
   Future<String> appVersion() async {
     _ensureInitialized();
     return rust_api.appVersion();

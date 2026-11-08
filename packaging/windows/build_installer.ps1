@@ -68,7 +68,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     # 版本唯一真源：根 Cargo.toml 的 workspace.package.version。
     $manifest = Get-Content (Join-Path $RepoRoot "Cargo.toml") -Raw
     $match = [regex]::Match($manifest, "version\s*=\s*""([^""]+)""")
-    $Version = if ($match.Success) { $match.Groups[1].Value } else { "0.1.0" }
+    $Version = if ($match.Success) { $match.Groups[1].Value } else { "0.3.0" }
 }
 Write-Host "[packaging/windows] 版本 $Version"
 Write-Host "[packaging/windows] 目标目录 $TargetDir"
