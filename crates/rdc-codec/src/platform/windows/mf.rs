@@ -289,7 +289,8 @@ impl MfH264Session {
                     })?;
                 // 关闭异步 MFT 的内部帧缓存：不设该属性时驱动会多攒一帧再吐，
                 // 1080p 下表现为「每次 push 额外等 ~8ms」，吞吐也被串行化到 ~46fps。
-                // 失败不阻断：老驱动可能不认该属性，由上层实测值体现；结果记录到调试日志便于核对。
+                // 失败不阻断：老驱动可能不认该属性，由上层实测值体现；结果记录到 info 便于核对。
+                // 级别保持 info：原 eprintln! 无条件输出，降成 debug 会在默认 RDC_LOG=info 下丢行。
                 let low_latency_ok = match attrs.SetUINT32(&MF_LOW_LATENCY, 1) {
                     Ok(()) => true,
                     Err(e) => {
@@ -297,7 +298,7 @@ impl MfH264Session {
                         false
                     }
                 };
-                tracing::debug!("[mf] {name} low_latency={low_latency_ok}");
+                tracing::info!("[mf] {name} low_latency={low_latency_ok}");
             }
         }
 
