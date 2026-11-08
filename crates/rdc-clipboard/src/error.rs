@@ -25,6 +25,16 @@ pub enum ClipboardError {
     /// 载荷长度不符、截断或未知类型。
     #[error("剪贴板载荷非法")]
     MalformedPayload,
+    /// 载荷正文不是合法 UTF-8。
+    ///
+    /// 对外文案与 [`ClipboardError::MalformedPayload`] 完全一致；单独成变体是为了
+    /// 在不改动人读文案的前提下保留底层解析错误，供日志与排查定位（R-C-3）。
+    #[error("剪贴板载荷非法")]
+    MalformedText {
+        /// UTF-8 解析失败原因。
+        #[source]
+        source: std::str::Utf8Error,
+    },
     /// 载荷自带的 SHA-256 与内容不一致（损坏或被篡改）。
     #[error("剪贴板内容哈希不匹配")]
     HashMismatch,

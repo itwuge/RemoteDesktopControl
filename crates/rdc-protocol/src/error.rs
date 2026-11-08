@@ -115,6 +115,18 @@ pub enum ProtocolError {
     /// 关键字段缺失或取值非法。
     #[error("字段非法: {0}")]
     InvalidField(&'static str),
+    /// 关键字段无法解析，并保留底层解析错误。
+    ///
+    /// 对外文案与 [`ProtocolError::InvalidField`] 一致；单独成变体是为了
+    /// 在不改动人读文案的前提下保留 `base64::DecodeError`，供日志与排查定位（R-C-3）。
+    #[error("字段非法: {message}")]
+    InvalidFieldWithSource {
+        /// 人读说明（与旧 `InvalidField` 的文案逐字一致）。
+        message: &'static str,
+        /// 底层解析错误。
+        #[source]
+        source: base64::DecodeError,
+    },
     /// 编解码器不支持该配置（S3 起由 rdc-codec 返回，经 rdc-core 收敛）。
     #[error("编解码器不支持: {0}")]
     CodecUnsupported(&'static str),

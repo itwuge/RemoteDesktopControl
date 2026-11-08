@@ -701,7 +701,7 @@ pub fn probe_report() -> ProbeReport {
     let hardware = match mf::enumerate_h264(false) {
         Ok(list) => list,
         Err(err) => {
-            report.error = Some(err.to_string());
+            report.error = Some(err.boundary_text());
             return report;
         }
     };

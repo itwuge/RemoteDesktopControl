@@ -800,21 +800,28 @@ fn verify_request(
     env: &SignalEnvelope,
     now_ms: i64,
 ) -> Result<(), SignalErrorCode> {
-    let payload = env
-        .canonical_auth_bytes()
-        .map_err(|_| SignalErrorCode::BadRequest)?;
+    let payload = env.canonical_auth_bytes().map_err(|error| {
+        // `SignalErrorCode` 是线上协议枚举，不能携带 source；原始错误在这里显式消费，
+        // 只进本地 debug 日志，对外仍只返回 `bad_request`（不向对端泄漏细节）。
+        tracing::debug!(peer = %env.id, error = %error, "信封规范化失败");
+        SignalErrorCode::BadRequest
+    })?;
     let mut registry = lock(&shared.registry);
     let peer = registry.get_mut(&env.id).ok_or(SignalErrorCode::AuthFailed)?;
     if now_ms > peer.token_issued_ms + SIGNAL_TOKEN_TTL_MS {
         return Err(SignalErrorCode::AuthFailed);
     }
     let sig = env.sig.as_deref().ok_or(SignalErrorCode::AuthFailed)?;
-    verify_hmac_sha256_b64(peer.token.as_bytes(), &payload, sig)
-        .map_err(|_| SignalErrorCode::AuthFailed)?;
+    verify_hmac_sha256_b64(peer.token.as_bytes(), &payload, sig).map_err(|error| {
+        // 同上：`auth_failed` 是线上错误码，原始 SecurityError 只进本地 debug 日志。
+        tracing::debug!(peer = %env.id, error = %error, "HMAC 校验失败");
+        SignalErrorCode::AuthFailed
+    })?;
     // 关键顺序：HMAC 通过后才推进窗口，避免伪造包把合法序号“挤”出窗口。
-    peer.replay
-        .check_and_update(env.seq)
-        .map_err(|_| SignalErrorCode::AuthFailed)?;
+    peer.replay.check_and_update(env.seq).map_err(|error| {
+        tracing::debug!(peer = %env.id, seq = env.seq, error = %error, "序号重放窗口拒绝");
+        SignalErrorCode::AuthFailed
+    })?;
     Ok(())
 }
 

@@ -188,7 +188,9 @@ fn expect_len(body: &[u8], expected: usize) -> Result<(), InputError> {
 
 /// 读取 4 字节小端 i32；长度由 [`expect_len`] 先行保证，越界返回载荷非法。
 fn read_i32(bytes: &[u8]) -> Result<i32, InputError> {
-    let arr: [u8; 4] = bytes.try_into().map_err(|_| InputError::MalformedPayload)?;
+    // [`expect_len`] 已保证调用点传入 4 字节切片，不存在转换失败分支。
+    let mut arr = [0u8; 4];
+    arr.copy_from_slice(bytes);
     Ok(i32::from_le_bytes(arr))
 }
 

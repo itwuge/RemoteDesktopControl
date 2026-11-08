@@ -47,6 +47,21 @@ impl CodecError {
             Self::Unsupported => "RDC-COD-005",
         }
     }
+
+    /// 报告边界：把错误渲染成人读文本。
+    ///
+    /// 为什么集中在这里：`ProbeReport::error` 是纯文本出口（rdc-cli 直接打印），
+    /// 属于「结构化错误 → 文本」的边界；平台错误码已在 mf 层写入消息，
+    /// 输出与旧的 `err.to_string()` 逐字一致，同时让错误链在上游保持结构化（R-C-3）。
+    ///
+    /// # Returns
+    /// 与 [`Display`](std::fmt::Display) 完全一致的文本。
+    pub fn boundary_text(&self) -> String {
+        use std::fmt::Write as _;
+        let mut out = String::new();
+        write!(out, "{self}").expect("String 写入不会失败");
+        out
+    }
 }
 
 // =====** 单元测试 =====**

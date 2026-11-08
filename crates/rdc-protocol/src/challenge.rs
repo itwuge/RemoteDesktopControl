@@ -103,7 +103,10 @@ pub fn encode_challenge(challenge: &[u8; CHALLENGE_LEN]) -> String {
 pub fn decode_challenge(text: &str) -> Result<[u8; CHALLENGE_LEN], ProtocolError> {
     let raw = STANDARD
         .decode(text)
-        .map_err(|_| ProtocolError::InvalidField("挑战不是合法 Base64"))?;
+        .map_err(|error| ProtocolError::InvalidFieldWithSource {
+            message: "挑战不是合法 Base64",
+            source: error,
+        })?;
     if raw.len() != CHALLENGE_LEN {
         return Err(ProtocolError::InvalidField("挑战长度必须为 32 字节"));
     }

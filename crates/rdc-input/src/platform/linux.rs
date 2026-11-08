@@ -266,7 +266,9 @@ impl UinputDevice {
         };
         self.file
             .write_all(bytes)
-            .map_err(|_| InputError::InjectionRejected)
+            .map_err(|error| InputError::InjectionRejectedWithSource {
+                source: Box::new(error),
+            })
     }
 
     /// 提交一组事件（`SYN_REPORT`）。
@@ -620,7 +622,10 @@ fn inject_xtest(
         // 桌面注入器不处理触摸。
         InputEvent::Touch(_) => return Err(InputError::Unsupported),
     }
-    conn.flush().map_err(|_| InputError::InjectionRejected)
+    conn.flush()
+        .map_err(|error| InputError::InjectionRejectedWithSource {
+            source: Box::new(error),
+        })
 }
 
 /// 发送一条 XTest 伪造事件。
@@ -647,7 +652,9 @@ fn fake(
 ) -> Result<(), InputError> {
     conn.xtest_fake_input(event_type, detail, 0, root, x, y, 0)
         .map(|_| ())
-        .map_err(|_| InputError::InjectionRejected)
+        .map_err(|error| InputError::InjectionRejectedWithSource {
+            source: Box::new(error),
+        })
 }
 
 /// 注入按钮按下/抬起。

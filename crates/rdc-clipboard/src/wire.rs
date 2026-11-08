@@ -124,9 +124,9 @@ pub fn decode_text(bytes: &[u8]) -> Result<(String, [u8; HASH_LEN]), ClipboardEr
     if rest.len() < HASH_LEN + 4 {
         return Err(ClipboardError::MalformedPayload);
     }
-    let hash: [u8; HASH_LEN] = rest[..HASH_LEN]
-        .try_into()
-        .map_err(|_| ClipboardError::MalformedPayload)?;
+    // 上方已校验 `rest.len() >= HASH_LEN + 4`，该切片必为 HASH_LEN 字节，无失败分支。
+    let mut hash = [0u8; HASH_LEN];
+    hash.copy_from_slice(&rest[..HASH_LEN]);
     let len = u32::from_le_bytes([
         rest[HASH_LEN],
         rest[HASH_LEN + 1],
@@ -138,7 +138,7 @@ pub fn decode_text(bytes: &[u8]) -> Result<(String, [u8; HASH_LEN]), ClipboardEr
         return Err(ClipboardError::MalformedPayload);
     }
     let text = std::str::from_utf8(body)
-        .map_err(|_| ClipboardError::MalformedPayload)?
+        .map_err(|error| ClipboardError::MalformedText { source: error })?
         .to_owned();
     if digest(text.as_bytes()) != hash {
         return Err(ClipboardError::HashMismatch);
@@ -245,7 +245,7 @@ mod tests {
         bytes[1..1 + HASH_LEN].copy_from_slice(&hash);
         assert!(matches!(
             decode_text(&bytes),
-            Err(ClipboardError::MalformedPayload)
+            Err(ClipboardError::MalformedText { .. })
         ));
     }
 }

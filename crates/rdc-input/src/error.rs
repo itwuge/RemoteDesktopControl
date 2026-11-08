@@ -20,6 +20,16 @@ pub enum InputError {
     /// 系统拒绝注入（权限不足、目标不可交互或处于安全桌面）。
     #[error("输入注入被系统拒绝")]
     InjectionRejected,
+    /// 系统拒绝注入，并保留底层错误链。
+    ///
+    /// 对外文案与 [`InputError::InjectionRejected`] 完全一致；单独成变体是为了
+    /// 在不改动人读文案的前提下保留 IO / X11 连接错误，供日志与排查定位（R-C-3）。
+    #[error("输入注入被系统拒绝")]
+    InjectionRejectedWithSource {
+        /// 底层具体错误（`io::Error` / X11 连接错误等）。
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     /// 视口参数非法（宽高为 0 或缩放比非正）。
     #[error("视口参数非法")]
     InvalidViewport,
