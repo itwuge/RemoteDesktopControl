@@ -13,6 +13,12 @@
 //! - 不创建额外编码实例：全进程 1 个缩略图编码器 + 1 个解码器，与 S5-1 的选项 B 一致。
 //! - 采集会话有线程亲和性，采集源在管线线程内创建/启动/停止。
 
+// 本模块的采集→编码→解码管线只在 Windows 目标上真正装配（start() 的 cfg 分支）；
+// Linux/其他目标走「直接返回不支持」的分支，因此这些仅被 Windows 分支引用的辅助项
+// 在非 Windows 目标下必然被判 dead_code。这里按目标平台收敛该告警，
+// 不关闭全局 -D warnings，也不影响 Windows 目标继续检出真正的死代码。
+#![cfg_attr(not(target_os = "windows"), allow(dead_code))]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
