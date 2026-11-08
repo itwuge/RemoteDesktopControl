@@ -13,6 +13,64 @@ import 'package:flutter/services.dart';
 /// USB HID 键盘 usage page。
 const int _hidPageKeyboard = 0x07;
 
+/// Android KeyEvent keyCode 页。
+///
+/// Android 的 `KeyEvent.getScanCode()` 为 0 时（`adb shell input keyevent`、
+/// 部分软/硬键盘），Flutter 只能按 keyCode 造出这一页的物理键；
+/// 直接丢弃会让这些按键永远到不了被控端。
+const int _androidPageKeycode = 0x11;
+
+/// Android keyCode → HID usage（page 0x07）。
+///
+/// 先折算回 HID usage，再复用 [_scanCodeTable]；未收录的键（音量、返回等）
+/// 返回 `null`，由调用方忽略。
+const Map<int, int> _androidKeyCodeToHid = <int, int>{
+  // 字母 A–Z（KEYCODE_A=29 … KEYCODE_Z=54）
+  29: 0x04, 30: 0x05, 31: 0x06, 32: 0x07, 33: 0x08, 34: 0x09,
+  35: 0x0A, 36: 0x0B, 37: 0x0C, 38: 0x0D, 39: 0x0E, 40: 0x0F,
+  41: 0x10, 42: 0x11, 43: 0x12, 44: 0x13, 45: 0x14, 46: 0x15,
+  47: 0x16, 48: 0x17, 49: 0x18, 50: 0x19, 51: 0x1A, 52: 0x1B,
+  53: 0x1C, 54: 0x1D,
+  // 数字 0–9（KEYCODE_0=7 … KEYCODE_9=16）
+  7: 0x1E, 8: 0x1F, 9: 0x20, 10: 0x21, 11: 0x22,
+  12: 0x23, 13: 0x24, 14: 0x25, 15: 0x26, 16: 0x27,
+  // 控制键
+  66: 0x28, // Enter
+  111: 0x29, // Esc
+  67: 0x2A, // Backspace
+  61: 0x2B, // Tab
+  62: 0x2C, // Space
+  115: 0x39, // CapsLock
+  // 符号
+  69: 0x2D, 70: 0x2E, 71: 0x2F, 72: 0x30, 73: 0x31,
+  74: 0x33, 75: 0x34, 68: 0x35, 55: 0x36, 56: 0x37, 76: 0x38,
+  // F1–F12（KEYCODE_F1=131 … KEYCODE_F12=142）
+  131: 0x3A, 132: 0x3B, 133: 0x3C, 134: 0x3D,
+  135: 0x3E, 136: 0x3F, 137: 0x40, 138: 0x41,
+  139: 0x42, 140: 0x43, 141: 0x44, 142: 0x45,
+  // 编辑键
+  124: 0x49, // Insert
+  122: 0x4A, // MoveHome
+  92: 0x4B, // PageUp
+  112: 0x4C, // ForwardDel
+  123: 0x4D, // MoveEnd
+  93: 0x4E, // PageDown
+  // 方向键
+  22: 0x4F, // DpadRight
+  21: 0x50, // DpadLeft
+  20: 0x51, // DpadDown
+  19: 0x52, // DpadUp
+  // 修饰键
+  113: 0xE0, // CtrlLeft
+  59: 0xE1, // ShiftLeft
+  57: 0xE2, // AltLeft
+  117: 0xE3, // MetaLeft
+  114: 0xE4, // CtrlRight
+  60: 0xE5, // ShiftRight
+  58: 0xE6, // AltRight
+  118: 0xE7, // MetaRight
+};
+
 /// HID usage（page 0x07）→ PC/AT Set 1 扫描码。
 ///
 /// 字母区与数字区的映射不连续，按硬件规范逐一列出，不做算术推导。
@@ -69,10 +127,29 @@ const Map<int, int> _scanCodeTable = <int, int>{
 ///
 /// 参数 [key]：Flutter 的物理键。
 /// 返回：扫描码（扩展键为 `0xE0xx`）；非键盘页或未收录的键返回 `null`。
+///
+/// 同时兼容两页来源：硬件键盘直接给 HID 键盘页 0x07（页号在 bit16–31）；
+/// Android 无扫描码的 KeyEvent（如 `adb shell input keyevent`）给 keyCode
+/// 页 0x11，但 Flutter Android 端把它写在 bit32–47（实测 `0x110000001d`），
+/// 先折回 HID usage 再查表。
 int? scanCodeFor(PhysicalKeyboardKey key) {
   final usage = key.usbHidUsage;
-  if ((usage >> 16) != _hidPageKeyboard) return null;
-  return _scanCodeTable[usage & 0xFFFF];
+  if ((usage >> 16) == _hidPageKeyboard) {
+    return _scanCodeTable[usage & 0xFFFF];
+  }
+  if ((usage >> 32) == _androidPageKeycode) {
+    return _androidScanCode(usage & 0xFFFFFFFF);
+  }
+  if ((usage >> 16) == _androidPageKeycode) {
+    return _androidScanCode(usage & 0xFFFF);
+  }
+  return null;
+}
+
+/// Android keyCode → 扫描码（未收录返回 `null`）。
+int? _androidScanCode(int keyCode) {
+  final hid = _androidKeyCodeToHid[keyCode];
+  return hid == null ? null : _scanCodeTable[hid];
 }
 
 /// 当前修饰键掩码（`1=Shift`、`2=Ctrl`、`4=Alt`、`8=Meta`）。

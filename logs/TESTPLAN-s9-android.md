@@ -441,7 +441,7 @@ Linux 被控端 `rdc-serve` 的 **S8-2 明文 TCP 协议**（`kind 1..4`，见
 
 **证据文件**（`logs/` 被 gitignore，仅本地留存）：`s9-shot1-home.png`（修复前红字桥接异常）、`s9-shot2-bridge-ok.png`、`s9-shot3-direct-dialog.png`、`s9-shot4-typed-ip.png`、`s9-shot5-connected.png`、`s9-shot6-frames.png`。
 
-**仍未验证**：C4 输入回传（本轮未注入触摸/键盘，只验证了收帧）、真实 arm64 真机、跨机网络延迟与丢包、5 分钟长稳；模拟器为软件 GPU（swiftshader），帧率为模拟器内实测值。
+**仍未验证**：真实 arm64 真机、跨机网络延迟与丢包；C4 输入回传与 5 分钟长稳已在本轮 §2.16 验证；模拟器为软件 GPU（swiftshader），帧率为模拟器内实测值。
 
 #### E5 收尾
 
@@ -474,6 +474,21 @@ Linux 被控端 `rdc-serve` 的 **S8-2 明文 TCP 协议**（`kind 1..4`，见
 | 异常处理 | 出现断连/崩溃/黑屏立即停止测试并保留 logcat 与截图 |
 
 **执行前置**：宿主可用内存 ≥ 4 GB；VM `192.168.37.130`；`rdc-serve` 在 `DISPLAY=:0`；模拟器 `rdc_a33`；APK 用 `7177e311…`（含 FRB 修复）。
+
+#### F 组结果（2026-11-08，VM `192.168.37.130` / 模拟器 `rdc_a33`）
+
+**运行环境**：宿主可用内存 **9.2 GB**（运行中实测，阈值 4 GB）；`rdc-serve` PID 1856（`DISPLAY=:0`）；模拟器 `emulator-5554`（x86_64，软件 GPU swiftshader）；被测包 x86_64 debug，SHA-256 `b2609c11…1ebf2`，79,273,303 B，包内仅 `lib/x86_64/`。
+
+| # | 结果 | 证据 |
+|---|---|---|
+| F1-a 触摸点击 | **通过** | 点击画面正中心（本地 539,1192；画面矩形 113..966 × 925..1458）→ 被控端指针 `x:638 y:400`，与 1280×800 归一化映射 (639,400) 误差 ≤1 px；被控端 `xev` 记录 `ButtonPress`/`ButtonRelease`（window 0xa00001，button 1）；键盘焦点窗 `xdotool getwindowfocus getwindowname` = `rdc-input-probe`；服务端 `injected_total` 8→10（按下+抬起各 1）。`xdotool getactivewindow` 在 GNOME 会话无 `_NET_ACTIVE_WINDOW`，以焦点窗名代替。 |
+| F1-b 键盘扫描码 | **通过（修复后）** | 先记录缺陷：`adb shell input keyevent 29` 产生的物理键 usage 为 `0x110000001d`（Android keyCode 页 0x11，键值 0x1d=KEYCODE_A），`scanCodeFor` 只认 HID 页 0x07 → 返回 null，按键未下发；修复 `key_scan_map.dart`（识别 bit32–47 的 0x11 页并折回 HID usage）后重验：`xev` 记录 `KeyPress`/`KeyRelease`，`keycode 38 (keysym 0x61, a)`、`XLookupString gives 1 bytes: (61) "a"`；服务端 `injected_total` 10→12。 |
+| F1-c 中文 IME | **未通过（能力与注入双缺）** | ① 客户端 `[SessionController] 文本能力位 未协商（bits=0x0）`；② 控制页无 IME 入口（`showTextInput` 在 `app/lib` 无 UI 调用点，仅控制器定义）；③ 服务端 Linux 注入器对 `InputEvent::Text` 返回 `InputError::Unsupported`（`crates/rdc-input/src/platform/linux.rs:619`，uinput 分支 :779）。两侧原始证据保留，未用发送侧日志代替。 |
+| F2 5 分钟长稳 | **通过** | 直连自 10:37:07 建立；采样窗 10:39:12→10:44:30（318 s，累计连接 ≥7 min）。收帧 **5338→13139**（+7801，≈24.5 fps）；丢包全程 **0.0%**（丢帧 0）；`pidof com.rdc.rdc` 恒为 **7694**，无崩溃重启；PSS **291,587→295,730 KB**（+4,143 KB ≈ +4.05 MB，峰值 296,878，阈值 30 MB）；清空 logcat 后无新增「直连建立」/断连/应用异常；服务端 `connected:true`、`last_error:""`；结束截图 收 13464 · 丢 0.0%。 |
+
+**证据文件**（`logs/` 被 gitignore，仅本地留存）：`s9-f1-home2.png`、`s9-f1-dialog2.png`、`s9-f1-connected2.png`、`s9-f2-end.png`。
+
+**仍未验证**：真实 arm64 真机安装/运行；跨机网络（非同一 VM 网段）延迟与丢包；F1-c 中文注入链路（见上表原因）。
 
 ---
 

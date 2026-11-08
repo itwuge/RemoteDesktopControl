@@ -120,19 +120,25 @@ class _SessionPageState extends State<SessionPage> {
   }
 
   /// 把解码帧尺寸同步给视口控制器（只重算矩阵，不碰解码器）。
+  ///
+  /// `updateRemoteSize` 会把矩阵标脏，输入在脏期间一律丢弃；这里必须与
+  /// [_syncViewport] 一样等下一帧布局结束再清脏，否则直连尺寸到达后
+  /// 脏标志无人清除，触摸会全部被 `_desktopPoint()` 静默丢弃。
   void _syncRemoteSize() {
     final direct = controller.direct.value;
+    Size? size;
     if (controller.isDirect && direct != null && direct.width > 0) {
-      _viewport.updateRemoteSize(
-        Size(direct.width.toDouble(), direct.height.toDouble()),
-      );
-      return;
+      size = Size(direct.width.toDouble(), direct.height.toDouble());
+    } else {
+      final info = controller.preview.value;
+      if (info == null) return;
+      size = Size(info.width.toDouble(), info.height.toDouble());
     }
-    final info = controller.preview.value;
-    if (info == null) return;
-    _viewport.updateRemoteSize(
-      Size(info.width.toDouble(), info.height.toDouble()),
-    );
+    _viewport.updateRemoteSize(size);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _viewport.onLayoutDone();
+    });
   }
 
   /// 视口变化的唯一入口：post-frame 即「布局完成」，清脏标志放行输入。
