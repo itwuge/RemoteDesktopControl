@@ -125,17 +125,18 @@ jobs:
 
       # 注意：两个打包脚本都从 <repo>/target/release 取 librdc_bridge.so，
       # 因此 CI 里不设 CARGO_TARGET_DIR（设了就会与脚本/CMake 的默认路径不一致）。
+      # 脚本在仓库里是 100644（Windows 检出无法保留可执行位），统一用 bash 显式调用。
       - name: 打包 AppImage
         shell: bash
         run: |
           set -eo pipefail
-          ./packaging/linux/build_appimage.sh 2>&1 | tee build-linux-appimage.log
+          bash ./packaging/linux/build_appimage.sh 2>&1 | tee build-linux-appimage.log
 
       - name: 打包 deb
         shell: bash
         run: |
           set -eo pipefail
-          ./packaging/linux/build_deb.sh 2>&1 | tee build-linux-deb.log
+          bash ./packaging/linux/build_deb.sh 2>&1 | tee build-linux-deb.log
 
       # AppImage 脚本在下载 appimagetool 失败时会降级为 tar.gz 并 exit 0，
       # 这里硬断言，避免把降级产物当成交付包。

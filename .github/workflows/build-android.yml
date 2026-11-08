@@ -52,18 +52,26 @@ jobs:
           java-version: "17"
 
       # -----** 2. Android SDK 与固定版本 NDK**-----
-      - name: 安装 Android SDK
-        uses: android-actions/setup-android@v3
-
+      # 不用 android-actions/setup-android：它在 ubuntu-22.04 上会判定预装 cmdline-tools
+      # 版本不符并自行下载替换，随后 `sdkmanager --licenses` 失败（实测 exit 1）。
+      # runner 镜像自带 SDK（ANDROID_SDK_ROOT=/usr/local/lib/android/sdk），直接用现成的。
       - name: 安装 NDK ${{ env.ANDROID_NDK_VERSION }}
         shell: bash
         run: |
           set -eo pipefail
-          # setup-android 已接受许可；这里再兜底一次，避免 NDK 下载被许可卡住。
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "ndk;${ANDROID_NDK_VERSION}" "platform-tools"
-          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
-          echo "NDK 安装位置：${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMGR="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMGR" ]; then
+            SDKMGR="$(command -v sdkmanager || true)"
+          fi
+          echo "sdkmanager：$SDKMGR"
+          # 许可交互必须喂 yes；管道因 SIGPIPE 提前收尾属于正常，用 || true 兜住。
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" "ndk;${ANDROID_NDK_VERSION}" "platform-tools"
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "NDK 安装位置：$SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
 
       # -----** 3. Rust 交叉编译目标（只装 Android 需要的两个）**-----
       - name: 安装 Rust ${{ env.RUST_VERSION }}
@@ -114,7 +122,8 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -eo pipefail
-          ./packaging/android/build_apk.sh 2>&1 | tee build-android.log
+          # 脚本在仓库里是 100644（Windows 检出无法保留可执行位），统一用 bash 显式调用。
+          bash ./packaging/android/build_apk.sh 2>&1 | tee build-android.log
 
       # -----** 8. 产物硬断言 + 清单**-----
       - name: 校验产物并打印清单

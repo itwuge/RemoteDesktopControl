@@ -620,8 +620,9 @@ impl XSession {
             let mask = x11rb::protocol::randr::NotifyMask::from(mask);
             // RandR 事件订阅是可选能力：失败只降级为周期探测，会话继续；
             // 用显式 match 记录降级路径，避免出现“只打日志就吞掉错误”的分支（R-L-9）。
+            // x11rb 的 randr_select_input 返回 VoidCookie（不是 ()），成功分支直接忽略该 cookie。
             match conn.randr_select_input(root, mask) {
-                Ok(()) => {}
+                Ok(_) => {}
                 Err(error) => {
                     warn!(error = %error, "XRandR 事件订阅失败，仅靠周期探测");
                 }
@@ -965,9 +966,9 @@ impl XSession {
                     continue;
                 }
                 let inv = 255 - alpha;
-                let src_b = ((pixel >> 16) & 0xFF) as u32;
-                let src_g = ((pixel >> 8) & 0xFF) as u32;
-                let src_r = (pixel & 0xFF) as u32;
+                let src_b = (pixel >> 16) & 0xFF;
+                let src_g = (pixel >> 8) & 0xFF;
+                let src_r = pixel & 0xFF;
                 let dst_b = u32::from(dst[index]);
                 let dst_g = u32::from(dst[index + 1]);
                 let dst_r = u32::from(dst[index + 2]);
@@ -1159,11 +1160,8 @@ fn resolve_displays(conn: &RustConnection, screen: usize) -> ResolvedDisplays {
                 .find(|mode| mode.id == info.mode)
                 .map(|mode| {
                     let total = u64::from(mode.htotal) * u64::from(mode.vtotal);
-                    if total == 0 {
-                        0
-                    } else {
-                        (u64::from(mode.dot_clock) / total) as u32
-                    }
+                    // 总数可能为 0（异常模式）：用 checked_div 显式表达「无刷新率」。
+                    u64::from(mode.dot_clock).checked_div(total).unwrap_or(0) as u32
                 })
                 .unwrap_or(0);
             let is_primary = primary
@@ -1246,7 +1244,7 @@ fn shm_available(conn: &RustConnection) -> bool {
 /// 不会失败。
 fn stride_bytes(width: u16, bits_per_pixel: u32) -> usize {
     let bits = usize::from(width) * bits_per_pixel as usize;
-    ((bits + 31) / 32) * 4
+    bits.div_ceil(32) * 4
 }
 
 /// 逐行拷贝像素，处理源/目标步长不一致。

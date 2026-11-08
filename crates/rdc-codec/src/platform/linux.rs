@@ -463,6 +463,11 @@ fn nal_ranges(data: &[u8]) -> Vec<(usize, usize, u8)> {
 
 // =====** 泵线程 =====**
 
+/// 泵线程句柄集合：`(提交流道, 写线程, 输出通道, 读线程)`。
+///
+/// 单独定名既让 `spawn_pumps` 的返回类型可读，也满足 clippy 的 type_complexity 门禁。
+type PumpHandles = (Sender<Job>, JoinHandle<()>, Receiver<RawAu>, JoinHandle<()>);
+
 /// 启动写线程与读线程。
 ///
 /// # Arguments
@@ -477,7 +482,7 @@ fn nal_ranges(data: &[u8]) -> Vec<(usize, usize, u8)> {
 fn spawn_pumps(
     child: &mut Child,
     pending: Arc<Mutex<VecDeque<(u64, Instant)>>>,
-) -> Result<(Sender<Job>, JoinHandle<()>, Receiver<RawAu>, JoinHandle<()>), CodecError> {
+) -> Result<PumpHandles, CodecError> {
     let stdin = child
         .stdin
         .take()
