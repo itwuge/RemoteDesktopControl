@@ -5,7 +5,8 @@
 > 门禁使用 `clippy -D warnings`，两类都会让 CI 直接失败，但归因和修复路径不同。
 >
 > 状态：**6 条 clippy lint 与 19 条 dead_code 已在「Linux clippy 机械修复」批次处置**；
-> 剩余 4 条未标注 crate 的 rustc warning 待 Linux 原始日志补齐后再排期。
+> Linux 复跑后其中 5 条 clippy 已销、`dead_code` 归零（build 0 warning），复跑又暴露**第 7 条**
+> clippy lint（见 §2.3，已修）；剩余 4 条未标注 crate 的 rustc warning 待 Linux 原始日志补齐。
 
 ## 1. 来源与结论
 
@@ -66,7 +67,13 @@
 也按 `#[cfg(windows)]` 排除。这些实现与数值属规格，不删除；放行范围限定
 `cfg_attr(not(windows))`，Windows 构建仍按默认严格检查。
 
-### 2.3 未定位（4 条 rustc warning）
+### 2.3 Linux 复跑新暴露（第 7 条 clippy lint，已修）
+
+| # | 类型 | crate | 文件:行 | 内容 | 处置 |
+|---|---|---|---|---|---|
+| 26 | clippy lint | `rdc-linux-e2e` | `src/display.rs:210` | `collapsible_match`：`Event::KeyPress(key)` 分支内的 `if key.detail == 9` 可折叠进外层 `match` | 按编译器建议改为 `Event::KeyPress(key) if key.detail == 9 => { return false; }`，保留「keycode 9 在常见布局上为 Esc」注释；其他 keycode 仍落到 `_ => {}`，逻辑等价 |
+
+### 2.4 未定位（4 条 rustc warning）
 
 早前 Linux 线只按 crate 给出 23 条总数（`rdc-cli` 8 + `rdc-bridge` 11 + 未标注 4）。上述 19 条
 即为前两类的 dead_code；剩余 **4 条未标注 crate 的 rustc warning** 尚缺原始日志，**不编造
