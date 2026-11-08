@@ -371,7 +371,7 @@ pub fn start() -> Result<ControlSnapshot, String> {
         }
         // 上一实例已请求停止但尚未 join：先回收，避免句柄泄漏。
         if let Some(running) = slot.take() {
-            let _ = running.join.map(|join| join.join());
+            let _ = running.join.map(|join| join.join()); // gate-allow R-C-2: 回收旧线程，panic 已由 panic hook 记录，此处无恢复动作
         }
     }
 
@@ -388,11 +388,11 @@ pub fn start() -> Result<ControlSnapshot, String> {
         .name("rdc-control-preview".to_owned())
         .spawn(move || match setup_pipeline(&stats_for_thread) {
             Ok((source, queue, parts)) => {
-                let _ = setup_tx.send(Ok(parts.info.clone()));
+                let _ = setup_tx.send(Ok(parts.info.clone())); // gate-allow R-C-2: 启动结果回传通道接收端可能已超时退出，发送失败不影响管线线程继续
                 run_pipeline(source, queue, parts, stats_for_thread, stop_for_thread);
             }
             Err(error) => {
-                let _ = setup_tx.send(Err(error));
+                let _ = setup_tx.send(Err(error)); // gate-allow R-C-2: 同上，接收端已超时时由 start() 返回超时错误
             }
         })
         .map_err(|error| format!("启动管线线程失败: {error}"))?;
@@ -400,7 +400,7 @@ pub fn start() -> Result<ControlSnapshot, String> {
     let info = match setup_rx.recv_timeout(Duration::from_secs(8)) {
         Ok(Ok(info)) => info,
         Ok(Err(error)) => {
-            let _ = join.join();
+            let _ = join.join(); // gate-allow R-C-2: 回收已报错的管线线程，具体错误已由 setup 通道取回并返回
             return Err(error);
         }
         Err(_) => {
@@ -453,7 +453,7 @@ pub fn stop() -> Result<ControlSnapshot, String> {
     running.stop.store(true, Ordering::SeqCst);
     // 采集线程最多 1 秒内退出；join 失败不视为业务错误。
     if let Some(join) = running.join.take() {
-        let _ = join.join();
+        let _ = join.join(); // gate-allow R-C-2: 文档约定 join 失败不视为业务错误，线程退出即达目的
     }
     let stats = Arc::clone(&running.stats);
     let snapshot = build_snapshot(&stats, false, running.width, running.height, &running);
@@ -735,7 +735,7 @@ fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
     let context = context.ok_or_else(|| "没有 D3D11 上下文".to_owned())?;
     if let Ok(multithread) = device.cast::<ID3D10Multithread>() {
         unsafe {
-            let _ = multithread.SetMultithreadProtected(true);
+            let _ = multithread.SetMultithreadProtected(true); // gate-allow R-C-2: D3D11 线程保护为可选优化，失败时按单线程约束使用设备
         }
     }
 
@@ -1432,7 +1432,7 @@ fn run_pipeline(
                                 + t.enc_wait_us
                                 + decode_us;
                             let residual_us = pipeline_us.saturating_sub(sum);
-                            let _ = writeln!(
+                            let _ = writeln!( // gate-allow R-C-2: RDC_FRAME_TRACE 诊断 CSV，写失败不得中断预览
                                 file,
                                 "{trace_seq},{},{pipeline_us},{},{},{},{},{decode_us},{present_one_us},{residual_us},{drops_delta},{},{},{},{}",
                                 start.elapsed().as_millis(),
@@ -1448,7 +1448,7 @@ fn run_pipeline(
                             trace_seq += 1;
                         }
                         unsafe {
-                            let _ = SetEvent(events[index]);
+                            let _ = SetEvent(events[index]); // gate-allow R-C-2: 呈现同步事件设置失败无恢复动作，下一帧继续尝试
                         }
                         index ^= 1;
                         stats.displayed.fetch_add(1, Ordering::Relaxed);
@@ -1482,7 +1482,7 @@ fn run_pipeline(
             );
             if let Some(file) = log_file.as_mut() {
                 use std::io::Write;
-                let _ = writeln!(
+                let _ = writeln!( // gate-allow R-C-2: 逐秒指标 CSV 属诊断输出，写失败不得中断预览
                     file,
                     "{},{:.2},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}",
                     start.elapsed().as_millis(),
@@ -1540,7 +1540,7 @@ fn run_pipeline(
             }
             readback_us = t_readback.elapsed().as_micros() as u64;
         }
-        let _ = readback_us;
+        let _ = readback_us; // gate-allow R-C-2: 非错误值，readback_us 是预留计时变量，此处显式消费以避免未使用告警
     }
 
     // 先停采集，再关直投队列：编码线程从 `pop_timeout` 返回后看到停止标志即退出。
@@ -1548,13 +1548,13 @@ fn run_pipeline(
     drop(source);
     queue.close();
     if let Ok(join) = encode_join {
-        let _ = join.join();
+        let _ = join.join(); // gate-allow R-C-2: 编码线程已收到停止标志，join 失败不改变收尾结论
     }
     drop(decoder);
     // 纹理随 device 释放；事件句柄必须显式关闭。
     unsafe {
-        let _ = CloseHandle(events[0]);
-        let _ = CloseHandle(events[1]);
+        let _ = CloseHandle(events[0]); // gate-allow R-C-2: 线程退出时关闭事件句柄，失败仅可能由句柄已失效引起
+        let _ = CloseHandle(events[1]); // gate-allow R-C-2: 同上
     }
 }
 
@@ -1809,7 +1809,7 @@ impl VideoConverter {
             self.video_context
                 .VideoProcessorBlt(&self.processor, output, 0, std::slice::from_ref(&stream))
                 .map_err(|error| format!("VideoProcessorBlt: {error}"))?;
-            let _ = std::mem::ManuallyDrop::take(&mut stream.pInputSurface);
+            let _ = std::mem::ManuallyDrop::take(&mut stream.pInputSurface); // gate-allow R-C-2: 非错误值，take 只为结束借用并释放输入纹理所有权
         }
         Ok(())
     }
@@ -1969,13 +1969,13 @@ fn qpc_us() -> u64 {
     let freq = *FREQ.get_or_init(|| {
         let mut value = 0i64;
         unsafe {
-            let _ = QueryPerformanceFrequency(&mut value);
+            let _ = QueryPerformanceFrequency(&mut value); // gate-allow R-C-2: 频率查询失败时 value 保持 0，qpc_us 已降级返回 0
         }
         value
     });
     let mut counter = 0i64;
     unsafe {
-        let _ = QueryPerformanceCounter(&mut counter);
+        let _ = QueryPerformanceCounter(&mut counter); // gate-allow R-C-2: 计数器查询失败时 counter 保持 0，qpc_us 已降级返回 0
     }
     if freq > 0 {
         (counter as u128 * 1_000_000 / freq as u128) as u64
@@ -1999,7 +1999,7 @@ fn open_frame_trace() -> Option<std::fs::File> {
     std::fs::create_dir_all(&dir).ok()?;
     // 每次运行覆盖，避免多次运行的行混在一起。
     let mut file = std::fs::File::create(dir.join("frames-detail.csv")).ok()?;
-    let _ = writeln!(
+    let _ = writeln!( // gate-allow R-C-2: 明细 CSV 表头属诊断输出，写失败时后续写入同样失败但仍不影响预览
         file,
         "seq,t_ms,pipeline_us,capture_us,rx_queue_us,push_us,enc_wait_us,decode_us,present_us,residual_us,drops_delta,rx_wait_us,busy_us,publish_us,submit_call_us"
     );
@@ -2020,7 +2020,7 @@ fn open_log() -> Option<std::fs::File> {
         .open(&path)
         .ok()?;
     if std::fs::metadata(&path).map(|meta| meta.len()).unwrap_or(0) == 0 {
-        let _ = writeln!(
+        let _ = writeln!( // gate-allow R-C-2: 指标 CSV 表头属诊断输出，写失败不影响预览
             file,
             "elapsed_ms,fps,captured,encoded,decoded,dropped,latency_last_us,latency_p50_us,latency_p99_us,pipeline_latency_us,enc_latency_us,decode_path,capture_us,encode_us,poll_us,decode_us,present_us,decoder_in_flight,encoder_in_flight,encoder_resets,encoder_dropped"
         );

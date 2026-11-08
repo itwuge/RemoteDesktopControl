@@ -174,7 +174,7 @@ fn start_windows() -> Result<WallSnapshot, String> {
     // 上一轮线程已结束但快照还是旧的：先回收，避免线程泄漏。
     if let Some(previous) = slot.take() {
         if let Some(join) = previous.join {
-            let _ = join.join();
+            let _ = join.join(); // gate-allow R-C-2: 回收上一轮投影线程，panic 已由 panic hook 记录，此处无恢复动作
         }
     }
 
@@ -228,7 +228,7 @@ pub fn stop() -> Result<WallSnapshot, String> {
     if let Some(state) = state {
         state.stop.store(true, Ordering::SeqCst);
         if let Some(join) = state.join {
-            let _ = join.join();
+            let _ = join.join(); // gate-allow R-C-2: 投影线程已收到停止标志，join 失败不改变停止结论
         }
         if let Ok(guard) = state.snapshot.lock() {
             snapshot = guard.clone();
@@ -293,7 +293,7 @@ struct WallSink {
 impl FrameSink for WallSink {
     fn on_frame(&self, frame: Frame) {
         let pts_us = self.origin.elapsed().as_micros() as u64;
-        let _ = self.tx.try_send((frame, pts_us));
+        let _ = self.tx.try_send((frame, pts_us)); // gate-allow R-C-2: 投影有界队列满时丢当前帧是设计行为，背压由上游采集自行降速
     }
 }
 
@@ -465,10 +465,10 @@ fn run_pipeline(
 
     // 退出前停采集并冲刷编码器，避免残留帧；解码器随线程释放。
     capture.stop();
-    let _ = thumbnail.flush();
+    let _ = thumbnail.flush(); // gate-allow R-C-2: 线程退出前冲刷编码器尾包，失败无恢复动作，已编码帧不受影响
     // 解码器只在 Windows 后端存在；其它平台无解码句柄可冲刷。
     #[cfg(target_os = "windows")]
-    let _ = decoder.flush();
+    let _ = decoder.flush(); // gate-allow R-C-2: 同上，冲刷失败不影响已呈现的投影帧
     Ok(())
 }
 

@@ -129,7 +129,13 @@ pub fn send(
         let hash = receiver
             .finish(Some(source_hash))
             .map_err(|error| format!("整文件校验失败: {error}"))?;
-        let _ = fs::remove_file(&state_path);
+        if let Err(err) = fs::remove_file(&state_path) {
+            tracing::debug!(
+                path = %state_path.display(),
+                error = %err,
+                "续传成功后清理断点状态文件失败，下次传输可能回退到完整校验"
+            );
+        }
         (hash, true, resumed_bytes)
     } else {
         let hash = receiver

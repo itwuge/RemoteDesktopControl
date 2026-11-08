@@ -213,7 +213,7 @@ pub fn start() -> Result<ControlSnapshot, String> {
             return status();
         }
         // 线程已退出但状态未清理：先回收再重启。
-        let _ = guard.take();
+        let _ = guard.take(); // gate-allow R-C-2: 非错误值，清空已退出服务的状态槽，旧 Service 随 take 释放
     }
     drop(guard);
 
@@ -246,7 +246,7 @@ pub fn start() -> Result<ControlSnapshot, String> {
     let host = thread::Builder::new()
         .name("rdc-ctl-loop-host".into())
         .spawn(move || {
-            let _ = host_main(listener, host_stop, host_shared, display_id);
+            let _ = host_main(listener, host_stop, host_shared, display_id); // gate-allow R-C-2: 线程入口把错误写入共享快照，返回值无需重复上报
         })
         .map_err(|e| format!("回环 host 线程创建失败: {e}"))?;
 
@@ -255,7 +255,7 @@ pub fn start() -> Result<ControlSnapshot, String> {
     let client = thread::Builder::new()
         .name("rdc-ctl-loop-client".into())
         .spawn(move || {
-            let _ = client_main(port, client_stop, client_shared);
+            let _ = client_main(port, client_stop, client_shared); // gate-allow R-C-2: 线程入口把错误写入共享快照，返回值无需重复上报
         })
         .map_err(|e| format!("回环 client 线程创建失败: {e}"))?;
 
@@ -301,8 +301,8 @@ pub fn stop() -> Result<ControlSnapshot, String> {
         return Ok(ControlSnapshot::idle());
     };
     service.stop.store(true, Ordering::SeqCst);
-    let _ = service.host.join();
-    let _ = service.client.join();
+    let _ = service.host.join(); // gate-allow R-C-2: 停链路时回收 host 线程，join 失败不改变停止结论
+    let _ = service.client.join(); // gate-allow R-C-2: 同上，回收 client 线程
     let mut snapshot = service
         .shared
         .snapshot
@@ -526,7 +526,7 @@ fn host_run(
                 snapshot.encoded_frames = encoded;
                 snapshot.encoded_bytes = encoded_bytes;
                 snapshot.bitrate_kbps = ((window_bytes as f64 * 8.0 / 1000.0) / secs) as u64;
-                let _ = window_frames;
+                let _ = window_frames; // gate-allow R-C-2: 非错误值，window_frames 是预留计数变量，此处显式消费以避免未使用告警
             }
             window_start = Instant::now();
             window_frames = 0;
@@ -541,7 +541,7 @@ fn host_run(
             for packet in tail {
                 let payload =
                     protocol::video_payload(packet.pts_ns, packet.is_keyframe, &packet.data);
-                let _ = Packet {
+                let _ = Packet { // gate-allow R-C-2: 冲刷尾包到已建立的流，写失败说明对端已断开，无恢复动作
                     kind: protocol::KIND_VIDEO,
                     payload,
                 }
@@ -549,7 +549,7 @@ fn host_run(
             }
         }
     }
-    let _ = Packet {
+    let _ = Packet { // gate-allow R-C-2: 结束通知写给已建立的流，写失败说明对端已断开，无恢复动作
         kind: protocol::KIND_BYE,
         payload: Vec::new(),
     }

@@ -397,14 +397,14 @@ fn stop_internal() {
     };
     pipeline.stop.store(true, Ordering::Relaxed);
     if let Some(join) = pipeline.join.take() {
-        let _ = join.join();
+        let _ = join.join(); // gate-allow R-C-2: 注入线程已收到停止标志，join 失败不改变清理结论
     }
     // 收尾：把仍按下的键与鼠标键全部抬起（即使对端以为还按着，也必须复位）。
     let x = pipeline.counters.last_x.load(Ordering::Relaxed) as i32;
     let y = pipeline.counters.last_y.load(Ordering::Relaxed) as i32;
     let pressed: Vec<u16> = pipeline.pressed_keys.iter().copied().collect();
     for scan_code in pressed {
-        let _ = pipeline.injector.inject(InputEvent::Key(KeyEvent {
+        let _ = pipeline.injector.inject(InputEvent::Key(KeyEvent { // gate-allow R-C-2: 停止时必须尽力抬起按键，单键失败继续处理其余按键
             scan_code,
             pressed: false,
             modifiers: 0,
@@ -415,7 +415,7 @@ fn stop_internal() {
         PointerButton::Right,
         PointerButton::Middle,
     ] {
-        let _ = pipeline.injector.inject(InputEvent::Pointer(PointerEvent {
+        let _ = pipeline.injector.inject(InputEvent::Pointer(PointerEvent { // gate-allow R-C-2: 停止时必须尽力抬起鼠标键，单键失败继续处理其余按键
             x,
             y,
             button: Some(button),

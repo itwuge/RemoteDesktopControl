@@ -503,7 +503,7 @@ fn process_handles() -> u32 {
     let mut count = 0u32;
     // SAFETY: 只读当前进程句柄计数，失败时 count 保持 0。
     unsafe {
-        let _ = GetProcessHandleCount(GetCurrentProcess(), &mut count);
+        let _ = GetProcessHandleCount(GetCurrentProcess(), &mut count); // gate-allow R-C-2: 句柄计数仅用于诊断展示，失败时保持 0
     }
     count
 }
