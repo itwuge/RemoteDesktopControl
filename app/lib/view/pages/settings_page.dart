@@ -15,6 +15,7 @@ import '../../controller/account_controller.dart';
 import '../../controller/permission_controller.dart';
 import '../../controller/settings_controller.dart';
 import '../../controller/shell_controller.dart';
+import '../../controller/update_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/utils/formatters.dart';
@@ -38,6 +39,7 @@ class SettingsPage extends StatefulWidget {
     required this.permission,
     required this.account,
     required this.shell,
+    required this.update,
   });
 
   /// 设置控制器。
@@ -51,6 +53,9 @@ class SettingsPage extends StatefulWidget {
 
   /// 壳控制器（只读核心信息，用于「关于与诊断」）。
   final ShellController shell;
+
+  /// 软件更新控制器。
+  final UpdateController update;
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -488,11 +493,9 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  /// 检查更新：没有更新通道时给出明确说明，不假装「已是最新」。
+  /// 检查更新：交给更新控制器，失败原因由状态区显示，不假装「已是最新」。
   void _checkUpdate() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text(AppStrings.checkUpdateUnavailable)),
-    );
+    widget.update.check();
   }
 
   /// 能力与限制：静态说明，放在「关于」里，不占主界面。
@@ -796,6 +799,193 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
+  // =====** 组件：软件更新 =====**
+
+  /// 软件更新分组：自动检查开关 + 手动检查 + 下载 + 重启安装。
+  ///
+  /// [autoUpdateCheck] 为当前设置值；切换会立即落盘，不必再点“保存”。
+  Widget _buildUpdateSection(bool autoUpdateCheck) {
+    return ValueListenableBuilder<UpdateState>(
+      valueListenable: widget.update.state,
+      builder: (context, state, _) {
+        final status = switch (state.phase) {
+          UpdatePhase.idle => '未检查',
+          UpdatePhase.checking => '检查中…',
+          UpdatePhase.upToDate => '已是最新',
+          UpdatePhase.available => '有新版本',
+          UpdatePhase.downloading => '下载中…',
+          UpdatePhase.ready => '待重启安装',
+          UpdatePhase.applying => '安装中…',
+          UpdatePhase.failed => '失败',
+        };
+        final color = switch (state.phase) {
+          UpdatePhase.upToDate => RdcTokens.success,
+          UpdatePhase.failed => RdcTokens.danger,
+          UpdatePhase.available || UpdatePhase.ready => RdcTokens.danger,
+          _ => RdcTokens.textMuted,
+        };
+        return RdcSectionCard(
+          title: '软件更新',
+          trailing: RdcStatusPill(text: status, color: color),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  RdcStateButton(
+                    label: autoUpdateCheck ? '自动检查：开' : '自动检查：关',
+                    icon: Icons.system_update_alt,
+                    active: autoUpdateCheck,
+                    onPressed: state.isBusy
+                        ? null
+                        : () => widget.controller.setAutoUpdateCheck(
+                              !autoUpdateCheck,
+                            ),
+                  ),
+                  const SizedBox(width: RdcTokens.spaceMd),
+                  RdcStateButton(
+                    label: '检查更新',
+                    icon: Icons.refresh,
+                    active: false,
+                    onPressed: state.isBusy ? null : () => widget.update.check(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: RdcTokens.spaceSm),
+              Text(
+                '当前版本 ${state.currentVersion}'
+                '${state.latestVersion.isNotEmpty ? ' · 最新 ${state.latestVersion}' : ''}',
+                style: const TextStyle(
+                  fontSize: RdcTokens.fontCaption,
+                  color: RdcTokens.textMuted,
+                ),
+              ),
+              if (!widget.update.publicKeyConfigured) ...[
+                const SizedBox(height: RdcTokens.spaceSm),
+                const Text(
+                  '开发构建未内置发布公钥：可以检查更新，但安装包无法通过验签，不会被安装。',
+                  style: TextStyle(
+                    fontSize: RdcTokens.fontCaption,
+                    color: RdcTokens.danger,
+                  ),
+                ),
+              ],
+              if (state.message.isNotEmpty) ...[
+                const SizedBox(height: RdcTokens.spaceSm),
+                Text(
+                  state.message,
+                  style: TextStyle(
+                    fontSize: RdcTokens.fontCaption,
+                    color: state.phase == UpdatePhase.failed
+                        ? RdcTokens.danger
+                        : RdcTokens.textPrimary,
+                  ),
+                ),
+              ],
+              if (state.code.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  '错误码：${state.code}',
+                  style: const TextStyle(
+                    fontSize: RdcTokens.fontCaption,
+                    color: RdcTokens.textMuted,
+                  ),
+                ),
+              ],
+              if (state.notes.isNotEmpty && state.phase == UpdatePhase.available) ...[
+                const SizedBox(height: RdcTokens.spaceSm),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(RdcTokens.spaceMd),
+                  decoration: BoxDecoration(
+                    color: RdcTokens.surfaceRaised,
+                    borderRadius: BorderRadius.circular(RdcTokens.radiusControl),
+                  ),
+                  child: Text(
+                    state.notes,
+                    style: const TextStyle(
+                      fontSize: RdcTokens.fontCaption,
+                      color: RdcTokens.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+              if (state.phase == UpdatePhase.available ||
+                  state.phase == UpdatePhase.ready) ...[
+                const SizedBox(height: RdcTokens.spaceMd),
+                RdcButton(
+                  label: state.phase == UpdatePhase.available
+                      ? '下载更新'
+                      : '重启并安装',
+                  icon: state.phase == UpdatePhase.available
+                      ? Icons.download
+                      : Icons.restart_alt,
+                  primary: true,
+                  onPressed: state.isBusy
+                      ? null
+                      : (state.phase == UpdatePhase.available
+                            ? _downloadUpdate
+                            : _confirmAndInstall),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  /// 下载校验新版本，并把结果提示给用户。
+  Future<void> _downloadUpdate() async {
+    await widget.update.download();
+    if (!mounted) return;
+    final state = widget.update.state.value;
+    if (state.message.isEmpty) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(state.message)),
+    );
+  }
+
+  /// 二次确认后退出应用并交给更新进程安装。
+  Future<void> _confirmAndInstall() async {
+    final version = widget.update.state.value.staged?.version ?? '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        contentPadding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('将退出应用并安装 $version。'),
+              const SizedBox(height: 8),
+              const Text(
+                '安装时会请求一次管理员权限（UAC）；安装失败会自动回滚到当前版本，'
+                '备份目录会保留在本地用于排查。',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text(AppStrings.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('退出并安装'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await widget.update.restartAndInstall();
+    }
+  }
+
   // =====** 组件：页面骨架 =====**
 
   @override
@@ -821,6 +1011,8 @@ class _SettingsPageState extends State<SettingsPage> {
               _buildDegradationSection(settings.autoReconnect),
               const SizedBox(height: RdcTokens.spaceLg),
               _buildStartupSection(),
+              const SizedBox(height: RdcTokens.spaceLg),
+              _buildUpdateSection(settings.autoUpdateCheck),
               const SizedBox(height: RdcTokens.spaceLg),
               _buildQuickSection(),
               const SizedBox(height: RdcTokens.spaceLg),

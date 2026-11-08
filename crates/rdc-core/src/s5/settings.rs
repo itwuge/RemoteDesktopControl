@@ -98,6 +98,8 @@ pub struct AppSettings {
     /// 只做本地持久化，不参与握手、capabilities 或协议判定；
     /// 旧配置缺少该字段时按 `false` 读取（即仍展示一次引导，不会读崩）。
     pub first_run_completed: bool,
+    /// 是否自动检查更新（默认开；关闭后启动期不发起任何更新网络请求）。
+    pub auto_update_check: bool,
 }
 
 impl Default for AppSettings {
@@ -126,6 +128,8 @@ impl Default for AppSettings {
             same_account_policy: "auto".to_owned(),
             passwordless_policy: false,
             first_run_completed: false,
+            // 默认开启：交付要求“开箱即用地持续迭代”，用户可在设置页关闭。
+            auto_update_check: true,
         }
     }
 }
@@ -464,5 +468,28 @@ mod tests {
         let reloaded = AppSettings::load(&path).expect("重新加载");
         assert!(reloaded.first_run_completed);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 真实环境验证：普通用户能把设置写进安装目录的 config（默认忽略）。
+    ///
+    /// 运行方式：`RDC_TEST_CONFIG_DIR=C:\Program Files\RDC\config`
+    /// `cargo test -p rdc-core save_into_real_config_dir -- --ignored --nocapture`。
+    #[test]
+    #[ignore]
+    fn save_into_real_config_dir() {
+        let dir = std::env::var("RDC_TEST_CONFIG_DIR").expect("需要 RDC_TEST_CONFIG_DIR");
+        let path = std::path::Path::new(&dir).join("settings.json");
+        let changed = AppSettings {
+            auto_update_check: false,
+            ..AppSettings::default()
+        };
+        changed.save(&path).expect("写入设置");
+        let loaded = AppSettings::load(&path).expect("读回设置");
+        assert!(!loaded.auto_update_check, "读回的值必须与写入一致");
+        println!(
+            "saved {} ({} bytes)",
+            path.display(),
+            std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+        );
     }
 }

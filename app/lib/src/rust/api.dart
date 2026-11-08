@@ -12,8 +12,8 @@ import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
 import 'session_service.dart';
 
-// These functions are ignored because they are not marked as `pub`: `append_audit`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `template_of`, `to_control_status`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
+// These functions are ignored because they are not marked as `pub`: `append_audit`, `append_startup_log_to`, `append_startup_log`, `audit_path`, `build_snapshot`, `config_dir`, `device_path`, `from_settings_dto`, `grants_path`, `hex_decode`, `hex_encode`, `identity_path`, `issue_and_store`, `load_grants`, `load_or_create_identity`, `local_time_stamp`, `parse_role`, `read_audit_tail`, `resume_gate_path`, `safe_fingerprint`, `save_grants`, `settings_path`, `startup_log_path`, `template_of`, `to_control_status`, `to_device_dto`, `to_grant_dto`, `to_settings_dto`, `to_trust_dto`, `to_wall_status`, `validity_from_days`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `clone`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`, `fmt`
 
 /// 返回 Rust 核心版本号。
 ///
@@ -51,6 +51,55 @@ Future<String> bridgeStatus() => RustLib.instance.api.crateApiBridgeStatus();
 /// 不会失败；单项失败以文本标注，不抛错。
 Future<List<String>> doctorReport() =>
     RustLib.instance.api.crateApiDoctorReport();
+
+/// 返回配置目录解析结果。
+///
+/// # Returns
+/// 含当前目录、历史目录、安装目录与来源标识的快照。
+///
+/// # Errors
+/// 不会失败。
+Future<ConfigPathsDto> configPaths() =>
+    RustLib.instance.api.crateApiConfigPaths();
+
+/// 当前编译版本号（与安装包、更新清单同源：根 Cargo.toml）。
+///
+/// # Returns
+/// 语义化版本字符串。
+///
+/// # Errors
+/// 不会失败。
+Future<String> appVersion() => RustLib.instance.api.crateApiAppVersion();
+
+/// 默认更新源地址（Release API）。
+///
+/// # Returns
+/// 编译期内置地址，可被设置项/环境变量覆盖（实际解析在 rdc-updater 内）。
+///
+/// # Errors
+/// 不会失败。
+Future<String> updateDefaultApiUrl() =>
+    RustLib.instance.api.crateApiUpdateDefaultApiUrl();
+
+/// 是否已内置发布公钥。
+///
+/// # Returns
+/// 公钥非空返回 `true`；开发构建通常为 `false`（此时拒绝一切更新）。
+///
+/// # Errors
+/// 不会失败。
+Future<bool> updatePublicKeyConfigured() =>
+    RustLib.instance.api.crateApiUpdatePublicKeyConfigured();
+
+/// 把 `%APPDATA%\RDC` 的历史数据迁移到当前配置目录（幂等）。
+///
+/// # Returns
+/// 迁移报告；失败时 `status=error` 且 `code` 指明原因。
+///
+/// # Errors
+/// 不会失败：错误写进报告，避免阻断启动。
+Future<MigrationReportDto> migrateLegacyConfig() =>
+    RustLib.instance.api.crateApiMigrateLegacyConfig();
 
 /// 读取设备列表。
 ///
@@ -722,6 +771,45 @@ class AuditEntryDto {
           outcome == other.outcome;
 }
 
+/// 配置路径快照（设置页展示路径、诊断页排查权限问题时使用）。
+class ConfigPathsDto {
+  /// 当前生效的配置目录。
+  final String configDir;
+
+  /// 历史配置目录（Windows 为 `%APPDATA%\RDC`；其它平台为空）。
+  final String legacyDir;
+
+  /// 可执行文件目录（安装目录）。
+  final String exeDir;
+
+  /// 当前目录来源：`env` / `install_dir` / `legacy` / `other`。
+  final String source;
+
+  const ConfigPathsDto({
+    required this.configDir,
+    required this.legacyDir,
+    required this.exeDir,
+    required this.source,
+  });
+
+  @override
+  int get hashCode =>
+      configDir.hashCode ^
+      legacyDir.hashCode ^
+      exeDir.hashCode ^
+      source.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ConfigPathsDto &&
+          runtimeType == other.runtimeType &&
+          configDir == other.configDir &&
+          legacyDir == other.legacyDir &&
+          exeDir == other.exeDir &&
+          source == other.source;
+}
+
 /// 一帧 RGBA 画面。
 ///
 /// `bytes` 为 RGBA8888，长度必须为 `width * height * 4`。
@@ -1112,6 +1200,69 @@ class GrantDto {
           updatedMs == other.updatedMs;
 }
 
+/// 旧配置迁移结果（字段与 `migration.json` 对齐，供设置页/诊断页展示）。
+class MigrationReportDto {
+  /// `ok` / `noop` / `already` / `error`。
+  final String status;
+
+  /// 错误码（成功时为 `RDC-CFG-MIG-000`）。
+  final String code;
+
+  /// 中文说明。
+  final String message;
+
+  /// 源目录。
+  final String source;
+
+  /// 目标目录。
+  final String target;
+
+  /// 备份目录（未备份时为空）。
+  final String backup;
+
+  /// 已复制文件（相对路径）。
+  final List<String> files;
+
+  /// 因目标已存在而保留的文件（相对路径）。
+  final List<String> skipped;
+
+  const MigrationReportDto({
+    required this.status,
+    required this.code,
+    required this.message,
+    required this.source,
+    required this.target,
+    required this.backup,
+    required this.files,
+    required this.skipped,
+  });
+
+  @override
+  int get hashCode =>
+      status.hashCode ^
+      code.hashCode ^
+      message.hashCode ^
+      source.hashCode ^
+      target.hashCode ^
+      backup.hashCode ^
+      files.hashCode ^
+      skipped.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MigrationReportDto &&
+          runtimeType == other.runtimeType &&
+          status == other.status &&
+          code == other.code &&
+          message == other.message &&
+          source == other.source &&
+          target == other.target &&
+          backup == other.backup &&
+          files == other.files &&
+          skipped == other.skipped;
+}
+
 /// 权限页快照（真实内核数据）。
 class PermissionSnapshotDto {
   /// 远程访问总开关。
@@ -1403,6 +1554,9 @@ class SettingsDto {
   /// 首启引导是否完成（仅本地持久化）。
   final bool firstRunCompleted;
 
+  /// 自动检查更新。
+  final bool autoUpdateCheck;
+
   /// 实际落盘路径。
   final String path;
 
@@ -1429,6 +1583,7 @@ class SettingsDto {
     required this.sameAccountPolicy,
     required this.passwordlessPolicy,
     required this.firstRunCompleted,
+    required this.autoUpdateCheck,
     required this.path,
   });
 
@@ -1456,6 +1611,7 @@ class SettingsDto {
       sameAccountPolicy.hashCode ^
       passwordlessPolicy.hashCode ^
       firstRunCompleted.hashCode ^
+      autoUpdateCheck.hashCode ^
       path.hashCode;
 
   @override
@@ -1485,6 +1641,7 @@ class SettingsDto {
           sameAccountPolicy == other.sameAccountPolicy &&
           passwordlessPolicy == other.passwordlessPolicy &&
           firstRunCompleted == other.firstRunCompleted &&
+          autoUpdateCheck == other.autoUpdateCheck &&
           path == other.path;
 }
 

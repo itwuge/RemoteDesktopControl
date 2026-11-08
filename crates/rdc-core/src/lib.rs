@@ -12,6 +12,7 @@ pub mod audit;
 pub mod authz;
 pub mod doctor;
 pub mod error;
+pub mod paths;
 pub mod policy;
 pub mod s4;
 pub mod s5;

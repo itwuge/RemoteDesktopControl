@@ -125,6 +125,62 @@ class RustGateway {
     );
   }
 
+  /// 读取配置目录解析结果（设置页展示与诊断用）。
+  ///
+  /// 返回：[ConfigPathsSnapshot]；桥接未初始化时抛出 [StateError]。
+  Future<ConfigPathsSnapshot> readConfigPaths() async {
+    _ensureInitialized();
+    final dto = await rust_api.configPaths();
+    return ConfigPathsSnapshot(
+      configDir: dto.configDir,
+      legacyDir: dto.legacyDir,
+      exeDir: dto.exeDir,
+      source: dto.source,
+    );
+  }
+
+  /// 当前编译版本号（与安装包、更新清单同源）。
+  ///
+  /// 返回：语义化版本字符串（如 `0.1.1`）。
+  Future<String> appVersion() async {
+    _ensureInitialized();
+    return rust_api.appVersion();
+  }
+
+  /// 默认更新源地址（Release API）。
+  ///
+  /// 返回：编译期内置地址，可被设置项/环境变量覆盖。
+  Future<String> updateDefaultApiUrl() async {
+    _ensureInitialized();
+    return rust_api.updateDefaultApiUrl();
+  }
+
+  /// 是否已内置发布公钥（开发构建通常为 false）。
+  ///
+  /// 返回：公钥已配置返回 true。
+  Future<bool> updatePublicKeyConfigured() async {
+    _ensureInitialized();
+    return rust_api.updatePublicKeyConfigured();
+  }
+
+  /// 把历史配置迁移到当前配置目录（幂等，失败不抛异常）。
+  ///
+  /// 返回：[MigrationSnapshot]；调用方负责按错误码记录日志与提示。
+  Future<MigrationSnapshot> migrateLegacyConfig() async {
+    _ensureInitialized();
+    final dto = await rust_api.migrateLegacyConfig();
+    return MigrationSnapshot(
+      status: dto.status,
+      code: dto.code,
+      message: dto.message,
+      source: dto.source,
+      target: dto.target,
+      backup: dto.backup,
+      files: dto.files,
+      skipped: dto.skipped,
+    );
+  }
+
   /// 读取 5 行环境自检结果。
   ///
   /// 返回：`[OK] 名称: 详情` 文本列表，顺序与 Rust 端一致。
@@ -240,6 +296,7 @@ class RustGateway {
         sameAccountPolicy: settings.sameAccountPolicy,
         passwordlessPolicy: settings.passwordlessPolicy,
         firstRunCompleted: settings.firstRunCompleted,
+        autoUpdateCheck: settings.autoUpdateCheck,
         path: settings.filePath,
       ),
     );
@@ -271,6 +328,7 @@ class RustGateway {
       sameAccountPolicy: dto.sameAccountPolicy,
       passwordlessPolicy: dto.passwordlessPolicy,
       firstRunCompleted: dto.firstRunCompleted,
+      autoUpdateCheck: dto.autoUpdateCheck,
       filePath: dto.path,
     );
   }

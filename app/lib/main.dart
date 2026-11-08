@@ -6,6 +6,7 @@
 // 边界：只负责依赖注入与初始化顺序；不承载业务逻辑
 // ============================================================
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -17,12 +18,14 @@ import 'controller/permission_controller.dart';
 import 'controller/session_controller.dart';
 import 'controller/settings_controller.dart';
 import 'controller/shell_controller.dart';
+import 'controller/update_controller.dart';
 import 'controller/wall_controller.dart';
 import 'core/l10n/strings.dart';
 import 'core/utils/logger.dart';
 import 'model/account/account_repository.dart';
 import 'model/gateway/rust_gateway.dart';
 import 'model/settings/settings_repository.dart';
+import 'model/update/update_service.dart';
 import 'view/pages/first_run_page.dart';
 import 'view/pages/permission_page.dart';
 import 'view/pages/shell_page.dart';
@@ -59,6 +62,28 @@ Future<void> main() async {
     );
   }
 
+  // =====** 配置迁移：旧 `%APPDATA%\RDC` → `<安装目录>\config`（幂等） =====**
+  // 必须早于任何设置读取：否则首启动会读到默认值，看起来像“配置丢了”。
+  if (bridgeInitError == null) {
+    try {
+      final migration = await gateway.migrateLegacyConfig();
+      RdcLogger.log(
+        'main',
+        '配置迁移 ${migration.status} ${migration.code}：${migration.message}',
+        level: migration.isSuccess ? LogLevel.info : LogLevel.warn,
+      );
+    } catch (error, stackTrace) {
+      // 迁移失败不阻断启动；错误码由 Rust 写入 migration.json。
+      RdcLogger.log(
+        'main',
+        '配置迁移调用失败',
+        level: LogLevel.warn,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
   // =====** Controller 组装 =====**
   final shellController = ShellController(gateway: gateway);
   final deviceController = DeviceController(gateway: gateway);
@@ -77,6 +102,39 @@ Future<void> main() async {
 
   // 首启引导与首页共用同一份设置：先读盘，避免首启页与设置页状态不一致。
   await settingsController.load();
+
+  // =====** 软件更新：版本/更新源均以 Rust 为单一来源 =====**
+  // 桥接失败时更新源为空，自动检查会被跳过（不做无意义的联网请求）。
+  var appVersion = '0.0.0';
+  var updateApi = '';
+  var updateKeyConfigured = false;
+  if (bridgeInitError == null) {
+    try {
+      appVersion = await gateway.appVersion();
+      updateApi = await gateway.updateDefaultApiUrl();
+      updateKeyConfigured = await gateway.updatePublicKeyConfigured();
+    } catch (error, stackTrace) {
+      RdcLogger.log(
+        'main',
+        '读取更新配置失败',
+        level: LogLevel.warn,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+  final updateController = UpdateController(
+    service: UpdateService(apiUrl: updateApi, currentVersion: appVersion),
+    publicKeyConfigured: updateKeyConfigured,
+  );
+
+  // 自动检查默认开启；延迟 10 秒，避免与首屏加载/用户操作抢资源。
+  // 关闭开关后这里不会创建任何定时器，也就不会发起网络请求。
+  if (settingsController.settings.value.autoUpdateCheck && updateApi.isNotEmpty) {
+    Timer(const Duration(seconds: 10), () {
+      updateController.check(silent: true);
+    });
+  }
 
   // 首屏所需的最小数据：顶部状态与设备列表；失败由各控制器自己记录错误。
   await shellController.loadStatus();
@@ -99,6 +157,7 @@ Future<void> main() async {
     settingsController: settingsController,
     permissionController: permissionController,
     accountController: accountController,
+    updateController: updateController,
     showPermissionPage: Platform.environment['RDC_START_PAGE'] == 'permission',
   ));
 
@@ -136,6 +195,7 @@ class RdcApp extends StatelessWidget {
     required this.settingsController,
     required this.permissionController,
     required this.accountController,
+    required this.updateController,
     this.showPermissionPage = false,
   });
 
@@ -160,6 +220,9 @@ class RdcApp extends StatelessWidget {
   /// 账号控制器（本地登录态 + 账号服务探测）。
   final AccountController accountController;
 
+  /// 软件更新控制器。
+  final UpdateController updateController;
+
   /// 是否直接把权限页作为首屏（仅本地截图验证时由环境变量打开）。
   final bool showPermissionPage;
 
@@ -181,6 +244,7 @@ class RdcApp extends StatelessWidget {
                 settings: settingsController,
                 permission: permissionController,
                 account: accountController,
+                update: updateController,
               ),
             ),
     );

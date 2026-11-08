@@ -35,6 +35,79 @@ class CoreInfo {
   bool get isBridgeHealthy => bridgeStatus == 'OK';
 }
 
+/// 配置目录解析结果（来自 Rust `config_paths`）。
+class ConfigPathsSnapshot {
+  /// 创建快照。
+  const ConfigPathsSnapshot({
+    required this.configDir,
+    required this.legacyDir,
+    required this.exeDir,
+    required this.source,
+  });
+
+  /// 未初始化占位值。
+  const ConfigPathsSnapshot.empty()
+    : configDir = '-',
+      legacyDir = '-',
+      exeDir = '-',
+      source = '-';
+
+  /// 当前生效的配置目录。
+  final String configDir;
+
+  /// 历史配置目录（Windows 为 `%APPDATA%\RDC`）。
+  final String legacyDir;
+
+  /// 可执行文件目录（安装目录）。
+  final String exeDir;
+
+  /// 目录来源：`env` / `install_dir` / `legacy` / `other`。
+  final String source;
+}
+
+/// 旧配置迁移结果（来自 Rust `migrate_legacy_config`）。
+class MigrationSnapshot {
+  /// 创建快照。
+  const MigrationSnapshot({
+    required this.status,
+    required this.code,
+    required this.message,
+    required this.source,
+    required this.target,
+    required this.backup,
+    required this.files,
+    required this.skipped,
+  });
+
+  /// 状态：`ok` / `noop` / `already` / `error`。
+  final String status;
+
+  /// 错误码或成功码。
+  final String code;
+
+  /// 中文说明。
+  final String message;
+
+  /// 源目录。
+  final String source;
+
+  /// 目标目录。
+  final String target;
+
+  /// 备份目录。
+  final String backup;
+
+  /// 已复制文件。
+  final List<String> files;
+
+  /// 因目标已存在而保留的文件。
+  final List<String> skipped;
+
+  /// 是否成功（含无需迁移与已完成）。
+  bool get isSuccess =>
+      status == 'ok' || status == 'noop' || status == 'already';
+}
+
 /// 设备条目（来自 Rust 设备列表）。
 class DeviceEntry {
   /// 创建设备条目。
@@ -319,6 +392,7 @@ class SettingsSnapshot {
     required this.localPairPolicy,
     required this.sameAccountPolicy,
     required this.passwordlessPolicy,
+    required this.autoUpdateCheck,
     required this.filePath,
     this.firstRunCompleted = false,
   });
@@ -388,6 +462,9 @@ class SettingsSnapshot {
 
   /// 首启引导是否已完成（仅本地持久化，不参与握手）。
   final bool firstRunCompleted;
+
+  /// 是否自动检查更新（设置页可关，默认开启）。
+  final bool autoUpdateCheck;
 
   /// 落盘路径。
   final String filePath;

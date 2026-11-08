@@ -12,6 +12,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../app_paths.dart';
 import 'account_model.dart';
 
 /// 账号本地状态读写。
@@ -61,27 +62,9 @@ class AccountRepository {
   }
 
   /// 计算平台配置目录（与设置文件同目录）。
+  ///
+  /// 规则委托给 [AppPaths]，保证 Windows 安装版统一落到 `<安装目录>\config`。
   String _configDirectory() {
-    final override = baseDirectory;
-    if (override != null) return override;
-
-    if (Platform.isWindows) {
-      final appData = Platform.environment['APPDATA'];
-      if (appData != null && appData.isNotEmpty) {
-        return '$appData${Platform.pathSeparator}RDC';
-      }
-    } else if (Platform.isMacOS) {
-      final home = Platform.environment['HOME'];
-      if (home != null && home.isNotEmpty) {
-        return '$home/Library/Application Support/RDC';
-      }
-    } else {
-      final xdg = Platform.environment['XDG_CONFIG_HOME'];
-      if (xdg != null && xdg.isNotEmpty) {
-        return '$xdg${Platform.pathSeparator}rdc';
-      }
-    }
-    final temp = Directory.systemTemp.path;
-    return '$temp${Platform.pathSeparator}rdc';
+    return AppPaths.configDirectory(baseDirectory: baseDirectory);
   }
 }

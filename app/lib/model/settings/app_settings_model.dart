@@ -48,6 +48,7 @@ class AppSettings {
     this.sameAccountPolicy = 'auto',
     this.passwordlessPolicy = false,
     this.firstRunCompleted = false,
+    this.autoUpdateCheck = true,
   });
 
   /// 默认设置：默认不允许中继、严格 P2P、跟随主控端、文件上限 40%。
@@ -73,7 +74,8 @@ class AppSettings {
         localPairPolicy = 'ask',
         sameAccountPolicy = 'auto',
         passwordlessPolicy = false,
-        firstRunCompleted = false;
+        firstRunCompleted = false,
+        autoUpdateCheck = true;
 
   /// 是否允许使用中继（默认关闭，docs/01 C2）。
   final bool allowRelay;
@@ -143,6 +145,9 @@ class AppSettings {
   /// 只做本地持久化，不参与握手或权限判定；旧配置文件缺该字段时回落 `false`。
   final bool firstRunCompleted;
 
+  /// 是否自动检查更新（默认开启；关闭后启动期不发起任何更新请求）。
+  final bool autoUpdateCheck;
+
   /// 复制一份并覆盖部分字段。
   ///
   /// 参数均为可选覆盖项；未传字段保持原值。
@@ -169,6 +174,7 @@ class AppSettings {
     String? sameAccountPolicy,
     bool? passwordlessPolicy,
     bool? firstRunCompleted,
+    bool? autoUpdateCheck,
   }) {
     return AppSettings(
       allowRelay: allowRelay ?? this.allowRelay,
@@ -193,6 +199,7 @@ class AppSettings {
       sameAccountPolicy: sameAccountPolicy ?? this.sameAccountPolicy,
       passwordlessPolicy: passwordlessPolicy ?? this.passwordlessPolicy,
       firstRunCompleted: firstRunCompleted ?? this.firstRunCompleted,
+      autoUpdateCheck: autoUpdateCheck ?? this.autoUpdateCheck,
     );
   }
 
@@ -220,6 +227,7 @@ class AppSettings {
         'same_account_policy': sameAccountPolicy,
         'passwordless_policy': passwordlessPolicy,
         'first_run_completed': firstRunCompleted,
+        'auto_update_check': autoUpdateCheck,
       };
 
   /// 从磁盘 JSON 还原；缺字段或非法值一律回落默认，避免旧配置让应用崩在启动路径。
@@ -269,6 +277,8 @@ class AppSettings {
       // 旧配置没有该字段：按安全默认 false 读取，仍展示一次引导。
       firstRunCompleted:
           json['first_run_completed'] as bool? ?? fallback.firstRunCompleted,
+      autoUpdateCheck:
+          json['auto_update_check'] as bool? ?? fallback.autoUpdateCheck,
     );
   }
 

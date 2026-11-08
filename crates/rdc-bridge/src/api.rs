@@ -91,14 +91,11 @@ pub fn doctor_report() -> Vec<String> {
 
 // =====** 配置路径 =====**
 
-/// 本机配置目录（`%APPDATA%\RDC`），缺失时退回临时目录。
+/// 本机配置目录（Windows 为 `<安装目录>\config`，不可写时回退 `%APPDATA%\RDC`）。
+///
+/// 规则唯一真源在 `rdc_core::paths`，桥接层不得再自行拼接路径。
 fn config_dir() -> PathBuf {
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        if !appdata.trim().is_empty() {
-            return PathBuf::from(appdata).join("RDC");
-        }
-    }
-    std::env::temp_dir().join("rdc")
+    rdc_core::paths::config_dir()
 }
 
 /// 设备列表文件路径。
@@ -157,6 +154,127 @@ fn local_time_stamp() -> String {
         .map(|elapsed| elapsed.as_secs())
         .unwrap_or(0);
     format!("unix {secs}")
+}
+
+/// 配置路径快照（设置页展示路径、诊断页排查权限问题时使用）。
+#[derive(Debug, Clone)]
+pub struct ConfigPathsDto {
+    /// 当前生效的配置目录。
+    pub config_dir: String,
+    /// 历史配置目录（Windows 为 `%APPDATA%\RDC`；其它平台为空）。
+    pub legacy_dir: String,
+    /// 可执行文件目录（安装目录）。
+    pub exe_dir: String,
+    /// 当前目录来源：`env` / `install_dir` / `legacy` / `other`。
+    pub source: String,
+}
+
+/// 返回配置目录解析结果。
+///
+/// # Returns
+/// 含当前目录、历史目录、安装目录与来源标识的快照。
+///
+/// # Errors
+/// 不会失败。
+pub fn config_paths() -> ConfigPathsDto {
+    let current = config_dir();
+    let exe = rdc_core::paths::exe_dir();
+    let legacy = rdc_core::paths::legacy_config_dir().unwrap_or_default();
+    // 用字符串比较即可：这里只用于界面展示与日志，不承担安全判定。
+    let source = if std::env::var("RDC_CONFIG_DIR")
+        .ok()
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false)
+    {
+        "env"
+    } else if current == exe.join("config") {
+        "install_dir"
+    } else if !legacy.as_os_str().is_empty() && current == legacy {
+        "legacy"
+    } else {
+        "other"
+    };
+    ConfigPathsDto {
+        config_dir: current.display().to_string(),
+        legacy_dir: legacy.display().to_string(),
+        exe_dir: exe.display().to_string(),
+        source: source.to_owned(),
+    }
+}
+
+/// 旧配置迁移结果（字段与 `migration.json` 对齐，供设置页/诊断页展示）。
+#[derive(Debug, Clone)]
+pub struct MigrationReportDto {
+    /// `ok` / `noop` / `already` / `error`。
+    pub status: String,
+    /// 错误码（成功时为 `RDC-CFG-MIG-000`）。
+    pub code: String,
+    /// 中文说明。
+    pub message: String,
+    /// 源目录。
+    pub source: String,
+    /// 目标目录。
+    pub target: String,
+    /// 备份目录（未备份时为空）。
+    pub backup: String,
+    /// 已复制文件（相对路径）。
+    pub files: Vec<String>,
+    /// 因目标已存在而保留的文件（相对路径）。
+    pub skipped: Vec<String>,
+}
+
+/// 当前编译版本号（与安装包、更新清单同源：根 Cargo.toml）。
+///
+/// # Returns
+/// 语义化版本字符串。
+///
+/// # Errors
+/// 不会失败。
+pub fn app_version() -> String {
+    rdc_update::current_version().to_owned()
+}
+
+/// 默认更新源地址（Release API）。
+///
+/// # Returns
+/// 编译期内置地址，可被设置项/环境变量覆盖（实际解析在 rdc-updater 内）。
+///
+/// # Errors
+/// 不会失败。
+pub fn update_default_api_url() -> String {
+    rdc_update::resolve_api_url(None)
+}
+
+/// 是否已内置发布公钥。
+///
+/// # Returns
+/// 公钥非空返回 `true`；开发构建通常为 `false`（此时拒绝一切更新）。
+///
+/// # Errors
+/// 不会失败。
+pub fn update_public_key_configured() -> bool {
+    !rdc_update::resolve_public_key(None).is_empty()
+}
+
+/// 把 `%APPDATA%\RDC` 的历史数据迁移到当前配置目录（幂等）。
+///
+/// # Returns
+/// 迁移报告；失败时 `status=error` 且 `code` 指明原因。
+///
+/// # Errors
+/// 不会失败：错误写进报告，避免阻断启动。
+pub fn migrate_legacy_config() -> MigrationReportDto {
+    let report = rdc_core::paths::migrate_legacy_config();
+    MigrationReportDto {
+        status: report.status,
+        code: report.code,
+        message: report.message,
+        source: report.source,
+        target: report.target,
+        backup: report.backup,
+        files: report.files,
+        skipped: report.skipped,
+    }
 }
 
 // =====** 设备列表 DTO =====**
@@ -368,6 +486,8 @@ pub struct SettingsDto {
     pub passwordless_policy: bool,
     /// 首启引导是否完成（仅本地持久化）。
     pub first_run_completed: bool,
+    /// 自动检查更新。
+    pub auto_update_check: bool,
     /// 实际落盘路径。
     pub path: String,
 }
@@ -397,6 +517,7 @@ fn to_settings_dto(settings: AppSettings, path: PathBuf) -> SettingsDto {
         same_account_policy: settings.same_account_policy,
         passwordless_policy: settings.passwordless_policy,
         first_run_completed: settings.first_run_completed,
+        auto_update_check: settings.auto_update_check,
         path: path.display().to_string(),
     }
 }
@@ -426,6 +547,7 @@ fn from_settings_dto(dto: SettingsDto) -> AppSettings {
         same_account_policy: dto.same_account_policy,
         passwordless_policy: dto.passwordless_policy,
         first_run_completed: dto.first_run_completed,
+        auto_update_check: dto.auto_update_check,
     }
 }
 

@@ -16,6 +16,7 @@ import '../../controller/permission_controller.dart';
 import '../../controller/session_controller.dart';
 import '../../controller/settings_controller.dart';
 import '../../controller/shell_controller.dart';
+import '../../controller/update_controller.dart';
 import '../../controller/wall_controller.dart';
 import '../../core/l10n/strings.dart';
 import '../../core/theme/tokens.dart';
@@ -41,6 +42,7 @@ class ShellPage extends StatefulWidget {
     required this.settings,
     required this.permission,
     required this.account,
+    required this.update,
   });
 
   /// 壳控制器。
@@ -63,6 +65,9 @@ class ShellPage extends StatefulWidget {
 
   /// 账号控制器（设置页账号分组用）。
   final AccountController account;
+
+  /// 软件更新控制器（设置页更新分组用）。
+  final UpdateController update;
 
   @override
   State<ShellPage> createState() => _ShellPageState();
@@ -343,6 +348,7 @@ class _ShellPageState extends State<ShellPage> {
               permission: widget.permission,
               account: widget.account,
               shell: widget.shell,
+              update: widget.update,
             ),
           _ => SessionPage(
               controller: widget.session,

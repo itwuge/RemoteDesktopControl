@@ -17,6 +17,12 @@ $ErrorActionPreference = "Stop"
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $DistDir = Join-Path $RepoRoot "dist"
 $ReleaseDir = Join-Path $RepoRoot "app\build\windows\x64\runner\Release"
+# 构建产物目录：CI/本机可用 CARGO_TARGET_DIR 指到非系统盘（避免 C 盘塞满）。
+$TargetDir = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) {
+    Join-Path $RepoRoot "target"
+} else {
+    $env:CARGO_TARGET_DIR
+}
 
 # =====** FFmpeg LGPL 共享构建 =====**
 # S7 口径：发布包默认 FFmpeg 解码（MF 回退），只带 avcodec/avutil 两个 DLL。
@@ -65,6 +71,23 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = if ($match.Success) { $match.Groups[1].Value } else { "0.1.0" }
 }
 Write-Host "[packaging/windows] 版本 $Version"
+Write-Host "[packaging/windows] 目标目录 $TargetDir"
+
+# =====** 版本号同步到 Flutter =====**
+# 单一真源是根 Cargo.toml；Flutter 的 pubspec 版本在构建前同步，禁止两处手改。
+$pubspecPath = Join-Path $RepoRoot "app\pubspec.yaml"
+if (Test-Path $pubspecPath) {
+    $pubspec = Get-Content $pubspecPath -Raw
+    $synced = [regex]::Replace(
+        $pubspec,
+        "(?m)^version:\s*[0-9]+\.[0-9]+\.[0-9]+(?:\+[0-9]+)?\s*$",
+        "version: $Version+1"
+    )
+    if ($synced -ne $pubspec) {
+        Set-Content -Path $pubspecPath -Value $synced -Encoding UTF8 -NoNewline
+        Write-Host "[packaging/windows] 已同步 app/pubspec.yaml → $Version+1"
+    }
+}
 
 # =====** 构建 Rust 产物 =====**
 # cargo 可能不在当前 shell 的 PATH（CI/受限环境常见），先解析绝对路径。
@@ -83,11 +106,11 @@ try {
     if ($withFfmpeg) {
         $env:FFMPEG_DIR = $FfmpegDir
         Invoke-Native -Command $cargoExe -Arguments @(
-            "build", "--release", "-p", "rdc-bridge", "-p", "rdc-cli",
+            "build", "--release", "-p", "rdc-bridge", "-p", "rdc-cli", "-p", "rdc-update",
             "--features", "rdc-bridge/ffmpeg,rdc-cli/ffmpeg"
         )
     } else {
-        Invoke-Native -Command $cargoExe -Arguments @("build", "--release", "-p", "rdc-bridge", "-p", "rdc-cli")
+        Invoke-Native -Command $cargoExe -Arguments @("build", "--release", "-p", "rdc-bridge", "-p", "rdc-cli", "-p", "rdc-update")
     }
 } finally {
     Pop-Location
@@ -129,15 +152,28 @@ if (-not (Test-Path $ReleaseDir)) {
 
 # =====** 补齐动态库与 CLI =====**
 # CMake 钩子通常已复制 dll；这里再复制一次，保证 -SkipFlutter 场景也能打包。
-# cargo 产物目录跟随 CARGO_TARGET_DIR（外部 target 方案），未设置时退回仓库内 target。
-$cargoTargetDir = if ([string]::IsNullOrWhiteSpace($env:CARGO_TARGET_DIR)) { Join-Path $RepoRoot "target" } else { $env:CARGO_TARGET_DIR }
-Write-Host "[packaging/windows] cargo 产物目录：$cargoTargetDir"
-Copy-Item (Join-Path $cargoTargetDir "release\rdc_bridge.dll") $ReleaseDir -Force
-Copy-Item (Join-Path $cargoTargetDir "release\rdc-cli.exe") $ReleaseDir -Force
+Copy-Item (Join-Path $TargetDir "release\rdc_bridge.dll") $ReleaseDir -Force
+Copy-Item (Join-Path $TargetDir "release\rdc-cli.exe") $ReleaseDir -Force
+# 更新/回滚助手：自更新靠它在校验失败后恢复旧版本（缺少时不阻断打包，只警告）。
+# 注意：Cargo [[bin]] 名为 rdc-updater（不是 rdc-update-helper），这里以实际产物名为准。
+$updaterExe = Join-Path $TargetDir "release\rdc-updater.exe"
+if (Test-Path $updaterExe) {
+    Copy-Item $updaterExe $ReleaseDir -Force
+    Write-Host "[packaging/windows] 更新器：rdc-updater.exe"
+} else {
+    Write-Warning "缺少 rdc-updater.exe：安装包内将无法执行自更新/回滚。"
+}
+
+# 开发期运行（新的配置规则）会在 Release 目录生成 config；绝不能打进安装包。
+$strayConfig = Join-Path $ReleaseDir "config"
+if (Test-Path $strayConfig) {
+    Remove-Item $strayConfig -Recurse -Force
+    Write-Host "[packaging/windows] 已移除开发期残留 config，避免把本机配置打进安装包"
+}
 
 # AMF 原生编码 shim：bridge 运行时用 LoadLibrary 动态加载，缺它只能回退 MFT。
 # AMF 运行库（amfrt64.dll）由显卡驱动提供，不随包分发；rdc-amf.dll 是本仓库自建产物。
-$amfShim = Join-Path $RepoRoot "target\amf\rdc-amf.dll"
+$amfShim = Join-Path $TargetDir "amf\rdc-amf.dll"
 if (Test-Path $amfShim) {
     Copy-Item $amfShim $ReleaseDir -Force
     Write-Host "[packaging/windows] AMF shim：rdc-amf.dll ($((Get-Item $amfShim).Length) B)"

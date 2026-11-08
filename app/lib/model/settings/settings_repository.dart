@@ -11,6 +11,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../app_paths.dart';
 import '../gateway/rust_gateway.dart';
 import '../gateway/rust_types.dart';
 import '../settings/app_settings_model.dart';
@@ -132,6 +133,7 @@ class SettingsRepository {
       sameAccountPolicy: snapshot.sameAccountPolicy,
       passwordlessPolicy: snapshot.passwordlessPolicy,
       firstRunCompleted: snapshot.firstRunCompleted,
+      autoUpdateCheck: snapshot.autoUpdateCheck,
     );
   }
 
@@ -160,41 +162,16 @@ class SettingsRepository {
       sameAccountPolicy: settings.sameAccountPolicy,
       passwordlessPolicy: settings.passwordlessPolicy,
       firstRunCompleted: settings.firstRunCompleted,
+      autoUpdateCheck: settings.autoUpdateCheck,
       filePath: path,
     );
   }
 
   /// 计算平台配置目录。
   ///
-  /// Windows 用 `%APPDATA%\RDC`；macOS 用 `~/Library/Application Support/RDC`；
-  /// Linux 用 `$XDG_CONFIG_HOME/rdc`；移动端（无 HOME）临时用系统临时目录，
-  /// S2 接入 path_provider 后替换。
+  /// 规则与 Rust `rdc_core::paths` 一致：Windows 用 `<安装目录>\config`，
+  /// 不可写时回退 `%APPDATA%\RDC`；macOS/Linux 沿用原位置。
   String _configDirectory() {
-    final override = baseDirectory;
-    if (override != null) return override;
-
-    if (Platform.isWindows) {
-      final appData = Platform.environment['APPDATA'];
-      if (appData != null && appData.isNotEmpty) {
-        return '$appData${Platform.pathSeparator}RDC';
-      }
-    } else if (Platform.isMacOS) {
-      final home = Platform.environment['HOME'];
-      if (home != null && home.isNotEmpty) {
-        return '$home/Library/Application Support/RDC';
-      }
-    } else if (Platform.isLinux) {
-      final xdg = Platform.environment['XDG_CONFIG_HOME'];
-      final home = Platform.environment['HOME'];
-      if (xdg != null && xdg.isNotEmpty) {
-        return '$xdg/rdc';
-      }
-      if (home != null && home.isNotEmpty) {
-        return '$home/.config/rdc';
-      }
-    }
-
-    // 移动端没有可用的标准环境变量；S1 只保证可写，不保证跨重启持久。
-    return '${Directory.systemTemp.path}${Platform.pathSeparator}rdc';
+    return AppPaths.configDirectory(baseDirectory: baseDirectory);
   }
 }

@@ -26,12 +26,13 @@ members = [
     "crates/rdc-signal",
     "crates/rdc-relay",
     "crates/rdc-cli",
+    "crates/rdc-update",
     "crates/rdc-linux-e2e",
 ]
 
 [workspace.package]
 # 版本号唯一真源：CI 打包脚本从这里读取，禁止在各 crate 内重复手写。
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.80"
 license = "MIT"
@@ -69,6 +70,12 @@ base64 = "0.22"
 rand_core = { version = "0.6", features = ["getrandom"] }
 subtle = "2"
 zeroize = "1"
+
+# --- 发布与自更新依赖（docs/08 §5：GitHub 发布 + 软件内升级）---
+# 版本比较只做语义化比较，不引第三方“更新框架”，避免把升级策略交给黑盒。
+semver = "1"
+# HTTP 客户端：复用 rustls 体系，不引入 native-tls/OpenSSL，便于 Windows CI 直接构建。
+ureq = { version = "2", default-features = false, features = ["tls"] }
 
 # --- S2 信令传输依赖（docs/07 §2.4：强制 TLS 1.3 over QUIC）---
 quinn = "0.11"
@@ -123,6 +130,7 @@ rdc-filetransfer = { path = "crates/rdc-filetransfer" }
 rdc-core = { path = "crates/rdc-core" }
 rdc-bridge = { path = "crates/rdc-bridge" }
 rdc-signal = { path = "crates/rdc-signal" }
+rdc-update = { path = "crates/rdc-update" }
 # Linux 本机回环链路复用 S8-2 的协议/解码实现，避免桥接层再复制一份（仅 Linux 编译）。
 rdc-linux-e2e = { path = "crates/rdc-linux-e2e" }
 

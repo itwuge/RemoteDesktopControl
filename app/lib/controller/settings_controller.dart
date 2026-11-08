@@ -162,6 +162,14 @@ class SettingsController {
     return save();
   }
 
+  /// 更新「自动检查更新」并立即保存。
+  ///
+  /// [value] 为 true 表示启动期允许联网检查；关闭后不再发起更新请求。
+  Future<void> setAutoUpdateCheck(bool value) async {
+    settings.value = settings.value.copyWith(autoUpdateCheck: value);
+    await save();
+  }
+
   /// 保存到磁盘。
   ///
   /// 返回：`true` 表示写入成功；结果同时写入 [message]，供 view 显示 SnackBar。
