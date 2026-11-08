@@ -439,7 +439,7 @@ mod tests {
         assert!(!b.trusted);
         // 临时文件不得残留（原子写的可见证据）。
         assert!(!dir.join("devices.json.tmp").exists());
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
     }
 
     /// D2：缺失文件是空列表；损坏 JSON 返回错误而不是 panic。
@@ -459,7 +459,7 @@ mod tests {
             DeviceList::load(&future),
             Err(DeviceError::UnsupportedVersion { found: 99, .. })
         ));
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
     }
 
     /// D3：再次上线只刷新名称与时间，保留本地信任位。
@@ -493,6 +493,6 @@ mod tests {
         let loaded = DeviceList::load(&path).expect("加载");
         assert_eq!(loaded.len(), 2);
         assert!(!dir.join("devices.json.tmp").exists());
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
     }
 }

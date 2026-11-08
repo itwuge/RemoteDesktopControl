@@ -2290,6 +2290,6 @@ mod tests {
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded.active_count(), 1);
         assert!(!dir.join("grants.json.tmp").exists());
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
     }
 }
