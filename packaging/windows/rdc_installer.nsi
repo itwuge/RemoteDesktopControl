@@ -10,7 +10,7 @@
 Unicode true
 
 !ifndef VERSION
-  !define VERSION "0.1.1"
+  !define VERSION "0.3.0"
 !endif
 !ifndef SRC
   !error "必须通过 /DSRC 指定 Flutter Release 目录"
