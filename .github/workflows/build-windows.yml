@@ -1,0 +1,127 @@
+# ============================================================
+# 工作流用途：Windows x64 构建与打包（NSIS 安装包 + 便携 zip）
+#
+# 层级：CI（docs/10 §7.1 的 build-windows；步骤顺序按 §7.2）
+# 触发：手动 workflow_dispatch；推送到 master 或 ci/github-actions 分支
+# 产物：artifact `rdc-windows-x64`（dist/*.exe、dist/*.zip 及其 .sha256）
+#
+# 工具链固定（禁止 latest 浮动，docs/10 §7.4）：
+#   - runner：windows-2022
+#   - Rust：1.99.1（用 RUSTUP_TOOLCHAIN 覆盖 rust-toolchain.toml 的 stable 浮动值，
+#     保证同一 commit 多次运行编译器不变；本地仍按 rust-toolchain.toml 解析）
+#   - Flutter：3.47.9
+#
+# 本工作流只做「能编译 + 能打包」，不代表安装包在真机能装能跑（真机验收另走实验室）。
+# 失败时上传构建日志（docs/10 §7.7）。
+# ============================================================
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, ci/github-actions]
+
+# 只读权限：构建不需要写仓库。
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.99.1"
+  RUSTUP_TOOLCHAIN: "1.99.1"
+  FLUTTER_VERSION: "3.47.9"
+
+concurrency:
+  group: build-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    name: Windows x64 安装包
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      # -----** 1. 检出代码（构建信息需要 commit 号）**-----
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          # BUILD_INFO.txt 要用短 commit；浅克隆即可，但保留 1 层足够。
+          fetch-depth: 1
+
+      # -----** 2. Rust 工具链（固定版本）**-----
+      - name: 安装 Rust ${{ env.RUST_VERSION }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      # -----** 3. Cargo 缓存（按平台独立 key，避免三平台互相污染，docs/10 §7.3）**-----
+      - name: 缓存 Cargo registry 与 target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-x64
+          # 仓库内 target 是唯一真实构建目录：app/windows 的 CMake 钩子默认去
+          # <repo>/target/release 找 rdc_bridge.dll，这里不设 CARGO_TARGET_DIR。
+          workspaces: ". -> target"
+
+      # -----** 4. Flutter SDK（固定版本 + SDK 缓存）**-----
+      - name: 安装 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # -----** 5. NSIS：缺 makensis 时打包脚本会降级为“只有 zip”，
+      #               CI 里明确要求安装包，所以这里先装好，下一步再硬断言。**-----
+      - name: 安装 NSIS
+        shell: pwsh
+        run: choco install nsis --no-progress -y
+
+      # -----** 6. 构建 + 打包（复用 packaging/windows/build_installer.ps1）**-----
+      - name: 构建与打包
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          try {
+            # 合并所有输出流以便日志完整；异常时先落盘再抛出，保证日志 artifact 有内容。
+            ./packaging/windows/build_installer.ps1 *>&1 | Tee-Object -FilePath build-windows.log
+          } catch {
+            $_ | Out-File -FilePath build-windows.log -Append -Encoding utf8
+            throw
+          }
+
+      # -----** 7. 产物硬断言 + 清单（缺安装包就红，不允许“悄悄成功”）**-----
+      - name: 校验产物并打印清单
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $setup = Get-ChildItem dist -Filter "RDC-*-setup.exe" -ErrorAction SilentlyContinue
+          if (-not $setup) { throw "未产出 NSIS 安装包：dist 下没有 RDC-*-setup.exe" }
+          $zip = Get-ChildItem dist -Filter "RDC-*-portable.zip" -ErrorAction SilentlyContinue
+          if (-not $zip) { throw "未产出便携 zip：dist 下没有 RDC-*-portable.zip" }
+          Get-ChildItem dist -File | ForEach-Object {
+            "产物：{0}  {1:N2} MB" -f $_.Name, ($_.Length / 1MB)
+          }
+          Get-Content dist\*.sha256 | ForEach-Object { "校验：$_" }
+
+      # -----** 8. 上传 artifact**-----
+      - name: 上传 Windows 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdc-windows-x64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+      # -----** 9. 失败时保留日志（成功时也传，便于比对耗时与警告）**-----
+      - name: 上传构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-windows
+          path: |
+            build-windows.log
+            dist/*.sha256
+          if-no-files-found: warn
+          retention-days: 14

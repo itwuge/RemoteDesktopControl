@@ -1,0 +1,182 @@
+# ============================================================
+# 工作流用途：Linux x64 构建与打包（AppImage + deb），以及 Linux 专属 crate 的测试
+#
+# 层级：CI（docs/10 §7.1 的 build-linux；§7.2 步骤顺序）
+# 触发：手动 workflow_dispatch；推送到 master 或 ci/github-actions 分支
+# 产物：artifact `rdc-linux-x64`（AppImage、deb 及 .sha256）
+#
+# 为什么 Linux 是唯一能验证 linux-only crate 的地方：
+#   rdc-capture / rdc-input / rdc-linux-e2e 的 Linux 分支在 Windows 上根本编译不到
+#   （cfg(target_os = "linux")），所以 test job 必须跑在 Linux runner 上。
+#
+# 两个 job 刻意不互相依赖：test 红了不应掩盖「打包能否成功」，反之亦然。
+# 工具链固定：ubuntu-22.04（glibc 基线，docs/10 §7.4）/ Rust 1.99.1 / Flutter 3.47.9。
+# ============================================================
+name: Build Linux
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, ci/github-actions]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.99.1"
+  RUSTUP_TOOLCHAIN: "1.99.1"
+  FLUTTER_VERSION: "3.47.9"
+
+concurrency:
+  group: build-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # =====** A. Linux 专属代码的测试与静态检查 =====**
+  linux-test:
+    name: Linux 测试
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust ${{ env.RUST_VERSION }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      - name: 缓存 Cargo registry 与 target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-test
+          workspaces: ". -> target"
+
+      # Linux 侧依赖是纯 Rust（x11rb / libc），不需要 X11 开发头文件；
+      # 但部分测试会调用 clang 链接，装上以防万一。
+      - name: 安装基础工具
+        shell: bash
+        run: |
+          set -eo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends clang
+
+      - name: Clippy（-D warnings）
+        shell: bash
+        run: |
+          set -eo pipefail
+          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee clippy-linux.log
+
+      # 依赖 GPU / 真实桌面的场景不在托管 runner 上跑（docs/10 §7.1 职责边界）。
+      - name: 单元测试
+        shell: bash
+        run: |
+          set -eo pipefail
+          cargo test --workspace 2>&1 | tee test-linux.log
+
+      - name: 上传测试日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-linux-test
+          path: |
+            clippy-linux.log
+            test-linux.log
+          if-no-files-found: warn
+          retention-days: 14
+
+  # =====** B. 打包 AppImage + deb =====**
+  linux-package:
+    name: Linux 安装包
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust ${{ env.RUST_VERSION }}
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: 缓存 Cargo registry 与 target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-package
+          workspaces: ". -> target"
+
+      - name: 安装 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # Flutter Linux 桌面构建依赖；libfuse2 供 AppImage 运行时解包。
+      - name: 安装 Linux 原生依赖
+        shell: bash
+        run: |
+          set -eo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libgtk-3-dev pkg-config clang libfuse2
+
+      # 注意：两个打包脚本都从 <repo>/target/release 取 librdc_bridge.so，
+      # 因此 CI 里不设 CARGO_TARGET_DIR（设了就会与脚本/CMake 的默认路径不一致）。
+      - name: 打包 AppImage
+        shell: bash
+        run: |
+          set -eo pipefail
+          ./packaging/linux/build_appimage.sh 2>&1 | tee build-linux-appimage.log
+
+      - name: 打包 deb
+        shell: bash
+        run: |
+          set -eo pipefail
+          ./packaging/linux/build_deb.sh 2>&1 | tee build-linux-deb.log
+
+      # AppImage 脚本在下载 appimagetool 失败时会降级为 tar.gz 并 exit 0，
+      # 这里硬断言，避免把降级产物当成交付包。
+      - name: 校验产物并打印清单
+        shell: bash
+        run: |
+          set -eo pipefail
+          shopt -s nullglob
+          appimages=(dist/RDC-*-x86_64.AppImage)
+          debs=(dist/RDC-*-amd64.deb)
+          if [ ${#appimages[@]} -eq 0 ]; then
+            echo "未产出 AppImage（appimagetool 可能下载失败，脚本已降级为 tar.gz）" >&2
+            exit 1
+          fi
+          if [ ${#debs[@]} -eq 0 ]; then
+            echo "未产出 deb 安装包" >&2
+            exit 1
+          fi
+          ls -lh dist
+          sha256sum dist/RDC-*-x86_64.AppImage dist/RDC-*-amd64.deb | tee dist/CHECKSUMS.txt
+
+      - name: 上传 Linux 产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: rdc-linux-x64
+          path: |
+            dist/RDC-*-x86_64.AppImage
+            dist/RDC-*-x86_64.AppImage.sha256
+            dist/RDC-*-amd64.deb
+            dist/RDC-*-amd64.deb.sha256
+            dist/CHECKSUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 上传构建日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-linux-package
+          path: |
+            build-linux-appimage.log
+            build-linux-deb.log
+          if-no-files-found: warn
+          retention-days: 14
