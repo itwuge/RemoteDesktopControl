@@ -1,0 +1,353 @@
+# ============================================================
+# 工作流用途：三平台统一构建（Windows 安装包 / Linux AppImage+deb / Android APK）
+#
+# 层级：CI（docs/10 §7.1 的 build-windows / build-linux / build-android 三个 job 在此合并；
+#       步骤顺序仍按 §7.2；本文件取代原先独立的三个 build-*.yml 与 master 存量 ci.yml）
+#
+# 触发：push 到 master 或 ci/github-actions；workflow_dispatch 便于手动重跑
+# 产物：artifact `rdc-windows-x64` / `rdc-linux-x64` / `rdc-android`
+#
+# 工具链固定（禁止 latest 浮动，docs/10 §7.4）：
+#   - Windows runner：windows-2022；Linux/Android runner：ubuntu-22.04（glibc 2.35 基线）
+#   - Rust：1.99.1（用 RUSTUP_TOOLCHAIN 覆盖 rust-toolchain.toml 的 stable 浮动值）
+#   - Flutter：3.47.9；JDK 17；Android NDK 28.2.13676358
+#
+# 本文件刻意**不包含** master 存量 ci.yml 里的历史红点：
+#   - 不做 `cargo fmt --all -- --check`（仓库存量有 352 处未格式化，属独立整改项）
+#   - 脚本一律 `bash <path>` 调用，不依赖可执行位（Windows 检出为 100644）
+#   - 不用 android-actions/setup-android（其自行替换 cmdline-tools 后会 exit 1）
+#
+# 三个平台只是「能编译 + 能打包」，不代表安装包/APK 在真机可用（真机验收另走实验室）。
+# 失败时按平台上传构建日志（docs/10 §7.7）。
+# ============================================================
+name: Build（三平台）
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, ci/github-actions]
+
+# 只读权限：构建不需要写仓库。
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.99.1"
+  RUSTUP_TOOLCHAIN: "1.99.1"
+  FLUTTER_VERSION: "3.47.9"
+  ANDROID_NDK_VERSION: "28.2.13676358"
+
+# 同一 ref 只保留最新一次；被取消属正常行为，不代表构建失败。
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      # 单个平台失败不取消其他平台，三平台结果一次看全。
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            name: Windows x64 安装包
+            os: windows-2022
+            timeout: 90
+            artifact: rdc-windows-x64
+          - platform: linux
+            name: Linux x64 测试与安装包
+            os: ubuntu-22.04
+            timeout: 120
+            artifact: rdc-linux-x64
+          - platform: android
+            name: Android APK
+            os: ubuntu-22.04
+            timeout: 120
+            artifact: rdc-android
+
+    steps:
+      # -----** 1. 检出代码（BUILD_INFO.txt 需要短 commit）**-----
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # -----** 2. Rust 工具链（Windows / Linux）**-----
+      - name: 安装 Rust ${{ env.RUST_VERSION }}
+        if: matrix.platform != 'android'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          components: rustfmt, clippy
+
+      # -----** 2b. Rust 工具链（Android：只装两个交叉编译目标）**-----
+      - name: 安装 Rust ${{ env.RUST_VERSION }}（Android 目标）
+        if: matrix.platform == 'android'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      # -----** 3. Cargo 缓存（按平台独立 key，避免三平台互相污染，docs/10 §7.3）**-----
+      - name: 缓存 Cargo registry 与 target
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.platform }}
+          # 打包脚本与 CMake 钩子都去 <repo>/target 找 librdc_bridge，故不设 CARGO_TARGET_DIR。
+          workspaces: ". -> target"
+
+      # -----** 4. Flutter SDK（固定版本 + SDK 缓存）**-----
+      - name: 安装 Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # -----** 5. Windows：NSIS（缺 makensis 时脚本会降级为“只有 zip”，这里先装好）**-----
+      - name: 安装 NSIS
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: choco install nsis --no-progress -y
+
+      # -----** 6. Linux：Flutter 桌面构建依赖 + clang + libfuse2（AppImage 运行时解包）**-----
+      - name: 安装 Linux 原生依赖
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -eo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build libgtk-3-dev pkg-config clang libfuse2
+
+      # -----** 7. Android：JDK 17（AGP 与 Kotlin 编译目标一致）**-----
+      - name: 安装 JDK 17
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # -----** 8. Android：固定版本 NDK（用 runner 自带 SDK，不装 setup-android）**-----
+      - name: 安装 NDK ${{ env.ANDROID_NDK_VERSION }}
+        if: matrix.platform == 'android'
+        shell: bash
+        run: |
+          set -eo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMGR="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMGR" ]; then
+            SDKMGR="$(command -v sdkmanager || true)"
+          fi
+          echo "sdkmanager：$SDKMGR"
+          # 许可交互必须喂 yes；管道因 SIGPIPE 提前收尾属于正常，用 || true 兜住。
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" "ndk;${ANDROID_NDK_VERSION}" "platform-tools"
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/${ANDROID_NDK_VERSION}" >> "$GITHUB_ENV"
+          echo "NDK 安装位置：$SDK_ROOT/ndk/${ANDROID_NDK_VERSION}"
+
+      # -----** 9. Android：cargo-ndk 必须源码安装（预编译包依赖 GLIBC_2.39，22.04 只有 2.35）**-----
+      - name: 安装 cargo-ndk
+        if: matrix.platform == 'android'
+        shell: bash
+        run: |
+          set -eo pipefail
+          if ! command -v cargo-ndk > /dev/null 2>&1; then
+            cargo install cargo-ndk --locked
+          fi
+          cargo ndk --version
+
+      # -----** 10. Android：Gradle 缓存（docs/10 §7.3）**-----
+      - name: 缓存 Gradle
+        if: matrix.platform == 'android'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('app/android/**/*.gradle*', 'app/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # -----** 11. Linux：Clippy（-D warnings）——linux-only crate 只有这里能验**-----
+      - name: Clippy（-D warnings）
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -eo pipefail
+          cargo clippy --workspace --all-targets -- -D warnings 2>&1 | tee clippy-linux.log
+
+      # -----** 12. Linux：单元测试（依赖 GPU / 真实桌面的用例不在托管 runner 上跑）**-----
+      - name: 单元测试
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -eo pipefail
+          cargo test --workspace 2>&1 | tee test-linux.log
+
+      # -----** 13. Windows：构建 + 打包（复用 packaging/windows/build_installer.ps1）**-----
+      - name: 构建与打包
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          try {
+            # 合并所有输出流以便日志完整；异常时先落盘再抛出，保证日志 artifact 有内容。
+            ./packaging/windows/build_installer.ps1 *>&1 | Tee-Object -FilePath build-windows.log
+          } catch {
+            $_ | Out-File -FilePath build-windows.log -Append -Encoding utf8
+            throw
+          }
+
+      # -----** 14. Linux：打包 AppImage 与 deb（脚本为 100644，统一用 bash 调用）**-----
+      - name: 打包 AppImage
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -eo pipefail
+          bash ./packaging/linux/build_appimage.sh 2>&1 | tee build-linux-appimage.log
+
+      - name: 打包 deb
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -eo pipefail
+          bash ./packaging/linux/build_deb.sh 2>&1 | tee build-linux-deb.log
+
+      # -----** 15. Android：构建 APK（复用 packaging/android/build_apk.sh）**-----
+      - name: 构建 APK
+        if: matrix.platform == 'android'
+        shell: bash
+        env:
+          # 有 Secrets 时走 release 签名；无 Secrets 时脚本自动降级 debug 并警告。
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -eo pipefail
+          bash ./packaging/android/build_apk.sh 2>&1 | tee build-android.log
+
+      # -----** 16. 产物硬断言 + 清单（缺产物就红，不允许“悄悄成功”）**-----
+      - name: 校验产物并打印清单（Windows）
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $setup = Get-ChildItem dist -Filter "RDC-*-setup.exe" -ErrorAction SilentlyContinue
+          if (-not $setup) { throw "未产出 NSIS 安装包：dist 下没有 RDC-*-setup.exe" }
+          $zip = Get-ChildItem dist -Filter "RDC-*-portable.zip" -ErrorAction SilentlyContinue
+          if (-not $zip) { throw "未产出便携 zip：dist 下没有 RDC-*-portable.zip" }
+          Get-ChildItem dist -File | ForEach-Object {
+            "产物：{0}  {1:N2} MB" -f $_.Name, ($_.Length / 1MB)
+          }
+          Get-Content dist\*.sha256 | ForEach-Object { "校验：$_" }
+
+      - name: 校验产物并打印清单（Linux）
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -eo pipefail
+          shopt -s nullglob
+          appimages=(dist/RDC-*-x86_64.AppImage)
+          debs=(dist/RDC-*-amd64.deb)
+          if [ ${#appimages[@]} -eq 0 ]; then
+            echo "未产出 AppImage（appimagetool 可能下载失败，脚本已降级为 tar.gz）" >&2
+            exit 1
+          fi
+          if [ ${#debs[@]} -eq 0 ]; then
+            echo "未产出 deb 安装包" >&2
+            exit 1
+          fi
+          ls -lh dist
+          sha256sum dist/RDC-*-x86_64.AppImage dist/RDC-*-amd64.deb | tee dist/CHECKSUMS.txt
+
+      - name: 校验产物并打印清单（Android）
+        if: matrix.platform == 'android'
+        shell: bash
+        run: |
+          set -eo pipefail
+          shopt -s nullglob
+          apks=(dist/RDC-*-android-*arm64-v8a*.apk)
+          if [ ${#apks[@]} -eq 0 ]; then
+            echo "未产出 arm64-v8a APK" >&2
+            exit 1
+          fi
+          ls -lh dist/*.apk
+          for f in dist/*.apk; do sha256sum "$f"; done | tee dist/CHECKSUMS.txt
+
+      # -----** 17. 上传 artifact（按平台）**-----
+      - name: 上传 Windows 产物
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 上传 Linux 产物
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/RDC-*-x86_64.AppImage
+            dist/RDC-*-x86_64.AppImage.sha256
+            dist/RDC-*-amd64.deb
+            dist/RDC-*-amd64.deb.sha256
+            dist/CHECKSUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: 上传 Android 产物
+        if: matrix.platform == 'android'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            dist/*.apk
+            dist/*.apk.sha256
+            dist/CHECKSUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      # -----** 18. 失败时保留日志（成功时也传，便于比对耗时与警告）**-----
+      - name: 上传 Windows 构建日志
+        if: always() && matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-windows
+          path: |
+            build-windows.log
+            dist/*.sha256
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: 上传 Linux 构建日志
+        if: always() && matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-linux
+          path: |
+            clippy-linux.log
+            test-linux.log
+            build-linux-appimage.log
+            build-linux-deb.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: 上传 Android 构建日志
+        if: always() && matrix.platform == 'android'
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-android
+          path: build-android.log
+          if-no-files-found: warn
+          retention-days: 14

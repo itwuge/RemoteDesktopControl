@@ -21,10 +21,6 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod linux_impl {
-    // Linux 编译已验证（2026-11-08，cargo build --workspace --all-targets 退出码 0、0 error）；运行语义仍未验证。
-    // 本模块只在 Linux 目标编译，Windows 构建不覆盖此处的类型改动。
-    use rdc_linux_e2e::error::E2eError;
-
     /// 参数。
     pub struct Args {
         pub listen: String,
@@ -36,7 +32,7 @@ mod linux_impl {
     }
 
     /// 解析命令行。
-    pub fn parse_args() -> Result<Args, E2eError> {
+    pub fn parse_args() -> Result<Args, String> {
         let mut args = Args {
             listen: "127.0.0.1:45900".into(),
             secs: 60,
@@ -50,18 +46,18 @@ mod linux_impl {
             let value = iter.next();
             match arg.as_str() {
                 "--listen" => args.listen = value.ok_or("--listen 缺值")?,
-                "--secs" => args.secs = value.ok_or("--secs 缺值")?.parse().map_err(|error| E2eError::with_source("--secs 需整数", error))?,
-                "--fps" => args.fps = value.ok_or("--fps 缺值")?.parse().map_err(|error| E2eError::with_source("--fps 需整数", error))?,
+                "--secs" => args.secs = value.ok_or("--secs 缺值")?.parse().map_err(|_| "--secs 需整数")?,
+                "--fps" => args.fps = value.ok_or("--fps 缺值")?.parse().map_err(|_| "--fps 需整数")?,
                 "--bitrate" => {
-                    args.bitrate_bps = value.ok_or("--bitrate 缺值")?.parse().map_err(|error| E2eError::with_source("--bitrate 需整数", error))?
+                    args.bitrate_bps = value.ok_or("--bitrate 缺值")?.parse().map_err(|_| "--bitrate 需整数")?
                 }
                 "--display-id" => {
-                    args.display_id = value.ok_or("--display-id 缺值")?.parse().map_err(|error| E2eError::with_source("--display-id 需整数", error))?
+                    args.display_id = value.ok_or("--display-id 缺值")?.parse().map_err(|_| "--display-id 需整数")?
                 }
                 "--max-backlog" => {
-                    args.max_backlog = value.ok_or("--max-backlog 缺值")?.parse().map_err(|error| E2eError::with_source("--max-backlog 需整数", error))?
+                    args.max_backlog = value.ok_or("--max-backlog 缺值")?.parse().map_err(|_| "--max-backlog 需整数")?
                 }
-                other => return Err(E2eError::message(format!("未知参数: {other}"))),
+                other => return Err(format!("未知参数: {other}")),
             }
         }
         Ok(args)
@@ -85,8 +81,6 @@ use rdc_capture::{create_source, CaptureConfig, ChromaFormat, Frame, FrameSink};
 use rdc_codec::{create_encoder, CodecKind, VideoChroma, VideoConfig, VideoEncoder};
 #[cfg(target_os = "linux")]
 use rdc_input::{create_injector, decode_event, InputInjector, Viewport};
-#[cfg(target_os = "linux")]
-use rdc_linux_e2e::error::lock_poisoned_text;
 #[cfg(target_os = "linux")]
 use rdc_linux_e2e::{clock, protocol};
 
@@ -298,7 +292,7 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
         .flush()
         .map_err(|error| format!("发送缓冲冲刷失败: {error}"))?;
     let rest = {
-        let mut guard = encoder.lock().map_err(|poison| lock_poisoned_text("编码器锁被污染", poison))?;
+        let mut guard = encoder.lock().map_err(|_| "编码器锁被污染")?;
         guard
             .flush()
             .map_err(|error| format!("冲刷编码器失败: {error}"))?
@@ -327,7 +321,7 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
 
     let secs = start.elapsed().as_secs_f64().max(0.001);
     let backend = {
-        let guard = encoder.lock().map_err(|poison| lock_poisoned_text("编码器锁被污染", poison))?;
+        let guard = encoder.lock().map_err(|_| "编码器锁被污染")?;
         guard.backend_name().to_string()
     };
     println!(
@@ -383,6 +377,7 @@ fn injection_loop(
         }
     };
     injector.set_viewport(viewport);
+    // Ok(Some) 才继续；Ok(None)（对端关闭）或 Err 都结束注入循环。
     while let Ok(Some(packet)) = protocol::read_packet(&mut stream) {
         match packet.kind {
             protocol::KIND_INPUT => match decode_event(&packet.payload) {

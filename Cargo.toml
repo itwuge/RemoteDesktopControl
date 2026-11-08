@@ -32,7 +32,7 @@ members = [
 
 [workspace.package]
 # 版本号唯一真源：CI 打包脚本从这里读取，禁止在各 crate 内重复手写。
-version = "0.1.1"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.80"
 license = "MIT"

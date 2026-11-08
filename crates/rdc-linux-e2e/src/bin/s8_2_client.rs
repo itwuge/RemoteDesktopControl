@@ -23,10 +23,6 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod linux_impl {
-    // Linux 编译已验证（2026-11-08，cargo build --workspace --all-targets 退出码 0、0 error）；运行语义仍未验证。
-    // 本模块只在 Linux 目标编译，Windows 构建不覆盖此处的类型改动。
-    use rdc_linux_e2e::error::E2eError;
-
     /// 参数。
     pub struct Args {
         pub connect: String,
@@ -40,7 +36,7 @@ mod linux_impl {
     }
 
     /// 解析命令行。
-    pub fn parse_args() -> Result<Args, E2eError> {
+    pub fn parse_args() -> Result<Args, String> {
         let mut args = Args {
             connect: "127.0.0.1:45900".into(),
             secs: 60,
@@ -56,24 +52,24 @@ mod linux_impl {
             let value = iter.next();
             match arg.as_str() {
                 "--connect" => args.connect = value.ok_or("--connect 缺值")?,
-                "--secs" => args.secs = value.ok_or("--secs 缺值")?.parse().map_err(|error| E2eError::with_source("--secs 需整数", error))?,
-                "--clicks" => args.clicks = value.ok_or("--clicks 缺值")?.parse().map_err(|error| E2eError::with_source("--clicks 需整数", error))?,
+                "--secs" => args.secs = value.ok_or("--secs 缺值")?.parse().map_err(|_| "--secs 需整数")?,
+                "--clicks" => args.clicks = value.ok_or("--clicks 缺值")?.parse().map_err(|_| "--clicks 需整数")?,
                 "--click-interval-ms" => {
                     args.click_interval_ms = value
                         .ok_or("--click-interval-ms 缺值")?
                         .parse()
-                        .map_err(|error| E2eError::with_source("--click-interval-ms 需整数", error))?
+                        .map_err(|_| "--click-interval-ms 需整数")?
                 }
                 "--move-interval-ms" => {
                     args.move_interval_ms = value
                         .ok_or("--move-interval-ms 缺值")?
                         .parse()
-                        .map_err(|error| E2eError::with_source("--move-interval-ms 需整数", error))?
+                        .map_err(|_| "--move-interval-ms 需整数")?
                 }
-                "--scale" => args.scale = value.ok_or("--scale 缺值")?.parse().map_err(|error| E2eError::with_source("--scale 需整数", error))?,
-                "--win-x" => args.win_x = value.ok_or("--win-x 缺值")?.parse().map_err(|error| E2eError::with_source("--win-x 需整数", error))?,
-                "--win-y" => args.win_y = value.ok_or("--win-y 缺值")?.parse().map_err(|error| E2eError::with_source("--win-y 需整数", error))?,
-                other => return Err(E2eError::message(format!("未知参数: {other}"))),
+                "--scale" => args.scale = value.ok_or("--scale 缺值")?.parse().map_err(|_| "--scale 需整数")?,
+                "--win-x" => args.win_x = value.ok_or("--win-x 缺值")?.parse().map_err(|_| "--win-x 需整数")?,
+                "--win-y" => args.win_y = value.ok_or("--win-y 缺值")?.parse().map_err(|_| "--win-y 需整数")?,
+                other => return Err(format!("未知参数: {other}")),
             }
         }
         Ok(args)
@@ -206,6 +202,7 @@ fn spawn_reader(mut stream: TcpStream) -> Result<Receiver<protocol::Packet>, Str
     std::thread::Builder::new()
         .name("rdc-net-in".into())
         .spawn(move || {
+            // Ok(Some) 才继续；Ok(None)（对端关闭）或 Err 都结束读线程。
             while let Ok(Some(packet)) = protocol::read_packet(&mut stream) {
                 if tx.send(packet).is_err() {
                     break;
@@ -289,7 +286,7 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
                         }
                     }
                 }
-                protocol::KIND_BYE => return finish(args, &mut display, &mut decoder, packets, frames, &mut latencies, &click_points, decode_errors, moves_done, pts_regressions),
+                protocol::KIND_BYE => return finish(args, &mut display, &mut decoder, packets, frames, latencies.as_mut_slice(), &click_points, decode_errors, moves_done, pts_regressions),
                 _ => {}
             }
         }
@@ -360,7 +357,7 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
     if let Err(error) = writer.flush() {
         eprintln!("[client] 发送缓冲冲刷失败: {error}");
     }
-    finish(args, &mut display, &mut decoder, packets, frames, &mut latencies, &click_points, decode_errors, moves_done, pts_regressions)
+    finish(args, &mut display, &mut decoder, packets, frames, latencies.as_mut_slice(), &click_points, decode_errors, moves_done, pts_regressions)
 }
 
 /// 收尾输出。

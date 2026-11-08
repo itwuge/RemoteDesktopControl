@@ -1,12 +1,12 @@
 # RDC 远程桌面控制
 
-Windows 桌面远程控制工具（预发布版 0.1.1）。Rust 核心 + Flutter 桌面端，画面走自建
+Windows 桌面远程控制工具（预发布版 0.3.0）。Rust 核心 + Flutter 桌面端，画面走自建
 QUIC 通道，授权用离线可校验的 `grant_token`，支持多账号共享控制、接管与踢出。
 
 ## 三步跑起来
 
-1. **拿到产物**：安装 `dist/RDC-0.1.1-windows-x64-setup.exe`，或解压
-   `dist/RDC-0.1.1-windows-portable.zip` 后直接运行 `rdc.exe`（无需安装）。
+1. **拿到产物**：安装 `dist/RDC-0.3.0-windows-x64-setup.exe`，或解压
+   `dist/RDC-0.3.0-windows-portable.zip` 后直接运行 `rdc.exe`（无需安装）。
    产物带同名 `.sha256`，可用 `Get-FileHash <文件> -Algorithm SHA256` 核对。
 2. **启动**：双击 `rdc.exe`。首次启动会在 `%APPDATA%\RDC` 生成本机身份密钥与配置。
    主界面左侧是设备、屏幕墙、控制、权限四页。
