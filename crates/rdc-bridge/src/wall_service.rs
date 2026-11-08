@@ -550,9 +550,18 @@ fn open_decoder() -> Result<DecoderHandle, String> {
         .map_err(|error| format!("H.264 解码器创建失败：{error}"))
 }
 
+/// 非 Windows 平台的解码句柄占位。
+///
+/// 必须是独立的 unit-like struct，不能用 `()`：`let mut decoder = open_decoder()?;`
+/// 在 `Ok` 类型为 `()` 时绑定的是 unit 值，clippy 的 `let_unit_value` 会报错；
+/// 换成具名类型后绑定值不是 `()`，lint 不再成立。该值实际永不可达（`open_decoder`
+/// 恒返回 `Err`），仅用于让跨平台代码在编译期类型检查里成立。
+#[cfg(not(target_os = "windows"))]
+struct UnsupportedDecoder;
+
 /// 非 Windows 平台：屏幕墙预览返回明确错误，而不是假帧。
 #[cfg(not(target_os = "windows"))]
-type DecoderHandle = ();
+type DecoderHandle = UnsupportedDecoder;
 
 /// 非 Windows 平台不支持解码。
 #[cfg(not(target_os = "windows"))]

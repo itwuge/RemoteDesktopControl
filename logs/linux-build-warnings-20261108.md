@@ -6,7 +6,9 @@
 >
 > 状态：**6 条 clippy lint 与 19 条 dead_code 已在「Linux clippy 机械修复」批次处置**；
 > Linux 复跑后其中 5 条 clippy 已销、`dead_code` 归零（build 0 warning），复跑又暴露**第 7 条**
-> clippy lint（见 §2.3，已修）；剩余 4 条未标注 crate 的 rustc warning 待 Linux 原始日志补齐。
+> clippy lint（见 §2.3，已修）、`rdc-linux-e2e` 5 条（§2.7，已修）；最终一跑再暴露
+> `rdc-cli` / `rdc-bridge` **4 条**（见 §2.8，已修）；剩余 4 条未标注 crate 的 rustc warning
+> 待 Linux 原始日志补齐。
 
 ## 1. 来源与结论
 
@@ -142,6 +144,57 @@ cargo clippy -p rdc-linux-e2e --all-targets --target x86_64-unknown-linux-gnu --
 `rdc-linux-e2e` 的 bin 均以 `#[cfg(target_os = "linux")]` 逐项包裹，Windows 编译时是空壳，
 这也是它们此前从未被本地检查覆盖、且必须在 Linux 目标下实跑的原因。
 
+### 2.8 Linux 最终一跑新暴露（`rdc-cli` / `rdc-bridge`，4 条，已修）
+
+> **「逐层暴露」的性质**：`cargo clippy --workspace -- -D warnings` 会在**第一个失败的 crate
+> 处给出错误并让整条命令以 101 退出**，同一批次里其它 crate 的 lint 被前面的失败遮住、不会一起
+> 报出来。因此本节 4 条要等到 §2.1/§2.3/§2.7 全部归零后的**最终一跑**才浮现——它们并不是新引入
+> 的回归，而是此前被前序失败掩盖的既存问题（`ci/github-actions` 分支早已修好，见
+> `C:\RDC-ci\MERGE-NOTES.md` 第 2 节）。判断「Linux 是否真正干净」必须等前一个 crate 清零后重跑，
+> 不能只看首轮输出。
+
+| # | 类型 | crate | 文件:行 | 内容 | 处置 |
+|---|---|---|---|---|---|
+| 28 | clippy lint | `rdc-cli` | `src/s3b.rs:66` | `needless_return`：非 Windows 分支里 `return Err("S3b-2 上屏自检只实现于 Windows".into());` | 去掉 `return`，改为块尾表达式 `Err(...)`；`cfg` 剥离后它即函数体尾表达式 |
+| 29 | clippy lint | `rdc-cli` | `src/s3b3.rs:86` | `needless_return`：`return Err("S3b-3 只实现于 Windows（MF 硬件编码）".into());` | 同上，改块尾表达式 |
+| 30 | clippy lint | `rdc-cli` | `src/s3b4.rs:89` | `needless_return`：`return Err("S3b-4 只实现于 Windows".into());` | 同上，改块尾表达式（块内 `let _unused = (role, options);` 保留） |
+| 31 | clippy lint | `rdc-bridge` | `src/wall_service.rs:346` | `let_unit_value`：`let mut decoder = open_decoder()?;`，非 Windows 下 `DecoderHandle = ()` | 把占位句柄改为独立 unit-like struct `UnsupportedDecoder`（`#[cfg(not(target_os = "windows"))]`），`type DecoderHandle = UnsupportedDecoder;` |
+
+**错误文案逐字不变**：`S3b-2 上屏自检只实现于 Windows`、`S3b-3 只实现于 Windows（MF 硬件编码）`、
+`S3b-4 只实现于 Windows`、`屏幕墙预览解码目前仅支持 Windows`（`open_decoder` / `decode_frame` 两处
+非 Windows 占位未动文案）。三处 `needless_return` 的返回类型仍为各自 `S3bResult<()>`，
+`wall_service` 的 `open_decoder` 仍为 `Result<DecoderHandle, String>`，调用点签名未变。
+
+**为什么第 31 条不再是 unit 值**：lint 的判据是「`let` 绑定的右值类型为 `()`」。`()` 是唯一以
+`()` 为值的类型，所以 `type DecoderHandle = ()` 时 `open_decoder()?` 解包得到的就是 `()` 值，
+`let mut decoder` 必然命中 `let_unit_value`。换成具名 `struct UnsupportedDecoder;` 后，
+`DecoderHandle` 是一个独立类型的 unit-like 值（ADR: unit-like struct 的构造值类型是
+`UnsupportedDecoder` 而非 `()`），绑定值类型不是 `()`，判据不成立。运行时行为完全不变：
+`open_decoder()` 在非 Windows 下仍恒返回 `Err("屏幕墙预览解码目前仅支持 Windows")`，
+`?` 立即上抛，`decoder` 分支不可达。
+
+**验证方式与边界（如实说明）**：
+
+1. Windows 侧 `cargo clippy -p rdc-cli -p rdc-bridge --all-targets -- -D warnings`：退出码 **0**（确认未改坏 Windows 分支）。但 Windows 目标不编译上述非 Windows 分支，这不构成对 4 条修复的证明。
+2. Linux 目标实跑被构建脚本卡住，**无法完成**：
+   ```
+   cargo clippy -p rdc-cli --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+   → error occurred in cc-rs: failed to find tool "x86_64-linux-gnu-gcc"（ring v0.17.14）
+   cargo clippy -p rdc-bridge --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+   → 同上（ring）+ dart-sys v4.1.5
+   ```
+   宿主无 `x86_64-linux-gnu-gcc`（亦无 clang / zig / WSL 可替代），两条命令均以 101 退出，**没有硬凑结论**。
+3. 改用**等价片段双向实证**（独立临时 crate，非仓库代码）：把 4 处「改动前 / 改动后」写法原样复制成两套
+   `cfg(feature)` 变体，在宿主与 `--target x86_64-unknown-linux-gnu` 上各跑 `cargo clippy -- -D warnings`：
+   - 「改动前」（`return Err(...);` 的 cfg 块 + `type DecoderHandle = ()`）：Linux 目标 **101**，
+     在 `src/lib.rs:13` 报 `needless_return`（即 cfg 剥离后的块尾 `return`）、在 `src/lib.rs:42`
+     报 `let_unit_value`（`let mut decoder = open_decoder()?;`）——这两条即真实 crate 中
+     66/86/89 与 346 的同一形态；探针内另加的 2 条宿主可见样本也一并报出，共 4 条；
+   - 「改动后」（块尾表达式 + `UnsupportedDecoder`）：宿主 **0**、Linux 目标 **0**（同一工具链
+     `rustc 1.99.1 / clippy 0.1.99`）。
+   该实证只能证明「改法本身消除这两类 lint」，**不能替代 Linux 线对真实 crate 的最终复跑**；
+   真实 crate 的实编仍由 Linux 线完成。
+
 ## 3. 数据缺口（仅剩 4 条）
 
 本会话在 Windows 上复跑 `cargo build --workspace --all-targets`，结果 **0 warning**；
@@ -154,6 +207,9 @@ cargo clippy -p rdc-linux-e2e --all-targets --target x86_64-unknown-linux-gnu --
 
 - 本批已处置 25 条已定位项（6 clippy lint + 19 dead_code）。
 - `rdc-linux-e2e` 的 5 条（3×`while_let_loop` + 2×`ptr_arg`）已修并跨目标验证 0（§2.7）。
+- `rdc-cli` / `rdc-bridge` 的 4 条（3×`needless_return` + 1×`let_unit_value`）已修（§2.8）；
+  这两个 crate 无法在宿主跨目标实跑（`ring` / dart-sys 缺 `x86_64-linux-gnu-gcc`），
+  仅以等价片段双向实证，**最终由 Linux 线实编确认**。
 - 验证边界：6 条 clippy 中 4 条位于 `rdc-capture/src/platform/linux.rs`、1 条位于
   `rdc-codec/src/platform/linux.rs`，这两处被 `#[cfg(target_os = "linux")]` 包住，
   **Windows 宿主不编译，改动的正确性必须由 Linux 线复跑 `cargo clippy --workspace
@@ -174,3 +230,7 @@ cargo clippy -p rdc-linux-e2e --all-targets --target x86_64-unknown-linux-gnu --
   脚本（`ring` / dart-sys）无法在宿主验证、只能交 Linux 线覆盖。
 - **跨目标复现要能双向证明**：改动前用 `git stash` 跑出失败（101 + 具体行号），改动后用同一
   命令跑出 0；否则「通过」可能只是缓存未重编译造成的假象。
+- **lint 是「逐层暴露」的，不能拿首轮输出判定全仓干净。** `cargo clippy --workspace -- -D
+  warnings` 在第一个失败的 crate 处即以 101 退出，后续 crate 的 lint 被掩盖。§2.8 的 4 条直到
+  §2.1/§2.3/§2.7 全部清零后的最终一跑才浮现，就是这种掩盖。**每次修完都必须重跑整套直到 0**，
+  不能只验「新报的那几条」。

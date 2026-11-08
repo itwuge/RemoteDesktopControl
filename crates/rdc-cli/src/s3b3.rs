@@ -83,7 +83,7 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
     #[cfg(not(target_os = "windows"))]
     {
         let _options = options;
-        return Err("S3b-3 只实现于 Windows（MF 硬件编码）".into());
+        Err("S3b-3 只实现于 Windows（MF 硬件编码）".into())
     }
     #[cfg(target_os = "windows")]
     {

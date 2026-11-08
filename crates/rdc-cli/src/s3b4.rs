@@ -86,7 +86,7 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
     #[cfg(not(target_os = "windows"))]
     {
         let _unused = (role, options);
-        return Err("S3b-4 只实现于 Windows".into());
+        Err("S3b-4 只实现于 Windows".into())
     }
     #[cfg(target_os = "windows")]
     {
