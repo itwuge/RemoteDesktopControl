@@ -266,7 +266,20 @@ pub fn run() -> Result<bool, String> {
     let kick = issue_kick(&owner, 7, &peer_b_pub, now_ms());
     let kick_verify = verify_kick(&kick, &trusted_owners, now_ms());
     stop.store(true, Ordering::Relaxed);
-    renderer.join().map_err(|_| "渲染线程异常退出".to_owned())?;
+    if let Err(payload) = renderer.join() {
+        // `JoinHandle::join` 的错误是 `Box<dyn Any + Send>`（panic 载荷），
+        // 不是 `Error`，无法挂进 source；这里显式取出可读载荷记日志，
+        // 对外文案保持逐字不变。
+        let detail = match payload.downcast_ref::<&str>() {
+            Some(text) => (*text).to_owned(),
+            None => match payload.downcast_ref::<String>() {
+                Some(text) => text.clone(),
+                None => "未知 panic 载荷".to_owned(),
+            },
+        };
+        tracing::warn!(panic = %detail, "渲染线程异常退出");
+        return Err("渲染线程异常退出".to_owned());
+    }
     let kick_elapsed_ms = kick_started.elapsed().as_millis() as u64;
     let frames_at_stop = frames.load(Ordering::Relaxed);
     audit.record(

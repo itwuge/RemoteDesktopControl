@@ -48,6 +48,7 @@ logs/*
 !logs/gate-baseline-master-debt.md
 !logs/batch1-diag-criteria.md
 !logs/audit-inline-gate-allow.md
+!logs/linux-build-warnings-*.md
 app/rdc-control-logs/
 rdc-control-logs/
 tmp/

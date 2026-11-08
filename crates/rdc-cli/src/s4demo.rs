@@ -15,6 +15,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use crate::error::WithSource;
 use rdc_connect::{dial, establish, listen, DirectListener, EstablishedSession, QuicSignalClient};
 use rdc_input::{create_injector, InputEvent, KeyEvent, PointerEvent, Viewport};
 use rdc_protocol::{
@@ -263,7 +264,7 @@ async fn setup_ctrl_inner(
     // 等被控端注册在服务端生效后再呼叫，避免 PeerNotFound 竞态。
     tokio::time::timeout(Duration::from_secs(5), registered.notified())
         .await
-        .map_err(|_| "等待被控端注册超时")?;
+        .map_err(|source| WithSource::new("等待被控端注册超时", source))?;
     trace("ctrl", "被控端已注册");
     let reply = client
         .call("host-01", CallMode::Code, 0, &code_proof)

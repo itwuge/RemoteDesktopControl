@@ -12,6 +12,8 @@ use std::time::Duration;
 // =====** 模块声明 =====**
 
 mod demo;
+// 演示命令统一错误包装：固定文案 + 底层 source。
+mod error;
 // S3a（10s 1080p60 采集+MFT 编码+MP4 回读）与 S4 输入/按键演示依赖 Media Foundation
 // 与 Win32 光标/低级键盘钩子，属于 Windows 专属验证路径；其它平台在下方给出明确提示。
 #[cfg(target_os = "windows")]

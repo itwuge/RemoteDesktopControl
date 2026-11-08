@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::error::{lock_poisoned_text, WithSource};
 use rdc_codec::{CodecKind, EncodedPacket, VideoChroma, VideoConfig};
 use rdc_connect::{dial, establish, listen, DirectListener, EstablishedSession, QuicSignalClient};
 use rdc_core::s5::devices::{now_ms, DeviceList};
@@ -197,7 +198,7 @@ async fn setup_wall_host(
             .await?;
         let direct = tokio::time::timeout(Duration::from_secs(10), listener.accept())
             .await
-            .map_err(|_| format!("viewer {} 直连超时", index + 1))??;
+            .map_err(|source| WithSource::new(format!("viewer {} 直连超时", index + 1), source))??;
         let handshake = SessionHandshake::new_host(
             session.clone(),
             IdentityKeyPair::from_seed(&host_seed),
@@ -795,7 +796,7 @@ pub async fn run() -> DemoResult<()> {
         Ok::<_, Box<dyn Error + Send + Sync>>((host?, viewers?))
     })
     .await
-    .map_err(|_| format!("建链超过 {} s", SETUP_TIMEOUT.as_secs()))??;
+    .map_err(|source| WithSource::new(format!("建链超过 {} s", SETUP_TIMEOUT.as_secs()), source))??;
     println!("[wall] 建链完成，用时 {:?}", started.elapsed());
 
     // ---- 会话注册与角色隔离（观看者不得注入输入）----
@@ -841,8 +842,8 @@ pub async fn run() -> DemoResult<()> {
             async move {
                 tokio::time::timeout(VIEWER_TIMEOUT, viewer_loop(viewer, stream_id, tag, hub))
                     .await
-                    .map_err(|_| -> Box<dyn Error + Send + Sync> {
-                        format!("viewer {} 收流超时（未收到 Done）", index + 1).into()
+                    .map_err(|source| {
+                        WithSource::new(format!("viewer {} 收流超时（未收到 Done）", index + 1), source)
                     })?
             }
         })
@@ -856,7 +857,7 @@ pub async fn run() -> DemoResult<()> {
         async { tokio::join!(host_task, v0, v1, v2) },
     )
     .await
-    .map_err(|_| "收流阶段超过时限（存在未响应）".to_string())?;
+    .map_err(|source| WithSource::new("收流阶段超过时限（存在未响应）", source))?;
     let host_stats = host_stats?;
     let viewer_results = vec![r0?, r1?, r2?];
 
@@ -1041,7 +1042,7 @@ fn build_summary(
     }
     let latest = hub
         .lock()
-        .map_err(|_| "最新帧汇总锁中毒".to_string())?
+        .map_err(|poisoned| lock_poisoned_text("最新帧汇总锁中毒", poisoned))?
         .latest();
     for (index, frame) in latest.iter().enumerate() {
         match frame {
