@@ -147,7 +147,7 @@ impl FrameSink for LoopSink {
 
 /// 计算分位数（输入已排序或未排序均可，函数内部排序）。
 #[cfg(target_os = "linux")]
-fn percentile(values: &mut Vec<u64>, pct: f64) -> u64 {
+fn percentile(values: &mut [u64], pct: f64) -> u64 {
     if values.is_empty() {
         return 0;
     }

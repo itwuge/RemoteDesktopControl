@@ -383,25 +383,22 @@ fn injection_loop(
         }
     };
     injector.set_viewport(viewport);
-    loop {
-        match protocol::read_packet(&mut stream) {
-            Ok(Some(packet)) => match packet.kind {
-                protocol::KIND_INPUT => match decode_event(&packet.payload) {
-                    Ok(event) => {
-                        if injector.inject(event).is_ok() {
-                            injected.fetch_add(1, Ordering::Relaxed);
-                        } else {
-                            errors.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
-                    Err(_) => {
+    while let Ok(Some(packet)) = protocol::read_packet(&mut stream) {
+        match packet.kind {
+            protocol::KIND_INPUT => match decode_event(&packet.payload) {
+                Ok(event) => {
+                    if injector.inject(event).is_ok() {
+                        injected.fetch_add(1, Ordering::Relaxed);
+                    } else {
                         errors.fetch_add(1, Ordering::Relaxed);
                     }
-                },
-                protocol::KIND_BYE => break,
-                _ => {}
+                }
+                Err(_) => {
+                    errors.fetch_add(1, Ordering::Relaxed);
+                }
             },
-            Ok(None) | Err(_) => break,
+            protocol::KIND_BYE => break,
+            _ => {}
         }
     }
     alive.store(false, Ordering::Relaxed);

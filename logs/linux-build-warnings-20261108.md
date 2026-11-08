@@ -109,28 +109,38 @@
 | crate | 结果 | 说明 |
 |---|---|---|
 | `rdc-codec`、`rdc-input`、`rdc-capture`、`rdc-clipboard`、`rdc-decode`、`rdc-protocol`、`rdc-runtime`、`rdc-diag`、`rdc-filetransfer`、`rdc-relay`、`rdc-security`、`rdc-transport` | 通过（0 warning） | codec / input / capture 的 `platform/linux.rs` 本次被**实际编译**（type-check + clippy） |
-| `rdc-linux-e2e` | 5 条既有 lint | 见 §2.7；与本批改动无关 |
+| `rdc-linux-e2e` | 曾有 5 条 lint（已修） | 见 §2.7；跨目标实跑复现为真实问题，修复后同命令 0 warning |
 | `rdc-core`、`rdc-cli`、`rdc-bridge`、`rdc-connect` | 无法运行 | 依赖链中 `ring v0.17.14` 的构建脚本需要 `x86_64-linux-gnu-gcc`，宿主缺失；`rdc-bridge` 另有 dart-sys / flutter_rust_bridge 构建依赖 |
 
 结论：§2.5 那一行以及 `rdc-input` / `rdc-capture` 的 Linux 分支，已在 Windows 宿主用 Linux
 目标**实际编译过**；其余 4 个 crate 的 Linux 分支仍只能由 Linux 线覆盖，不能算已验证。
 
-### 2.7 跨目标新暴露的既有 lint（`rdc-linux-e2e`，5 条，本轮不改）
+### 2.7 跨目标新暴露的 lint（`rdc-linux-e2e`，5 条，**真实问题，已修**）
 
-> 与 §2.5 同属「Windows 不可见」，但机制不同：不是缺 `use`，而是换目标后才触发的 clippy lint。
+> **更正**：本节最初判断为「本机 clippy 版本漂移噪声」，该判断**已被 Linux 线复跑推翻**。
+> 依据：Linux 侧 `rustc 1.99.1 / clippy 0.1.99`，与本机**版本完全相同**；5 条 lint 稳定复现、
+> 行号一致。结论：它们是真问题，`-D warnings` 下会让门禁变红，与「Windows 不可见」叠加后
+> 只在 Linux 目标暴露。
 
-| 文件:行 | lint | 说明 |
-|---|---|---|
-| `src/bin/s8_2_client.rs:208` | `while_let_loop` | 既有 `loop { match read_packet(...) }` 写法 |
-| `src/bin/s8_2_client.rs:285` | `while_let_loop` | 同上 |
-| `src/bin/s8_2_client.rs:382` | `ptr_arg` | `&mut Vec` 可改 `&mut [_]` |
-| `src/bin/s8_2_loop.rs:150` | `while_let_loop` | 同上 |
-| `src/bin/s8_2_host.rs:386` | `while_let_loop` | 同上 |
+| 文件:行 | lint | 改法 | 为什么行为不变 |
+|---|---|---|---|
+| `src/bin/s8_2_client.rs:208` | `while_let_loop` | `loop { match read_packet { Ok(Some(p)) => .., Ok(None) \| Err(_) => break } }` → `while let Ok(Some(packet)) = read_packet(&mut stream) { .. }` | 原循环只对 `Ok(Some)` 执行体；`Ok(None)`（对端正常关闭）与 `Err` 本来就 `break`，在 `while let` 里同样条件不成立而退出；体内 `send` 失败仍 `break`。退出条件集合完全一致 |
+| `src/bin/s8_2_client.rs:285` | `while_let_loop` | `loop { let p = match try_recv() { Ok(p) => p, Err(_) => break }; .. }` → `while let Ok(packet) = rx.try_recv() { .. }` | `try_recv` 只有 `Ok` / `Err(Empty\|Disconnected)` 两种；原逻辑任何 `Err` 都 `break`，`while let` 对两种 `Err` 都不进循环体，等价 |
+| `src/bin/s8_2_client.rs:382` | `ptr_arg` | `latencies: &mut Vec<u64>` → `&mut [u64]` | 仅收窄参数类型；调用点传 `&mut Vec<u64>` 由 `DerefMut` 自动强转为切片。函数体只用到 `len()` / `iter()`，无 `Vec` 专有操作，语义不变 |
+| `src/bin/s8_2_loop.rs:150` | `ptr_arg` | `percentile(values: &mut Vec<u64>, ..)` → `&mut [u64]` | 同上；`is_empty/sort_unstable/len/索引` 切片均可用。调用点是 `&mut latencies.clone()`（临时 `Vec`），强转后排序仍作用在同一临时向量上，分位数结果不变 |
+| `src/bin/s8_2_host.rs:386` | `while_let_loop` | `loop { match read_packet { Ok(Some(p)) => match kind {..}, Ok(None) \| Err(_) => break } }` → `while let Ok(Some(packet)) = read_packet(&mut stream) { match packet.kind {..} }` | 同上；`KIND_BYE => break` 原样保留，`_ => {}` 继续下一轮，退出条件一致 |
 
-这 5 条**未出现在** Linux 线先前的 6 条 clippy 清单里，本轮判断为本机 clippy 0.1.99
-（新于 Linux 线所用工具链）的版本漂移噪声，故**不改代码**；待 Linux 线用其真实工具链复跑
-确认后再决定是否处置。`rdc-linux-e2e` 的 bin 均以 `#[cfg(target_os = "linux")]` 逐项包裹，
-Windows 编译时是空壳，这也是它们此前从未被本地检查覆盖的原因。
+验证方式（Windows 宿主、Linux 目标实编）：
+
+```
+cargo clippy -p rdc-linux-e2e --all-targets --target x86_64-unknown-linux-gnu -- -D warnings
+```
+
+- 改前（`git stash` 还原到 `e5b7484` 版本）：退出码 **101**，复现 `while let` 与 `&mut Vec` 两类错误；
+- 改后：退出码 **0**、**0 warning**（同一 `CARGO_TARGET_DIR`、同一工具链 `clippy 0.1.99`）。
+
+`rdc-linux-e2e` 的 bin 均以 `#[cfg(target_os = "linux")]` 逐项包裹，Windows 编译时是空壳，
+这也是它们此前从未被本地检查覆盖、且必须在 Linux 目标下实跑的原因。
 
 ## 3. 数据缺口（仅剩 4 条）
 
@@ -143,9 +153,24 @@ Windows 编译时是空壳，这也是它们此前从未被本地检查覆盖的
 ## 4. 处理计划
 
 - 本批已处置 25 条已定位项（6 clippy lint + 19 dead_code）。
+- `rdc-linux-e2e` 的 5 条（3×`while_let_loop` + 2×`ptr_arg`）已修并跨目标验证 0（§2.7）。
 - 验证边界：6 条 clippy 中 4 条位于 `rdc-capture/src/platform/linux.rs`、1 条位于
   `rdc-codec/src/platform/linux.rs`，这两处被 `#[cfg(target_os = "linux")]` 包住，
   **Windows 宿主不编译，改动的正确性必须由 Linux 线复跑 `cargo clippy --workspace
   --all-targets -- -D warnings` 实证**，本会话只能保证 Windows 侧未被改坏。
 - 剩余 4 条待原始日志补齐后再归类排期。
 - 出口条件：`cargo clippy --workspace --all-targets -- -D warnings` 三平台均为 0。
+
+## 5. 教训（方法论）
+
+- **「两边结果不一致」不能默认归因为版本差异。** 本次把 `rdc-linux-e2e` 的 5 条 lint 判成
+  「本机工具链更新导致的漂移」，事实是 Linux 侧 `rustc 1.99.1 / clippy 0.1.99` 与本机**完全
+  相同**，5 条稳定复现、行号一致——是真问题。归因前必须先做两件事：①对齐双方版本号
+  （`rustc -V`、`cargo clippy -V`）；②在同一份代码上用同等命令复现，并记录退出码与行号。
+  只有确认版本不同、且 lint 随版本才出现，才能提「版本漂移」。
+- **「Windows 侧 0 violations」不等于「全平台通过」。** `#[cfg(target_os = "linux")]` /
+  `#[cfg(unix)]` 分支在 Windows 宿主根本不参与编译；必须用 `--target
+  x86_64-unknown-linux-gnu` 对相关 crate 实跑一次（见 §2.6），并明确记录哪些 crate 因构建
+  脚本（`ring` / dart-sys）无法在宿主验证、只能交 Linux 线覆盖。
+- **跨目标复现要能双向证明**：改动前用 `git stash` 跑出失败（101 + 具体行号），改动后用同一
+  命令跑出 0；否则「通过」可能只是缓存未重编译造成的假象。

@@ -205,14 +205,11 @@ fn spawn_reader(mut stream: TcpStream) -> Result<Receiver<protocol::Packet>, Str
     let (tx, rx) = mpsc::channel();
     std::thread::Builder::new()
         .name("rdc-net-in".into())
-        .spawn(move || loop {
-            match protocol::read_packet(&mut stream) {
-                Ok(Some(packet)) => {
-                    if tx.send(packet).is_err() {
-                        break;
-                    }
+        .spawn(move || {
+            while let Ok(Some(packet)) = protocol::read_packet(&mut stream) {
+                if tx.send(packet).is_err() {
+                    break;
                 }
-                Ok(None) | Err(_) => break,
             }
         })
         .map_err(|error| format!("读线程创建失败: {error}"))?;
@@ -282,11 +279,7 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
             moves_done += 1;
             last_move = Some(Instant::now());
         }
-        loop {
-            let packet = match rx.try_recv() {
-                Ok(packet) => packet,
-                Err(_) => break,
-            };
+        while let Ok(packet) = rx.try_recv() {
             match packet.kind {
                 protocol::KIND_VIDEO => {
                     if let Some((pts, _keyframe, data)) = protocol::parse_video(&packet.payload) {
@@ -379,7 +372,7 @@ fn finish(
     decoder: &mut Decoder,
     packets: u64,
     frames: u64,
-    latencies: &mut Vec<u64>,
+    latencies: &mut [u64],
     click_points: &[(i32, i32)],
     decode_errors: u64,
     moves_done: u64,
