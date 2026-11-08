@@ -131,7 +131,7 @@ fn append_startup_log(line: &str) {
 /// 向指定日志文件追加一行；写失败一律静默，日志不得影响启动。
 fn append_startup_log_to(path: &std::path::Path, line: &str) {
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        let _ = std::fs::create_dir_all(parent); // gate-allow R-C-2: 启动日志目录创建属尽力而为，失败不得影响启动
     }
     let Ok(mut file) = std::fs::OpenOptions::new()
         .create(true)
@@ -140,7 +140,7 @@ fn append_startup_log_to(path: &std::path::Path, line: &str) {
     else {
         return;
     };
-    let _ = writeln!(file, "[{}] {line}", local_time_stamp());
+    let _ = writeln!(file, "[{}] {line}", local_time_stamp()); // gate-allow R-C-2: 启动日志写失败属尽力而为，日志仅供排障不得影响启动
 }
 
 /// 本地时间戳（与 `AppendStartupLog` 的 `[年-月-日 时:分:秒]` 一致）。
@@ -1939,12 +1939,12 @@ mod tests {
     #[test]
     fn startup_log_line_has_timestamp_and_text() {
         let dir = std::env::temp_dir().join(format!("rdc-bridge-log-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例前清理固定临时目录，失败不影响断言结论
         let path = dir.join("logs").join("startup.log");
         append_startup_log_to(&path, "settings_cleanup=stale_temp 测试行");
         let text = std::fs::read_to_string(&path).expect("日志应已写入");
         assert!(text.starts_with('['), "缺少时间戳前缀：{text}");
         assert!(text.contains("] settings_cleanup=stale_temp 测试行"));
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除固定临时目录，失败不影响断言结论
     }
 }

@@ -255,13 +255,26 @@ impl AppSettings {
         let written = handle.write_all(&bytes).and_then(|()| handle.sync_all());
         drop(handle);
         if let Err(err) = written {
-            let _ = std::fs::remove_file(&temp);
-            return Err(err.into());
+            // 清理失败不改变“写入失败”这一主因，但把清理错误并入返回信息，避免静默丢失上下文。
+            let cleanup = std::fs::remove_file(&temp);
+            return Err(match cleanup {
+                Ok(()) => err.into(),
+                Err(cleanup_err) => SettingsError::Io(std::io::Error::new(
+                    err.kind(),
+                    format!("{err}；写入失败后清理临时文件失败：{cleanup_err}"),
+                )),
+            });
         }
         if let Err(err) = std::fs::rename(&temp, path) {
             // 目标只读/被占用时 rename 失败：写了一半的临时文件不能留到下次启动。
-            let _ = std::fs::remove_file(&temp);
-            return Err(err.into());
+            let cleanup = std::fs::remove_file(&temp);
+            return Err(match cleanup {
+                Ok(()) => err.into(),
+                Err(cleanup_err) => SettingsError::Io(std::io::Error::new(
+                    err.kind(),
+                    format!("{err}；重命名失败后清理临时文件失败：{cleanup_err}"),
+                )),
+            });
         }
         Ok(())
     }
@@ -348,7 +361,7 @@ mod tests {
         let loaded = AppSettings::load(&path).expect("加载");
         assert_eq!(loaded, changed);
         assert!(!dir.join("settings.json.tmp").exists());
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
     }
 
     /// 写入失败时不得残留本次创建的临时文件。
@@ -363,7 +376,7 @@ mod tests {
         let error = AppSettings::default().save(&path).expect_err("rename 失败应报错");
         assert!(matches!(error, SettingsError::Io(_)));
         assert!(!dir.join("settings.json.tmp").exists(), "失败后临时文件必须清理");
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
     }
 
     /// 主文件完好时，启动清理删除上次遗留的临时文件。
@@ -379,7 +392,7 @@ mod tests {
         assert_eq!(removed.as_deref(), Some(temp.as_path()));
         assert!(!temp.exists());
         assert!(path.exists(), "主文件不能被误删");
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
     }
 
     /// 主文件损坏或缺失时保留临时文件，避免误删可恢复副本。
@@ -398,7 +411,7 @@ mod tests {
         std::fs::write(&path, b"{not json").expect("写入坏主文件");
         assert!(AppSettings::cleanup_stale_temp(&path).is_none());
         assert!(temp.exists());
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
     }
 
     /// 缺失文件回落默认；损坏与超前版本报错。
@@ -418,7 +431,7 @@ mod tests {
             AppSettings::load(&future),
             Err(SettingsError::UnsupportedVersion { found: 99, .. })
         ));
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
     }
 
     /// 非法值被拉回合法区间，VIEW 位不可取消。
@@ -463,6 +476,6 @@ mod tests {
         loaded.save(&path).expect("保存");
         let reloaded = AppSettings::load(&path).expect("重新加载");
         assert!(reloaded.first_run_completed);
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
     }
 }

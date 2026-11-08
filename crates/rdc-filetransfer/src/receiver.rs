@@ -240,7 +240,7 @@ mod tests {
         let mut receiver = FileReceiver::create(&path, 0, 4).expect("接收端");
         let hash = receiver.finish(None).expect("收尾");
         assert_eq!(hash, crate::digest::hash_bytes(b""));
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // gate-allow R-C-2: 用例收尾删除临时文件，失败不影响断言结论
     }
 
     /// 下一块再接收时，重复块返回 Duplicate 且不增加计数。
@@ -266,7 +266,7 @@ mod tests {
             receiver.accept(&chunk).expect("接收");
         }
         receiver.finish(Some(sender.file_hash())).expect("收尾");
-        let _ = std::fs::remove_file(&src);
-        let _ = std::fs::remove_file(&dst);
+        let _ = std::fs::remove_file(&src); // gate-allow R-C-2: 用例收尾删除临时文件，失败不影响断言结论
+        let _ = std::fs::remove_file(&dst); // gate-allow R-C-2: 用例收尾删除临时文件，失败不影响断言结论
     }
 }

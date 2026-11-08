@@ -199,7 +199,7 @@ impl EstablishedSession {
     /// # Errors
     /// 不会失败。
     pub fn close(&mut self) {
-        let _ = self.send.finish();
+        let _ = self.send.finish(); // gate-allow R-C-2: 关闭路径不再有可恢复动作，finish 失败由随后的 conn.close 一并收敛
         self.conn.close(quinn::VarInt::from_u32(0), b"session closed");
         self.endpoint.close(quinn::VarInt::from_u32(0), b"session closed");
     }

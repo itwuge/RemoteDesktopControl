@@ -303,7 +303,12 @@ impl Drop for UinputDevice {
     /// 销毁虚拟设备并关闭文件。
     fn drop(&mut self) {
         unsafe {
-            let _ = libc::ioctl(self.file.as_raw_fd(), UI_DEV_DESTROY);
+            if libc::ioctl(self.file.as_raw_fd(), UI_DEV_DESTROY) < 0 {
+                debug!(
+                    error = %std::io::Error::last_os_error(),
+                    "Drop 阶段销毁 uinput 设备失败，设备节点可能残留"
+                );
+            }
         }
     }
 }
@@ -797,7 +802,9 @@ fn move_with_correction(
     y: i32,
 ) {
     let (Some(conn), Some(root)) = (conn, root) else {
-        let _ = device.move_absolute(x, y, viewport);
+        if let Err(err) = device.move_absolute(x, y, viewport) {
+            debug!(x, y, error = %err, "无校正源时绝对移动失败");
+        }
         return;
     };
     let mut target_x = x;

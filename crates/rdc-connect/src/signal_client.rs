@@ -101,7 +101,7 @@ impl QuicSignalClient {
         env = env.signed(identity.sign_b64(&payload));
         write_frame(&mut send, &env.encode()?).await?;
         // 单次请求流：写完即关闭发送半边。
-        let _ = send.finish();
+        let _ = send.finish(); // gate-allow R-C-2: 写半边的关闭失败会由随后的 read_frame 以连接错误暴露，无需重复处理
 
         let reply = read_frame(&mut recv).await?;
         let reply = SignalEnvelope::decode(&reply)?;
@@ -163,7 +163,7 @@ impl QuicSignalClient {
             .await
             .map_err(|e| crate::quic::transport_error("打开请求流", e))?;
         write_frame(&mut send, &env.encode()?).await?;
-        let _ = send.finish();
+        let _ = send.finish(); // gate-allow R-C-2: 写半边的关闭失败会由随后的 read_frame 以连接错误暴露，无需重复处理
         let reply = read_frame(&mut recv).await?;
         let reply = SignalEnvelope::decode(&reply)?;
         if let SignalMessage::Error { code, message } = &reply.body {

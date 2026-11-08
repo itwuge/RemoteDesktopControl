@@ -79,7 +79,7 @@ mod tests {
         let path = crate::tests_support::temp_path("hash");
         std::fs::write(&path, b"abc").expect("写文件");
         assert_eq!(hash_file(&path).expect("摘要"), hash_bytes(b"abc"));
-        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path); // gate-allow R-C-2: 用例收尾删除临时文件，失败不影响断言结论
     }
 
     /// 十六进制字面量 → 字节。

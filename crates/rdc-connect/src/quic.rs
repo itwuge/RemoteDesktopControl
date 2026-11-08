@@ -73,7 +73,7 @@ pub fn now_ms() -> i64 {
 /// 证书解析、TLS 配置或端点绑定失败时返回 [`ConnectError::Transport`]。
 pub fn client_endpoint(cert_der: &[u8]) -> Result<Endpoint, ConnectError> {
     // rustls 0.23 要求进程内安装 CryptoProvider；重复安装返回 Err 可忽略。
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    let _ = rustls::crypto::ring::default_provider().install_default(); // gate-allow R-C-2: 进程级 CryptoProvider 已装好时返回 Err，重复安装无害
 
     let mut roots = rustls::RootCertStore::empty();
     roots
@@ -109,7 +109,7 @@ pub fn server_endpoint(
     cert_der: &[u8],
     key_der: &[u8],
 ) -> Result<Endpoint, ConnectError> {
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    let _ = rustls::crypto::ring::default_provider().install_default(); // gate-allow R-C-2: 进程级 CryptoProvider 已装好时返回 Err，重复安装无害
 
     let tls = rustls::ServerConfig::builder()
         .with_no_client_auth()

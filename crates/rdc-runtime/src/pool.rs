@@ -219,6 +219,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "内存池参数必须为正")]
     fn zero_capacity_panics() {
-        let _ = FramePool::new(0, 16);
+        let _ = FramePool::new(0, 16); // gate-allow R-C-2: `should_panic` 用例，构造即应 panic，丢弃返回值是本用例的目的
     }
 }
