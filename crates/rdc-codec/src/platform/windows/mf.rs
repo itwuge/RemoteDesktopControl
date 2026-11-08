@@ -332,7 +332,13 @@ impl MfH264Session {
         let out_buffer_size = info.cbSize;
 
         // 序列头可能要到首帧后才出现；先取一次，为空时由上层在编码后补齐。
-        let seq_header = unsafe { read_sequence_header(&output) }.unwrap_or_default();
+        let seq_header = match unsafe { read_sequence_header(&output) } {
+            Ok(header) => header,
+            Err(error) => {
+                tracing::debug!("[mf] 序列头暂不可读，将由首帧后补齐: {error}");
+                Vec::new()
+            }
+        };
         let codec_api: Option<ICodecAPI> = transform.cast().ok(); // gate-allow R-C-2: 部分 MFT 不实现 ICodecAPI，None 是合法能力缺失
 
         let mut session = Self {

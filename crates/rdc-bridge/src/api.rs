@@ -1344,7 +1344,13 @@ fn safe_fingerprint(public_key_b64: &str) -> String {
     if public_key_b64.is_empty() {
         return String::new();
     }
-    fingerprint_from_b64(public_key_b64).unwrap_or_default()
+    match fingerprint_from_b64(public_key_b64) {
+        Ok(fingerprint) => fingerprint,
+        Err(error) => {
+            tracing::warn!(error = %error, "[identity] 公钥指纹解析失败，按空指纹展示");
+            String::new()
+        }
+    }
 }
 
 /// 读取授权存储。
@@ -1396,12 +1402,12 @@ fn read_audit_tail(limit: usize) -> Vec<AuditEntryDto> {
                 old_value: value
                     .get("old_value")
                     .and_then(|item| item.as_str())
-                    .unwrap_or_default()
+                    .unwrap_or_default() // gate-allow R-C-2: 审计记录的 old_value 为可空字段，缺失即空串，属协议允许的正常取值
                     .to_owned(),
                 new_value: value
                     .get("new_value")
                     .and_then(|item| item.as_str())
-                    .unwrap_or_default()
+                    .unwrap_or_default() // gate-allow R-C-2: 审计记录的 new_value 为可空字段，缺失即空串，属协议允许的正常取值
                     .to_owned(),
                 outcome: value.get("outcome")?.as_str()?.to_owned(),
             })
@@ -1479,7 +1485,7 @@ fn build_snapshot() -> Result<PermissionSnapshotDto, String> {
     let identity = load_or_create_identity()?;
     let store = load_grants()?;
     let devices = DeviceList::load(device_path()).map_err(|error| error.to_string())?;
-    let status = session_service::status().unwrap_or_default();
+    let status = session_service::status()?;
 
     let grants: Vec<GrantDto> = store.grants().iter().map(|record| to_grant_dto(record)).collect();
     let trust_devices: Vec<TrustDeviceDto> = devices

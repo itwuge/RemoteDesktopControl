@@ -1527,8 +1527,7 @@ impl DxgiCapturer {
         {
             Ok(()) => rects[..(count_out as usize).min(rects.len())]
                 .iter()
-                .map(|r| rect_from_rect(r).unwrap_or_default())
-                .filter(|r| r.width > 0 && r.height > 0)
+                .filter_map(rect_from_rect)
                 .collect(),
             Err(_) => Vec::new(),
         }

@@ -200,7 +200,7 @@ pub fn disconnect(reason: &str) -> Result<SessionTeardownDto, String> {
     let Some(session) = guard.take() else {
         // 幂等：已断开过就直接给上次报告；从未建立会话则给空报告。
         let last = last_report().lock().map_err(|error| error.to_string())?;
-        return Ok(last.clone().unwrap_or_default());
+        return Ok(last.clone().unwrap_or_default()); // gate-allow R-C-2: 从未建立会话时没有上次报告，空报告是该分支的正常取值
     };
 
     let mut report = SessionTeardownDto {

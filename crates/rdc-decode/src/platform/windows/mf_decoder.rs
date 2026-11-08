@@ -135,9 +135,21 @@ pub fn activation_name(activate: &IMFActivate) -> String {
 /// # Returns
 /// `(硬件名称列表, 全部名称列表)`；枚举失败时两者均为空。
 pub fn decoder_names() -> (Vec<String>, Vec<String>) {
-    let hardware = enumerate(true).map(|list| list.iter().map(activation_name).collect());
-    let all = enumerate(false).map(|list| list.iter().map(activation_name).collect());
-    (hardware.unwrap_or_default(), all.unwrap_or_default())
+    let hardware = match enumerate(true) {
+        Ok(list) => list.iter().map(activation_name).collect(),
+        Err(error) => {
+            tracing::warn!("[decode] 硬件解码器枚举失败，按无硬件解码器继续: {error}");
+            Vec::new()
+        }
+    };
+    let all = match enumerate(false) {
+        Ok(list) => list.iter().map(activation_name).collect(),
+        Err(error) => {
+            tracing::warn!("[decode] 解码器全量枚举失败，按空列表继续: {error}");
+            Vec::new()
+        }
+    };
+    (hardware, all)
 }
 
 // =====** 解码帧 =====**

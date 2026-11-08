@@ -33,7 +33,7 @@ impl DecoderBackend {
     /// 默认值：启用 `ffmpeg` feature 走 FFmpeg，否则 MF。
     /// `RDC_DECODER=mf` 始终可显式回退，`RDC_DECODER=ffmpeg` 在未编译该后端时会继续落到 MF。
     pub fn from_env() -> Self {
-        match std::env::var("RDC_DECODER").unwrap_or_default().as_str() {
+        match std::env::var("RDC_DECODER").unwrap_or_default().as_str() { // gate-allow R-C-2: 未设置是正常默认路径，空串落到默认分支，不是错误
             "mf" => Self::Mf,
             "ffmpeg" => Self::Ffmpeg,
             _ => {

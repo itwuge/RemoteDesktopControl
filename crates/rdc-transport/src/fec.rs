@@ -239,10 +239,19 @@ impl FecDecoder {
 
         let missing: Vec<usize> = (0..data_count).filter(|i| shards[*i].is_none()).collect();
         if missing.is_empty() {
-            return Ok(shards[..data_count]
-                .iter()
-                .map(|s| s.clone().unwrap_or_default())
-                .collect());
+            let mut out = Vec::with_capacity(data_count);
+            for (index, shard) in shards[..data_count].iter().enumerate() {
+                match shard {
+                    Some(data) => out.push(data.clone()),
+                    // missing 已为空，理论上到不了这里；真到了就报错，绝不把空分片当数据交出去。
+                    None => {
+                        return Err(TransportError::Internal(format!(
+                            "FEC 数据分片 {index} 缺失但未计入 missing"
+                        )))
+                    }
+                }
+            }
+            return Ok(out);
         }
         if missing.len() > parity_count || parity_count == 0 {
             return Err(TransportError::Internal(format!(

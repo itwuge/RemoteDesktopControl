@@ -219,7 +219,13 @@ impl Stats {
 
     /// 读取字符串型字段。
     fn text(slot: &Mutex<String>) -> String {
-        slot.lock().map(|guard| guard.clone()).unwrap_or_default()
+        match slot.lock() {
+            Ok(guard) => guard.clone(),
+            Err(error) => {
+                tracing::warn!(error = %error, "[control] 读取评审字段时锁已中毒，按空值返回");
+                String::new()
+            }
+        }
     }
 }
 
@@ -1118,7 +1124,7 @@ fn run_encode_stage(
                 stall_reported = false;
             }
             // 每包按提交顺序 FIFO 配一个时序；记录缺失时用默认值（统计失真但不致命）。
-            let mut timing = in_flight.pop_front().unwrap_or_default();
+            let mut timing = in_flight.pop_front().unwrap_or_default(); // gate-allow R-C-2: 只影响单包时序统计，热路径不逐帧打日志
             timing.enc_wait_us = qpc_us().saturating_sub(timing.submit_qpc);
             stats.encoded.fetch_add(1, Ordering::Relaxed);
             stats

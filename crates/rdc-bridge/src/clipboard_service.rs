@@ -217,7 +217,7 @@ pub fn local_text() -> Result<String, String> {
         .local_clipboard
         .read_text()
         .map_err(|error| clipboard_error("读取本机剪贴板失败", error))?;
-    Ok(text.unwrap_or_default())
+    Ok(text.unwrap_or_default()) // gate-allow R-C-2: read_text 已成功，None 表示剪贴板不是文本（空/图片），属正常状态
 }
 
 /// 停止剪贴板同步并释放平台剪贴板句柄。
@@ -235,7 +235,7 @@ pub fn stop() -> Result<ClipboardStatusDto, String> {
     Ok(taken
         .as_ref()
         .map(snapshot_of)
-        .unwrap_or_default())
+        .unwrap_or_default()) // gate-allow R-C-2: 本机无文本时返回空快照，属“无内容可同步”的正常状态
 }
 
 /// 读取当前状态。
@@ -268,7 +268,7 @@ fn snapshot(current: &SyncState) -> ClipboardStatusDto {
         skipped_duplicates: stats.skipped_duplicates,
         skipped_echoes: stats.skipped_echoes,
         rejected: stats.rejected,
-        last_hash: current.last_hash.map(hex).unwrap_or_default(),
+        last_hash: current.last_hash.map(hex).unwrap_or_default(), // gate-allow R-C-2: 尚未同步过条目时 last_hash 为 None，空串即“无哈希”的正常取值
         verified: current.verified,
         last_error: current.last_error.clone(),
     }
