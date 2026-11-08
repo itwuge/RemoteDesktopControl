@@ -19,6 +19,8 @@ use rdc_input::{
     KeyEvent, PointerButton, PointerEvent, Viewport, WheelEvent, DEFAULT_MAX_MOVES_PER_SEC,
 };
 
+use crate::error::{boundary_text, lock_poisoned_text};
+
 /// 合并器 tick 间隔：挂起移动最迟 1 ms 内被冲刷（与 docs/04 §2 的 1 ms tick 一致）。
 const TICK_INTERVAL: Duration = Duration::from_millis(1);
 
@@ -200,7 +202,7 @@ impl Pipeline {
             }
             Err(error) => {
                 self.counters.rejected.fetch_add(1, Ordering::Relaxed);
-                self.counters.set_error(error.to_string());
+                self.counters.set_error(boundary_text(error));
             }
         }
     }
@@ -295,7 +297,7 @@ pub fn start(desktop_width: u32, desktop_height: u32) -> Result<InputStatsDto, S
     pipeline.join = Some(spawn_ticker(stop));
     *state()
         .lock()
-        .map_err(|_| "输入状态锁异常".to_owned())? = Some(pipeline);
+        .map_err(|poison| lock_poisoned_text("输入状态锁异常", poison))? = Some(pipeline);
     Ok(counters.snapshot(true))
 }
 
@@ -310,7 +312,7 @@ pub fn start(desktop_width: u32, desktop_height: u32) -> Result<InputStatsDto, S
 /// # Errors
 /// 通道未启动、事件类型未知或线格式往返失败时返回错误文本。
 pub fn push(events: Vec<InputEventDto>) -> Result<InputStatsDto, String> {
-    let mut guard = state().lock().map_err(|_| "输入状态锁异常".to_owned())?;
+    let mut guard = state().lock().map_err(|poison| lock_poisoned_text("输入状态锁异常", poison))?;
     let Some(pipeline) = guard.as_mut() else {
         return Err("输入通道未启动".to_owned());
     };
@@ -345,7 +347,7 @@ pub fn push(events: Vec<InputEventDto>) -> Result<InputStatsDto, String> {
 /// # Errors
 /// 通道未启动时返回错误文本。
 pub fn flush() -> Result<InputStatsDto, String> {
-    let mut guard = state().lock().map_err(|_| "输入状态锁异常".to_owned())?;
+    let mut guard = state().lock().map_err(|poison| lock_poisoned_text("输入状态锁异常", poison))?;
     let Some(pipeline) = guard.as_mut() else {
         return Err("输入通道未启动".to_owned());
     };

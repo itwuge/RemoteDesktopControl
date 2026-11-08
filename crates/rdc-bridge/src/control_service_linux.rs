@@ -31,6 +31,8 @@ use rdc_linux_e2e::clock::mono_ns;
 use rdc_linux_e2e::decoder::Decoder;
 use rdc_linux_e2e::protocol::{self, Packet, StreamConfig};
 
+use crate::error::lock_poisoned_text;
+
 /// 目标帧率：VM 无 GPU，800p 软编软解在 30fps 附近，1080p 会更低。
 const TARGET_FPS: u32 = 30;
 /// 目标码率（bit/s）：与 S8-2 一致，便于横向比较。
@@ -206,7 +208,7 @@ impl FrameSink for EncodeSink {
 /// # Errors
 /// X11 采集不可用、编码器无法配置或端口无法绑定时返回错误文本。
 pub fn start() -> Result<ControlSnapshot, String> {
-    let mut guard = STATE.lock().map_err(|_| "控制服务状态锁被污染")?;
+    let mut guard = STATE.lock().map_err(|poison| lock_poisoned_text("控制服务状态锁被污染", poison))?;
     if let Some(service) = guard.as_ref() {
         if service.shared.snapshot.lock().map(|s| s.running).unwrap_or(false) {
             drop(guard);
@@ -259,7 +261,7 @@ pub fn start() -> Result<ControlSnapshot, String> {
         })
         .map_err(|e| format!("回环 client 线程创建失败: {e}"))?;
 
-    let mut guard = STATE.lock().map_err(|_| "控制服务状态锁被污染")?;
+    let mut guard = STATE.lock().map_err(|poison| lock_poisoned_text("控制服务状态锁被污染", poison))?;
     *guard = Some(Service {
         stop,
         host,
@@ -294,7 +296,7 @@ pub fn start() -> Result<ControlSnapshot, String> {
 /// 状态锁被污染时返回错误文本。
 pub fn stop() -> Result<ControlSnapshot, String> {
     let service = {
-        let mut guard = STATE.lock().map_err(|_| "控制服务状态锁被污染")?;
+        let mut guard = STATE.lock().map_err(|poison| lock_poisoned_text("控制服务状态锁被污染", poison))?;
         guard.take()
     };
     let Some(service) = service else {
@@ -307,7 +309,7 @@ pub fn stop() -> Result<ControlSnapshot, String> {
         .shared
         .snapshot
         .lock()
-        .map_err(|_| "控制服务状态锁被污染")?
+        .map_err(|poison| lock_poisoned_text("控制服务状态锁被污染", poison))?
         .clone();
     snapshot.running = false;
     if let Ok(mut latest) = service.shared.latest.lock() {
@@ -325,7 +327,7 @@ pub fn stop() -> Result<ControlSnapshot, String> {
 /// 状态锁被污染时返回错误文本。
 pub fn status() -> Result<ControlSnapshot, String> {
     let shared = {
-        let guard = STATE.lock().map_err(|_| "控制服务状态锁被污染")?;
+        let guard = STATE.lock().map_err(|poison| lock_poisoned_text("控制服务状态锁被污染", poison))?;
         guard.as_ref().map(|service| Arc::clone(&service.shared))
     };
     let Some(shared) = shared else {
@@ -334,7 +336,7 @@ pub fn status() -> Result<ControlSnapshot, String> {
     let snapshot = shared
         .snapshot
         .lock()
-        .map_err(|_| "控制服务状态锁被污染")?
+        .map_err(|poison| lock_poisoned_text("控制服务状态锁被污染", poison))?
         .clone();
     Ok(snapshot)
 }
@@ -348,7 +350,7 @@ pub fn status() -> Result<ControlSnapshot, String> {
 /// 状态锁被污染时返回错误文本。
 pub fn latest_frame() -> Result<Option<FrameSnapshot>, String> {
     let shared = {
-        let guard = STATE.lock().map_err(|_| "控制服务状态锁被污染")?;
+        let guard = STATE.lock().map_err(|poison| lock_poisoned_text("控制服务状态锁被污染", poison))?;
         guard.as_ref().map(|service| Arc::clone(&service.shared))
     };
     let Some(shared) = shared else {
@@ -357,7 +359,7 @@ pub fn latest_frame() -> Result<Option<FrameSnapshot>, String> {
     let frame = shared
         .latest
         .lock()
-        .map_err(|_| "控制服务状态锁被污染")?
+        .map_err(|poison| lock_poisoned_text("控制服务状态锁被污染", poison))?
         .clone();
     Ok(frame)
 }
@@ -409,7 +411,7 @@ fn host_run(
     display_id: u32,
 ) -> Result<(), String> {
     let (width, height) = {
-        let snapshot = shared.snapshot.lock().map_err(|_| "状态锁被污染")?;
+        let snapshot = shared.snapshot.lock().map_err(|poison| lock_poisoned_text("状态锁被污染", poison))?;
         (snapshot.width, snapshot.height)
     };
 
@@ -648,7 +650,7 @@ fn client_run(port: u16, stop: &Arc<AtomicBool>, shared: &Arc<Shared>) -> Result
                             pixel[3] = 255;
                         }
 
-                        let mut snapshot = shared.snapshot.lock().map_err(|_| "状态锁被污染")?;
+                        let mut snapshot = shared.snapshot.lock().map_err(|poison| lock_poisoned_text("状态锁被污染", poison))?;
                         snapshot.decoded_frames = frame_id;
                         snapshot.dropped_frames = decoder.dropped();
                         snapshot.latency_last_us = latency_us;

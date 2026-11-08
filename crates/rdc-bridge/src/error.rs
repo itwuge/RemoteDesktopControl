@@ -51,6 +51,12 @@ pub enum ApiError {
     /// JSON 序列化。
     #[error("{0}")]
     Json(#[from] #[source] serde_json::Error),
+    /// 输入注入（平台相关）。
+    #[error("{0}")]
+    Input(#[from] #[source] rdc_input::InputError),
+    /// 协议编解码。
+    #[error("{0}")]
+    Protocol(#[from] #[source] rdc_protocol::ProtocolError),
 }
 
 impl From<String> for ApiError {
@@ -94,6 +100,16 @@ pub fn boundary_text(error: impl Into<ApiError>) -> String {
     let mut out = String::new();
     write!(out, "{error}").expect("String 写入不会失败");
     out
+}
+
+/// 互斥锁中毒的 FFI 文本。
+///
+/// 为什么不能挂 `#[source]`：`PoisonError<MutexGuard<'_, T>>` 不满足
+/// `Send + Sync`，无法装入 `Box<dyn Error + Send + Sync>`；这属于「取不到 source」
+/// 的边界。这里显式消费中毒错误并沿用调用方给定的文案，输出与旧实现逐字一致。
+pub fn lock_poisoned_text<T>(message: &'static str, poison: std::sync::PoisonError<T>) -> String {
+    drop(poison);
+    message.to_owned()
 }
 
 #[cfg(test)]

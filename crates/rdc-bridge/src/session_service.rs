@@ -14,6 +14,8 @@ use std::time::{Duration, Instant};
 
 use rdc_protocol::{SignalEnvelope, SignalMessage};
 
+use crate::error::{boundary_text, lock_poisoned_text};
+
 /// bye 往返等待上限：回环桩不超 1 ms，留余量给锁屏/调度抖动。
 const BYE_TIMEOUT: Duration = Duration::from_millis(800);
 
@@ -140,19 +142,19 @@ fn last_report() -> &'static Mutex<Option<SessionTeardownDto>> {
 /// # Errors
 /// 套接字绑定失败或锁异常时返回错误文本。
 pub fn start(role: &str) -> Result<SessionStatusDto, String> {
-    let mut guard = slot().lock().map_err(|error| error.to_string())?;
+    let mut guard = slot().lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?;
     if let Some(session) = guard.as_ref() {
         return Ok(status_of(session));
     }
-    let controller = UdpSocket::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
-    let peer = UdpSocket::bind("127.0.0.1:0").map_err(|error| error.to_string())?;
+    let controller = UdpSocket::bind("127.0.0.1:0").map_err(boundary_text)?;
+    let peer = UdpSocket::bind("127.0.0.1:0").map_err(boundary_text)?;
     controller
         .set_read_timeout(Some(BYE_TIMEOUT))
-        .map_err(|error| error.to_string())?;
+        .map_err(boundary_text)?;
     peer.set_read_timeout(Some(BYE_TIMEOUT))
-        .map_err(|error| error.to_string())?;
-    let peer_addr = peer.local_addr().map_err(|error| error.to_string())?;
-    let controller_addr = controller.local_addr().map_err(|error| error.to_string())?;
+        .map_err(boundary_text)?;
+    let peer_addr = peer.local_addr().map_err(boundary_text)?;
+    let controller_addr = controller.local_addr().map_err(boundary_text)?;
     let session = Session {
         session_id: format!("loop-{:x}", now_us()),
         role: role.to_owned(),
@@ -178,7 +180,7 @@ pub fn start(role: &str) -> Result<SessionStatusDto, String> {
 /// # Errors
 /// 锁异常时返回错误文本。
 pub fn status() -> Result<SessionStatusDto, String> {
-    let guard = slot().lock().map_err(|error| error.to_string())?;
+    let guard = slot().lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?;
     Ok(match guard.as_ref() {
         Some(session) => status_of(session),
         None => SessionStatusDto::default(),
@@ -196,10 +198,10 @@ pub fn status() -> Result<SessionStatusDto, String> {
 /// # Errors
 /// 锁异常时返回错误文本；bye 失败不返回错误，记录在报告的 `ok` 与 `last_error`。
 pub fn disconnect(reason: &str) -> Result<SessionTeardownDto, String> {
-    let mut guard = slot().lock().map_err(|error| error.to_string())?;
+    let mut guard = slot().lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?;
     let Some(session) = guard.take() else {
         // 幂等：已断开过就直接给上次报告；从未建立会话则给空报告。
-        let last = last_report().lock().map_err(|error| error.to_string())?;
+        let last = last_report().lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?;
         return Ok(last.clone().unwrap_or_default()); // gate-allow R-C-2: 从未建立会话时没有上次报告，空报告是该分支的正常取值
     };
 
@@ -267,7 +269,7 @@ pub fn disconnect(reason: &str) -> Result<SessionTeardownDto, String> {
         Some(errors.join("；"))
     };
 
-    *last_report().lock().map_err(|error| error.to_string())? = Some(report.clone());
+    *last_report().lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))? = Some(report.clone());
     Ok(report)
 }
 
@@ -293,7 +295,7 @@ fn exchange_bye(
             reason: reason.to_owned(),
         },
     );
-    let bytes = bye.encode().map_err(|error| error.to_string())?;
+    let bytes = bye.encode().map_err(boundary_text)?;
     let byte_len = bytes.len() as u32;
     session
         .controller
@@ -323,7 +325,7 @@ fn exchange_bye(
             reason: "ack".to_owned(),
         },
     );
-    let ack_bytes = ack.encode().map_err(|error| error.to_string())?;
+    let ack_bytes = ack.encode().map_err(boundary_text)?;
     session
         .peer
         .send_to(&ack_bytes, from)

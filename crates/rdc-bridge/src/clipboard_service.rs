@@ -12,6 +12,8 @@ use std::sync::{Mutex, OnceLock};
 
 use rdc_clipboard::{create_clipboard, Clipboard, ClipboardError, ClipboardSync, SyncStats};
 
+use crate::error::lock_poisoned_text;
+
 /// 剪贴板同步状态快照。
 #[derive(Debug, Clone, Default)]
 pub struct ClipboardStatusDto {
@@ -73,7 +75,7 @@ fn state() -> &'static Mutex<Option<SyncState>> {
 /// # Errors
 /// 平台剪贴板创建失败时返回错误文本。
 pub fn start() -> Result<ClipboardStatusDto, String> {
-    let mut guard = state().lock().map_err(|_| "剪贴板状态锁异常".to_owned())?;
+    let mut guard = state().lock().map_err(|poison| lock_poisoned_text("剪贴板状态锁异常", poison))?;
     if guard.is_some() {
         return Ok(snapshot(guard.as_ref().expect("已判空")));
     }
@@ -98,7 +100,7 @@ pub fn start() -> Result<ClipboardStatusDto, String> {
 /// # Errors
 /// 通道未启动或本机剪贴板没有文本时返回错误文本。
 pub fn send_local() -> Result<ClipboardStatusDto, String> {
-    let mut guard = state().lock().map_err(|_| "剪贴板状态锁异常".to_owned())?;
+    let mut guard = state().lock().map_err(|poison| lock_poisoned_text("剪贴板状态锁异常", poison))?;
     let current = guard.as_mut().ok_or_else(|| "剪贴板通道未启动".to_owned())?;
     current.last_error = None;
     let text = current
@@ -135,7 +137,7 @@ pub fn send_local() -> Result<ClipboardStatusDto, String> {
 /// # Errors
 /// 通道未启动、远端为空或系统剪贴板写入失败时返回错误文本。
 pub fn pull_remote() -> Result<ClipboardStatusDto, String> {
-    let mut guard = state().lock().map_err(|_| "剪贴板状态锁异常".to_owned())?;
+    let mut guard = state().lock().map_err(|poison| lock_poisoned_text("剪贴板状态锁异常", poison))?;
     let current = guard.as_mut().ok_or_else(|| "剪贴板通道未启动".to_owned())?;
     current.last_error = None;
     if current.remote_text.is_empty() {
@@ -183,7 +185,7 @@ pub fn pull_remote() -> Result<ClipboardStatusDto, String> {
 /// # Errors
 /// 通道未启动时返回错误文本。
 pub fn set_remote_text(text: String) -> Result<ClipboardStatusDto, String> {
-    let mut guard = state().lock().map_err(|_| "剪贴板状态锁异常".to_owned())?;
+    let mut guard = state().lock().map_err(|poison| lock_poisoned_text("剪贴板状态锁异常", poison))?;
     let current = guard.as_mut().ok_or_else(|| "剪贴板通道未启动".to_owned())?;
     current.remote_text = text;
     current.last_error = None;
@@ -198,7 +200,7 @@ pub fn set_remote_text(text: String) -> Result<ClipboardStatusDto, String> {
 /// # Errors
 /// 通道未启动时返回错误文本。
 pub fn remote_text() -> Result<String, String> {
-    let guard = state().lock().map_err(|_| "剪贴板状态锁异常".to_owned())?;
+    let guard = state().lock().map_err(|poison| lock_poisoned_text("剪贴板状态锁异常", poison))?;
     let current = guard.as_ref().ok_or_else(|| "剪贴板通道未启动".to_owned())?;
     Ok(current.remote_text.clone())
 }
@@ -211,7 +213,7 @@ pub fn remote_text() -> Result<String, String> {
 /// # Errors
 /// 通道未启动或读取失败时返回错误文本。
 pub fn local_text() -> Result<String, String> {
-    let mut guard = state().lock().map_err(|_| "剪贴板状态锁异常".to_owned())?;
+    let mut guard = state().lock().map_err(|poison| lock_poisoned_text("剪贴板状态锁异常", poison))?;
     let current = guard.as_mut().ok_or_else(|| "剪贴板通道未启动".to_owned())?;
     let text = current
         .local_clipboard

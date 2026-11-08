@@ -42,6 +42,8 @@ use windows::Win32::Graphics::Dxgi::IDXGIResource;
 use windows::Win32::System::Threading::{CreateEventW, SetEvent};
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
 
+use crate::error::lock_poisoned_text;
+
 // =====** 常量 =====**
 
 /// 编码目标帧率（Hz）：与采集同频，限流会把 MFT 固定积压的帧数（约 13 帧）
@@ -364,7 +366,7 @@ fn state() -> &'static Mutex<Option<Running>> {
 /// # Errors
 /// 采集源/编码器/解码器/D3D11 资源创建失败时返回错误文本。
 pub fn start() -> Result<ControlSnapshot, String> {
-    let mut slot = state().lock().map_err(|_| "控制状态锁损坏".to_owned())?;
+    let mut slot = state().lock().map_err(|poison| lock_poisoned_text("控制状态锁损坏", poison))?;
     if let Some(running) = slot.as_ref() {
         if !running.stop.load(Ordering::Relaxed) {
             return Err("控制预览已在运行".to_owned());
@@ -446,7 +448,7 @@ pub fn start() -> Result<ControlSnapshot, String> {
 /// # Errors
 /// 状态锁异常时返回错误文本。
 pub fn stop() -> Result<ControlSnapshot, String> {
-    let mut slot = state().lock().map_err(|_| "控制状态锁损坏".to_owned())?;
+    let mut slot = state().lock().map_err(|poison| lock_poisoned_text("控制状态锁损坏", poison))?;
     let Some(mut running) = slot.take() else {
         return Ok(ControlSnapshot::default());
     };
@@ -468,7 +470,7 @@ pub fn stop() -> Result<ControlSnapshot, String> {
 /// # Errors
 /// 状态锁异常时返回错误文本。
 pub fn status() -> Result<ControlSnapshot, String> {
-    let slot = state().lock().map_err(|_| "控制状态锁损坏".to_owned())?;
+    let slot = state().lock().map_err(|poison| lock_poisoned_text("控制状态锁损坏", poison))?;
     let Some(running) = slot.as_ref() else {
         return Ok(ControlSnapshot::default());
     };
@@ -1643,9 +1645,14 @@ fn create_shared_textures(
         *handle_slot = handle.0 as i64;
         textures.push(texture);
     }
-    let array: [ID3D11Texture2D; 2] = textures
-        .try_into()
-        .map_err(|_| "共享纹理数量错误".to_owned())?;
+    // `Err(Vec<T>)` 携带剩余元素数量，不是 `Error` 类型：显式记录实际数量后返回原文案。
+    let array: [ID3D11Texture2D; 2] = match textures.try_into() {
+        Ok(array) => array,
+        Err(remainder) => {
+            tracing::debug!(actual = remainder.len(), expected = 2, "共享纹理数量不匹配");
+            return Err("共享纹理数量错误".to_owned());
+        }
+    };
     Ok((array, handles))
 }
 
@@ -1737,9 +1744,14 @@ impl VideoConverter {
         for texture in textures {
             output_views.push(output_view(&video_device, &enumerator, texture)?);
         }
-        let outputs: [ID3D11VideoProcessorOutputView; 2] = output_views
-            .try_into()
-            .map_err(|_| "输出视图数量错误".to_owned())?;
+        // 同上：`Err(Vec<T>)` 只带剩余元素，记录数量后返回原文案。
+        let outputs: [ID3D11VideoProcessorOutputView; 2] = match output_views.try_into() {
+            Ok(outputs) => outputs,
+            Err(remainder) => {
+                tracing::debug!(actual = remainder.len(), expected = 2, "输出视图数量不匹配");
+                return Err("输出视图数量错误".to_owned());
+            }
+        };
 
         Ok(Self {
             width,

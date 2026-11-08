@@ -25,6 +25,8 @@ use rdc_core::s5::wall::{
     WALL_BITRATE_BPS, WALL_FPS, WALL_HEIGHT, WALL_WIDTH,
 };
 
+use crate::error::lock_poisoned_text;
+
 // =====** 常量 =====**
 
 /// 采集帧率：与缩略流编码帧率一致，避免为缩略预览占用 60Hz 的桌面采集。
@@ -157,12 +159,12 @@ pub fn start() -> Result<WallSnapshot, String> {
 #[cfg(windows)]
 fn start_windows() -> Result<WallSnapshot, String> {
     {
-        let slot = service_slot().lock().map_err(|error| error.to_string())?;
+        let slot = service_slot().lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?;
         if let Some(state) = slot.as_ref() {
             let snapshot = state
                 .snapshot
                 .lock()
-                .map_err(|error| error.to_string())?
+                .map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?
                 .clone();
             if snapshot.running {
                 return Ok(snapshot);
@@ -170,7 +172,7 @@ fn start_windows() -> Result<WallSnapshot, String> {
         }
     }
 
-    let mut slot = service_slot().lock().map_err(|error| error.to_string())?;
+    let mut slot = service_slot().lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?;
     // 上一轮线程已结束但快照还是旧的：先回收，避免线程泄漏。
     if let Some(previous) = slot.take() {
         if let Some(join) = previous.join {
@@ -210,7 +212,7 @@ fn start_windows() -> Result<WallSnapshot, String> {
         snapshot: Arc::clone(&snapshot),
         latest,
     });
-    let guard = snapshot.lock().map_err(|error| error.to_string())?;
+    let guard = snapshot.lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?;
     Ok(guard.clone())
 }
 
@@ -222,7 +224,7 @@ fn start_windows() -> Result<WallSnapshot, String> {
 /// # Errors
 /// 内部锁中毒时返回错误文本。
 pub fn stop() -> Result<WallSnapshot, String> {
-    let mut slot = service_slot().lock().map_err(|error| error.to_string())?;
+    let mut slot = service_slot().lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?;
     let state = slot.take();
     let mut snapshot = WallSnapshot::default();
     if let Some(state) = state {
@@ -249,13 +251,13 @@ pub fn stop() -> Result<WallSnapshot, String> {
 /// # Errors
 /// 内部锁中毒时返回错误文本。
 pub fn status() -> Result<WallSnapshot, String> {
-    let slot = service_slot().lock().map_err(|error| error.to_string())?;
+    let slot = service_slot().lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?;
     match slot.as_ref() {
         Some(state) => state
             .snapshot
             .lock()
             .map(|guard| guard.clone())
-            .map_err(|error| error.to_string()),
+            .map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison)),
         None => Ok(WallSnapshot::default()),
     }
 }
@@ -268,14 +270,14 @@ pub fn status() -> Result<WallSnapshot, String> {
 /// # Errors
 /// 内部锁中毒时返回错误文本。
 pub fn latest() -> Result<Option<PreviewFrame>, String> {
-    let slot = service_slot().lock().map_err(|error| error.to_string())?;
+    let slot = service_slot().lock().map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?;
     let Some(state) = slot.as_ref() else {
         return Ok(None);
     };
     let frame = state
         .latest
         .lock()
-        .map_err(|error| error.to_string())?
+        .map_err(|poison| lock_poisoned_text("poisoned lock: another task failed inside", poison))?
         .clone();
     Ok(frame)
 }
