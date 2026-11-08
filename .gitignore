@@ -47,6 +47,7 @@ logs/*
 # 判据与欠账清单是可追溯证据，随基线一起入库。
 !logs/gate-baseline-master-debt.md
 !logs/batch1-diag-criteria.md
+!logs/audit-inline-gate-allow.md
 app/rdc-control-logs/
 rdc-control-logs/
 tmp/
