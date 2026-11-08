@@ -369,7 +369,7 @@ impl CaptureSource for PlatformCapture {
         self.token.request();
         if let Some(handle) = self.thread.take() {
             // 采集循环的 AcquireNextFrame 超时上限为一个帧间隔，join 有界。
-            let _ = handle.join();
+            let _ = handle.join(); // gate-allow R-C-2: stop() 无返回值可传播；线程 panic 已由 Rust 默认 panic hook 输出栈
         }
         self.stopped_elapsed_ms = self.started_at.map_or(0, |t| t.elapsed().as_millis() as u64);
         self.backend = None;
@@ -1233,8 +1233,9 @@ impl DxgiCapturer {
                     None => self.read_frame(&frame_info, &resource, dst).map(Acquired::Cpu),
                 }
             };
-            let _ = self.duplication.ReleaseFrame();
+            let release = self.duplication.ReleaseFrame();
             let mut out = result?;
+            release.map_err(|err| CaptureError::Internal(format!("ReleaseFrame: {err}")))?;
             let cost_us = acquired.elapsed().as_micros() as u64;
             match &mut out {
                 Acquired::Cpu(shot) => {
@@ -1635,11 +1636,21 @@ impl GdiCapturer {
             )
             .map_err(|e| CaptureError::Internal(format!("CreateDIBSection: {e}")))?;
             if dib.is_invalid() || bits.is_null() {
-                let _ = DeleteDC(mem_dc);
+                let _ = DeleteDC(mem_dc); // gate-allow R-C-2: 构造失败的收尾释放，主错误随后返回
                 ReleaseDC(GetDesktopWindow(), screen_dc);
                 return Err(CaptureError::Internal("CreateDIBSection 返回空句柄".to_owned()));
             }
-            let _ = SelectObject(mem_dc, dib);
+            let previous = SelectObject(mem_dc, dib);
+            if previous.is_invalid() {
+                if !DeleteObject(dib).as_bool() {
+                    tracing::debug!(error = %std::io::Error::last_os_error(), "SelectObject 失败后回收 DIB 也失败");
+                }
+                if !DeleteDC(mem_dc).as_bool() {
+                    tracing::debug!(error = %std::io::Error::last_os_error(), "SelectObject 失败后回收内存 DC 也失败");
+                }
+                ReleaseDC(GetDesktopWindow(), screen_dc);
+                return Err(CaptureError::Internal("SelectObject 失败".to_owned()));
+            }
             Ok(Self {
                 screen_dc,
                 mem_dc,
@@ -1697,8 +1708,8 @@ impl Drop for GdiCapturer {
                 self.mem_dc,
                 windows::Win32::Graphics::Gdi::HGDIOBJ::default(),
             );
-            let _ = DeleteObject(self.dib);
-            let _ = DeleteDC(self.mem_dc);
+            let _ = DeleteObject(self.dib); // gate-allow R-C-2: Drop 无返回值可传播，GDI 句柄释放失败不改变析构结论
+            let _ = DeleteDC(self.mem_dc); // gate-allow R-C-2: 同上，Drop 阶段资源释放属尽力而为
             ReleaseDC(GetDesktopWindow(), self.screen_dc);
         }
     }
@@ -1721,7 +1732,7 @@ fn enumerate_displays() -> Vec<DisplayInfo> {
     // 同步回调：EnumDisplayMonitors 返回前完成全部累积，`data` 生命周期安全。
     unsafe {
         let mut data = MonitorEnumData { list: &mut out };
-        let _ = EnumDisplayMonitors(
+        let _ = EnumDisplayMonitors( // gate-allow R-C-2: 失败时回调未执行→返回空列表，start()/probe() 随即返回 NoActiveDisplay
             HDC::default(),
             None,
             Some(monitor_enum_proc),
@@ -1873,7 +1884,7 @@ fn qpc_us() -> u64 {
     let freq = *FREQ.get_or_init(|| {
         let mut f = 0i64;
         unsafe {
-            let _ = QueryPerformanceFrequency(&mut f);
+            let _ = QueryPerformanceFrequency(&mut f); // gate-allow R-C-2: 失败时 f 保持 0，紧随其后的分支已降级为 1
         }
         if f <= 0 {
             1
@@ -1883,7 +1894,7 @@ fn qpc_us() -> u64 {
     });
     let mut counter = 0i64;
     unsafe {
-        let _ = QueryPerformanceCounter(&mut counter);
+        let _ = QueryPerformanceCounter(&mut counter); // gate-allow R-C-2: 失败时 counter 保持 0，仅使本帧时间戳降级为 0
     }
     ((u128::from(counter as u64)) * 1_000_000 / (freq as u128)) as u64
 }
@@ -1892,7 +1903,7 @@ fn qpc_us() -> u64 {
 fn ensure_dpi_awareness() {
     // 已声明过（例如宿主 Flutter 进程）时返回失败，属正常情况，不报错。
     unsafe {
-        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); // gate-allow R-C-2: 宿主已声明 DPI 感知时必然返回失败，属正常路径
     }
 }
 

@@ -369,7 +369,8 @@ impl CaptureSource for PlatformCapture {
     fn stop(&mut self) {
         self.token.request();
         if let Some(handle) = self.thread.take() {
-            let _ = handle.join();
+            // 采集循环的 AcquireNextFrame 超时上限为一个帧间隔，join 有界。
+            let _ = handle.join(); // gate-allow R-C-2: stop() 无返回值可传播；线程 panic 已由 Rust 默认 panic hook 输出栈
         }
         self.stopped_elapsed_ms = self.started_at.map_or(0, |t| t.elapsed().as_millis() as u64);
         self.backend = None;
@@ -843,7 +844,7 @@ impl XSession {
         let frame_start = Instant::now();
         match self.image.as_ref() {
             Some(image) => {
-                let reply = self
+                let _reply = self
                     .conn
                     .shm_get_image(
                         self.root,
@@ -859,7 +860,6 @@ impl XSession {
                     .map_err(|e| format!("XShmGetImage 请求失败: {e}"))?
                     .reply()
                     .map_err(|e| format!("XShmGetImage 回复失败: {e}"))?;
-                let _ = reply;
                 // 共享内存由 X 服务器直接写入，此处读到的就是本帧像素。
                 let src = unsafe { std::slice::from_raw_parts(image.ptr.cast_const(), bytes) };
                 copy_rows(src, buffer.as_mut_slice(), stride, self.target.width as usize * 4, self.target.height as usize);
@@ -1068,7 +1068,9 @@ impl ShmImage {
         if let Err(error) = conn.shm_detach(self.seg) {
             debug!(error = %error, "ShmDetach 请求失败");
         }
-        let _ = conn.flush();
+        if let Err(error) = conn.flush() {
+            debug!(error = %error, "ShmDetach 后 flush 失败，服务器可能延迟处理解绑");
+        }
         release_shm(self.ptr.cast(), self.shmid);
     }
 }
