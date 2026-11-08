@@ -379,6 +379,80 @@ Linux 被控端 `rdc-serve` 的 **S8-2 明文 TCP 协议**（`kind 1..4`，见
 
 ---
 
+### 2.15 交付包固化与模拟器三项验收（E 组，2026-11-08）
+
+**判据（先落盘后执行）**
+
+| # | 判据 | 判定方式 |
+|---|---|---|
+| E1 | lock 固化 | 构建机 `flutter pub get` 不再改动 `app/pubspec.lock`；该 lock 提交入库；出包前后 lock MD5 不变 |
+| E2 | 产物可复现 | 同一源码、同一参数连续两次清构建，APK SHA-256 相同；若不同须给出差异来源 |
+| E3 | 仅 debug 出 x86_64 | `debug` 变体允许 x86_64；`release` 与 `packaging/android/build_apk.sh` 零改动；arm64 交付包在改动前后哈希不变（除真实代码变更外） |
+| E4 | 三项验收 | ①`adb install` 返回 `Success`；②启动后 `pidof com.rdc.rdc` 非空且桥接正常；③输入 `192.168.37.130:45900` 后连上并持续收帧，截图可见被控端桌面 |
+| E5 | 收尾 | 关闭模拟器与 VM，`vmrun list` 为 0，宿主可用内存回到启动前量级 |
+
+**守卫与环境**：启动前宿主可用内存 **22.97 GB / 31.91 GB**（阈值 4 GB，通过）；VM 为 `Desktop\Ubuntu 22.04 64位`，`192.168.37.130`；仅同步 worktree 到 `/home/wuge/rdc-android-sync`，未改动 `rdc/`、`rdc-linux/`、`rdc-serve/`、`rdc-android-src/`、`rdc-shots/` 与系统配置。
+
+#### E1 lock 固化
+
+| 项 | 结果 |
+|---|---|
+| VM 解析 | `flutter pub get` → `Got dependencies!`（**无变更**），`app/pubspec.lock` MD5 `4c32ba67a8f4ba2707dc828008c23658` |
+| 本地对照 | 原 lock 为 `meta 1.18.3 / vector_math 2.4.0` 且 URL 为 `pub.dev`；构建机已解析为 `meta 1.19.0 / vector_math 2.4.4`，URL 记为 `pub.flutter-io.cn`（构建机镜像），版本号与 `sha256` 为判定依据 |
+| 提交 | `7602cb4 chore(android): 固化pubspec.lock…` |
+| 出包前后 | 两次构建后 lock MD5 仍为 `4c32ba…`，未被 `flutter build` 改写 |
+
+#### E2/E3 构建结果
+
+| 轮次 | 构建条件 | 耗时 | SHA-256 | 大小 |
+|---|---|---|---|---|
+| 1 | 全新同步目录，冷构建 | 56.5 s | `e10eb575…72e7` | 79,232,753 B |
+| 2 | 删除 `app/build`/项目 `.gradle`/`.cxx` 后重建 | 13.2 s（命中 Gradle 构建缓存） | `e10eb575…72e7` | 79,232,753 B |
+| 3 | 加入 debug x86_64 配置后复验 arm64 | — | `e10eb575…72e7` | 79,232,753 B |
+| A | 修复 FRB 生成代码后重建 | — | `03cd7752…dcd5` | 79,273,401 B |
+| B | 同 A，再次清构建 | — | `03cd7752…dcd5` | 79,273,401 B |
+
+- 轮次 1/2 哈希一致；轮次 2 命中 Gradle 构建缓存，独立性弱于轮次 1，但轮次 1 与此前独立构建的旧包哈希相同，可判「可复现」。
+- 轮次 3 与轮次 1 完全相同 → **debug x86_64 配置未改变 arm64 交付包**。
+- 轮次 A/B 因修复了真实代码缺陷（见下）而必然换哈希，A/B 两次仍一致；`dist/RDC-0.1.0-android-arm64-v8a-debug.apk` 已替换为 `03cd…`，旧 `e10eb…` 不再使用。
+- 包内 ABI 仍仅 `lib/arm64-v8a/`（`librdc_bridge.so` + `libflutter.so`）。
+
+**debug x86_64 改动（`app/android/app/build.gradle.kts` 第 53–70 行）**
+
+- 新增 `buildTypes.debug { ndk { abiFilters += listOf("x86_64") } }`（第 53–65 行），含说明注释；`release` 块（第 66–69 行）与 `packaging/android/build_apk.sh` **一字未改**（`git diff packaging/` 为空）。
+- 实测结论（如实记录）：Flutter 3.47.9 的 Gradle 插件在 `apply` 阶段就向 `defaultConfig` 注入 `[armeabi-v7a, arm64-v8a, x86_64]`，原写死的 `arm64-v8a` 只是并集追加，**并不能真正拦掉 x86_64**；包内实际 ABI 由 `jniLibs` 中存在哪些 `.so` 决定。因此该改动的真实作用是「把 debug 的 x86_64 意图显式化」，交付包不受影响由轮次 3 的哈希相同证明。
+- x86_64 构建另需 `cargo ndk -t x86_64 … build --release -p rdc-bridge`（构建机临时操作，未写入交付脚本）。
+
+#### 发现的真实阻塞与修复（不得绕过）
+
+| 项 | 证据 | 处理 |
+|---|---|---|
+| 桥接初始化失败 | 首次 x86_64 包启动即红字「桥接异常」；`cargo ndk` 日志 `[main] Rust 桥接初始化失败`，`RustGateway 尚未初始化` 刷屏 | 定位为 FRB 生成代码漏提交：`app` 侧 `rustContentHash = -999264004`，`crates/rdc-bridge/src/frb_generated.rs` 仍为阶段 5 的 `1204307587`，且缺 `wire__crate__api__direct_connect_impl` |
+| 修复 | 在 `app/` 执行 `flutter_rust_bridge_codegen generate`（2.13.0）→ `Done!`；Rust 侧 hash 变为 `-999264004`，新增 271 行 / 删除 44 行（含 `direct_connect` 接线）；Dart 生成文件 MD5 与原来完全一致 | 提交 `82bc512 fix(bridge): 重新生成FRB胶水…`；宿主 `cargo test -p rdc-bridge` 退出码 0（loopback 5/5） |
+| 影响 | 旧 `e10eb…` 包虽能安装，但启动必失败，**不可交付**；新 `03cd…` 为可交付版本 | — |
+
+#### E4 模拟器三项验收（x86_64，`rdc_a33`，android-33）
+
+| 项 | 结果 | 证据 |
+|---|---|---|
+| 能装 | `adb install -r -t dist/RDC-0.1.0-android-x86_64-debug.apk` → `Performing Streamed Install` / `Success`；APK SHA-256 `7177e311…c517`，包内仅 `lib/x86_64/` | adb 输出；`unzip -l` |
+| 能启动 | `pidof com.rdc.rdc` = `4570`；logcat `[AndroidSelfCheck] PASS: rdc-bridge selfcheck OK os=android arch=x86_64 abi=unix`、`[RustGateway] 动态库由默认加载器装载`；截图徽标「桥接正常 / android-x86_64」 | logcat；`logs/s9-shot2-bridge-ok.png` |
+| 能填地址连上 | 直连对话框清空后重新输入 `192.168.37.130`、端口 `45900` → 点「连接」；logcat `[SessionController] 直连建立 192.168.37.130:45900 1280x800@60`、`Android 画面通道 textureId=1`；收帧 **589 → 1982**，丢包 **0.0%**；截图可见 Ubuntu 桌面（顶栏与左侧 Dock 图标），服务端 `rdc-serve` PID 1866（`DISPLAY=:0`，真实图形会话） | logcat；`logs/s9-shot4-typed-ip.png`、`s9-shot5-connected.png`、`s9-shot6-frames.png` |
+
+**证据文件**（`logs/` 被 gitignore，仅本地留存）：`s9-shot1-home.png`（修复前红字桥接异常）、`s9-shot2-bridge-ok.png`、`s9-shot3-direct-dialog.png`、`s9-shot4-typed-ip.png`、`s9-shot5-connected.png`、`s9-shot6-frames.png`。
+
+**仍未验证**：C4 输入回传（本轮未注入触摸/键盘，只验证了收帧）、真实 arm64 真机、跨机网络延迟与丢包、5 分钟长稳；模拟器为软件 GPU（swiftshader），帧率为模拟器内实测值。
+
+#### E5 收尾
+
+| 项 | 结果 |
+|---|---|
+| 模拟器 | `adb emu kill` 返回 `KO: unknown command`（该版本 console 不支持），随 VM 一并停止 |
+| VM | `vmrun stop … soft` → `vmrun list` = **0** |
+| 宿主内存 | 关机后可用 **23.89 GB / 31.91 GB**（启动前 22.97 GB） |
+
+---
+
 ## 三、阶段 2 现状（代码完成，设备侧未验证）
 
 | # | 现状 | 阻塞 |
