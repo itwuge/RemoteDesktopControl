@@ -80,7 +80,7 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
     let options = parse(&mut rest.into_iter());
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (role, options);
+        let _unused = (role, options);
         return Err("S3b-4 只实现于 Windows".into());
     }
     #[cfg(target_os = "windows")]
@@ -214,8 +214,8 @@ mod windows_impl {
         let mut counter = 0i64;
         let mut frequency = 0i64;
         unsafe {
-            let _ = QueryPerformanceCounter(&mut counter);
-            let _ = QueryPerformanceFrequency(&mut frequency);
+            let _ = QueryPerformanceCounter(&mut counter); // gate-allow R-C-2: 失败时 counter 保持 0，紧随的 frequency<=0 分支返回 0
+            let _ = QueryPerformanceFrequency(&mut frequency); // gate-allow R-C-2: 失败时 frequency 保持 0，紧随分支返回 0
         }
         if frequency <= 0 {
             return 0;
@@ -243,7 +243,7 @@ mod windows_impl {
 
     /// 驱动：拉起 host 与 ctrl 两个子进程，各自落日志。
     pub(super) fn run_driver(options: &Options) -> S3bResult<()> {
-        let _ = std::fs::create_dir_all(&options.out);
+        let _ = std::fs::create_dir_all(&options.out); // gate-allow R-C-2: 紧随其后的 std::fs::write(...)? 会在目录不可写时返回错误
         let exe = std::env::current_exe()?;
         println!(
             "== RDC S3b-4 端到端实测（UDP 回环，1080p，{} s）==",
@@ -468,7 +468,7 @@ mod windows_impl {
              \"our_queue\":{{\"first_output_in_flight\":{our_prefill_feeds},\"first_output_at_ms\":{our_prefill_ms},\"source\":\"{trace_source}\"}}}}",
             aus.len()
         );
-        let _ = std::fs::create_dir_all(&options.out);
+        let _ = std::fs::create_dir_all(&options.out); // gate-allow R-C-2: 紧随其后的 std::fs::write(d2.json)? 会在目录不可写时返回错误
         std::fs::write(Path::new(&options.out).join("d2.json"), json)?;
         println!("[exp] 已写 {}/d2.json", options.out);
         Ok(())
@@ -652,7 +652,7 @@ mod windows_impl {
             elapsed,
             bytes as f64 * 8.0 / elapsed
         );
-        let _ = std::fs::create_dir_all(&options.out);
+        let _ = std::fs::create_dir_all(&options.out); // gate-allow R-C-2: 紧随其后的 std::fs::write(host.json)? 会在目录不可写时返回错误
         std::fs::write(Path::new(&options.out).join("host.json"), json)?;
         println!(
             "[host] 完成：{frames} 帧 / {packets} 包 / {:.1} Mbps / {fps:.1} fps / pacer {} Mbps / 实测 {:.1} Mbps / 帧率优先跳过 {priority_skips}",
@@ -997,7 +997,7 @@ mod windows_impl {
             samples.len(),
             presented
         );
-        let _ = std::fs::create_dir_all(&options.out);
+        let _ = std::fs::create_dir_all(&options.out); // gate-allow R-C-2: 紧随其后的 std::fs::write(report.json)? 会在目录不可写时返回错误
         let report = Path::new(&options.out).join("report.json");
         std::fs::write(&report, json)?;
         let mut trace_csv =

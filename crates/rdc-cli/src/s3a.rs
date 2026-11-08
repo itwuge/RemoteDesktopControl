@@ -142,7 +142,7 @@ impl FrameLog {
     /// 写失败被忽略：日志是诊断数据，不得影响实测主流程。
     fn row(&self, line: &str) {
         if let Ok(mut writer) = self.inner.lock() {
-            let _ = writeln!(writer, "{line}");
+            let _ = writeln!(writer, "{line}"); // gate-allow R-C-2: 诊断 CSV 逐行写入，写失败不得中断实测主流程（函数契约即忽略）
         }
     }
 
@@ -155,7 +155,7 @@ impl FrameLog {
     /// 冲刷失败被忽略。
     fn flush(&self) {
         if let Ok(mut writer) = self.inner.lock() {
-            let _ = writer.flush();
+            let _ = writer.flush(); // gate-allow R-C-2: 收尾冲刷诊断日志，失败不影响已完成的实测结论
         }
     }
 }
@@ -172,7 +172,12 @@ fn create_log_dir() -> PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let dir = PathBuf::from("logs").join(format!("s3a-{secs}"));
-    let _ = std::fs::create_dir_all(&dir);
+    if let Err(error) = std::fs::create_dir_all(&dir) {
+        eprintln!(
+            "[s3a] 创建日志目录 {} 失败，诊断输出将缺失: {error}",
+            dir.display()
+        );
+    }
     dir
 }
 
@@ -296,7 +301,7 @@ pub fn run(fixture_enabled: bool) -> S3aResult<()> {
         .name("rdc-s3a-worker".to_owned())
         .spawn(move || {
             let result = run_pipeline(&worker_progress, &worker_log_dir).map_err(|e| e.to_string());
-            let _ = done_tx.send(result);
+            let _ = done_tx.send(result); // gate-allow R-C-2: 主线程超时后已返回 watchdog 错误，结果无人接收属预期
         })?;
 
     // 回归探针：模拟「主线程长时间不泵消息」的旧行为，用于验证未响应判定。
@@ -389,7 +394,7 @@ fn pump_messages() {
         };
         let mut msg = MSG::default();
         while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-            let _ = TranslateMessage(&msg);
+            let _ = TranslateMessage(&msg); // gate-allow R-C-2: 失败仅表示无键盘消息可翻译，DispatchMessage 仍照常分发
             DispatchMessageW(&msg);
         }
     }
@@ -600,7 +605,9 @@ fn run_pipeline(progress: &Progress, log_dir: &Path) -> S3aResult<()> {
     println!("{}", report.text);
     std::fs::write(&report_path, &report.json)?;
     // 报告副本进日志目录，便于与逐帧原始数据对照回查。
-    let _ = std::fs::copy(&report_path, log_dir.join("report.json"));
+    if let Err(error) = std::fs::copy(&report_path, log_dir.join("report.json")) {
+        eprintln!("[s3a] 报告副本写入日志目录失败: {error}");
+    }
     println!("MP4: {}", mp4_path.display());
     println!("报告: {}", report_path.display());
 
@@ -1052,8 +1059,8 @@ impl FixtureWindow {
                 HINSTANCE::from(hinstance),
                 None,
             );
-            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE);
-            let _ = SetTimer(hwnd, 1, 16, None);
+            let _ = ShowWindow(hwnd, SW_SHOWNOACTIVATE); // gate-allow R-C-2: ShowWindow 返回此前可见状态，非失败指示
+            let _ = SetTimer(hwnd, 1, 16, None); // gate-allow R-C-2: 定时器仅驱动夹具窗口重绘，失败不影响采集/编码验收
             Ok(Self { hwnd })
         }
     }
@@ -1089,7 +1096,11 @@ impl FixtureWindow {
     /// 不会失败；重复调用无害。
     pub fn close(&self) {
         unsafe {
-            let _ = windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.hwnd);
+            if let Err(error) =
+                windows::Win32::UI::WindowsAndMessaging::DestroyWindow(self.hwnd)
+            {
+                eprintln!("[s3a] 夹具窗口销毁失败: {error}");
+            }
         }
     }
 }
@@ -1136,7 +1147,7 @@ unsafe extern "system" fn wndproc(
             windows::Win32::Foundation::LRESULT(0)
         }
         WM_TIMER => {
-            let _ = InvalidateRect(hwnd, None, false);
+            let _ = InvalidateRect(hwnd, None, false); // gate-allow R-C-2: 重绘提示失败只影响夹具窗口观感，不影响验收
             windows::Win32::Foundation::LRESULT(0)
         }
         WM_PAINT => {
@@ -1166,7 +1177,7 @@ unsafe extern "system" fn wndproc(
                     bottom: h,
                 };
                 SetDCBrushColor(hdc, windows::Win32::Foundation::COLORREF(color));
-                let _ = FillRect(hdc, &rect, brush);
+                let _ = FillRect(hdc, &rect, brush); // gate-allow R-C-2: 夹具窗口彩条绘制，失败不影响采集/编码验收
             }
             let bar_w = (w / 8).max(8);
             let x = (tick as i32 * 24) % (w + bar_w) - bar_w;
@@ -1177,8 +1188,8 @@ unsafe extern "system" fn wndproc(
                 bottom: h * 2 / 3,
             };
             SetDCBrushColor(hdc, windows::Win32::Foundation::COLORREF(0x00FF_FFFF));
-            let _ = FillRect(hdc, &rect, brush);
-            let _ = EndPaint(hwnd, &ps);
+            let _ = FillRect(hdc, &rect, brush); // gate-allow R-C-2: 夹具窗口移动白块绘制，失败不影响采集/编码验收
+            let _ = EndPaint(hwnd, &ps); // gate-allow R-C-2: 与 BeginPaint 配对，失败无恢复动作，窗口即将销毁
             windows::Win32::Foundation::LRESULT(0)
         }
         _ => DefWindowProcW(hwnd, msg, wparam, lparam),

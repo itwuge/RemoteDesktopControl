@@ -57,7 +57,7 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
     let frames = parse_frames(args);
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = frames;
+        let _frames = frames;
         return Err("S3b-2 上屏自检只实现于 Windows".into());
     }
     #[cfg(target_os = "windows")]
@@ -371,7 +371,12 @@ mod windows_impl {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         let dir = PathBuf::from("logs").join(format!("s3b2-{secs}"));
-        let _ = std::fs::create_dir_all(&dir);
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            eprintln!(
+                "[s3b] 创建日志目录 {} 失败，诊断输出将缺失: {error}",
+                dir.display()
+            );
+        }
         dir
     }
 

@@ -464,7 +464,11 @@ async fn host_stream(
 
     // 通知观看者「从下一帧开始计时」，预热帧在观看者侧重组后丢弃。
     for (index, session) in sessions.iter_mut().enumerate() {
-        let _ = tokio::time::timeout(SEND_TIMEOUT, send_start(session, stream_ids[index])).await;
+        match tokio::time::timeout(SEND_TIMEOUT, send_start(session, stream_ids[index])).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => eprintln!("[wall] 启动信号发送失败: {error:?}"),
+            Err(_) => eprintln!("[wall] 启动信号发送超时"),
+        }
     }
 
     // ---- 阶段 B：主码流 + 共享缩略图编码器 + 3 路分发，10 s ----
@@ -539,7 +543,11 @@ async fn host_stream(
 
     // ---- 结束：每路一条 Done，观看者据此退出，不靠取消读操作 ----
     for (index, session) in sessions.iter_mut().enumerate() {
-        let _ = tokio::time::timeout(SEND_TIMEOUT, send_done(session, stream_ids[index])).await;
+        match tokio::time::timeout(SEND_TIMEOUT, send_done(session, stream_ids[index])).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => eprintln!("[wall] 结束信号发送失败: {error:?}"),
+            Err(_) => eprintln!("[wall] 结束信号发送超时，依赖观看者侧超时退出"),
+        }
     }
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -932,11 +940,12 @@ fn write_viewer_csv(path: &std::path::Path, samples: &[FrameSample]) -> DemoResu
     use std::fmt::Write as _;
     let mut text = String::from("frame_id,pts_us,recv_us,latency_us,bytes\n");
     for sample in samples {
-        let _ = writeln!(
+        writeln!(
             text,
             "{},{},{},{},{}",
             sample.frame_id, sample.pts_us, sample.recv_us, sample.latency_us, sample.bytes
-        );
+        )
+        .expect("String 写入不会失败");
     }
     write_text(path, &text)
 }
@@ -981,8 +990,8 @@ fn build_summary(
 ) -> DemoResult<String> {
     use std::fmt::Write as _;
     let mut text = String::new();
-    let _ = writeln!(text, "S5-1 demo-wall");
-    let _ = writeln!(
+    writeln!(text, "S5-1 demo-wall").expect("String 写入不会失败");
+    writeln!(
         text,
         "子码流：{}x{} @ {} fps / {} kbps（共享缩略图编码器，backend={}）",
         WALL_WIDTH,
@@ -990,8 +999,9 @@ fn build_summary(
         WALL_FPS,
         WALL_BITRATE_BPS / 1000,
         host.backend
-    );
-    let _ = writeln!(
+    )
+    .expect("String 写入不会失败");
+    writeln!(
         text,
         "host：主码流包 {}，子码流包 {}，子码流 {} KiB，分片 {}，发送失败 {}",
         host.main_packets,
@@ -999,21 +1009,23 @@ fn build_summary(
         host.wall_bytes / 1024,
         host.fragments,
         host.send_failures
-    );
+    )
+    .expect("String 写入不会失败");
     let main_rate = host.main_cpu_us_per_s;
     let extra = host.wall_extra_cpu_us_per_s;
     let extra_4 = extra * 4.0 / VIEWERS as f64;
     let budget = main_rate * CPU_BUDGET_RATIO;
-    let _ = writeln!(
+    writeln!(
         text,
         "CPU：单路主码流（1080p30 编码管线）{:.1}%（每核）；屏幕墙 3 路单独实测 {:.1}%，4 路外推 {:.1}%；预算（主码流 30%）{:.1}%",
         main_rate / 1_000_000.0 * 100.0,
         extra / 1_000_000.0 * 100.0,
         extra_4 / 1_000_000.0 * 100.0,
         budget / 1_000_000.0 * 100.0
-    );
+    )
+    .expect("String 写入不会失败");
     for stat in stats {
-        let _ = writeln!(
+        writeln!(
             text,
             "{}：帧 {}（{:.2} fps），单调={}，p50={} us，p99={} us，max={} us，重组丢弃={}",
             stat.tag,
@@ -1024,7 +1036,8 @@ fn build_summary(
             stat.p99_us,
             stat.max_us,
             stat.dropped
-        );
+        )
+        .expect("String 写入不会失败");
     }
     let latest = hub
         .lock()
@@ -1033,7 +1046,7 @@ fn build_summary(
     for (index, frame) in latest.iter().enumerate() {
         match frame {
             Some(frame) => {
-                let _ = writeln!(
+                writeln!(
                     text,
                     "最新帧[流 {}]：frame={} ts={} us {}x{} {} B texture={:?}",
                     index + 1,
@@ -1043,10 +1056,11 @@ fn build_summary(
                     frame.height,
                     frame.bytes,
                     frame.texture_id
-                );
+                )
+                .expect("String 写入不会失败");
             }
             None => {
-                let _ = writeln!(text, "最新帧[流 {}]：无", index + 1);
+                writeln!(text, "最新帧[流 {}]：无", index + 1).expect("String 写入不会失败");
             }
         }
     }

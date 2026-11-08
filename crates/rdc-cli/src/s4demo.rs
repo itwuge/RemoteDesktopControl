@@ -137,7 +137,7 @@ fn dump_marks() -> String {
     };
     let mut text = String::from("[setup] 建链轨迹:");
     for (at, side, step) in list.iter() {
-        let _ = write!(text, "\n  +{at} ms {side}: {step}");
+        write!(text, "\n  +{at} ms {side}: {step}").expect("String 写入不会失败");
     }
     text
 }
@@ -500,21 +500,23 @@ impl KeyboardHook {
             .spawn(move || unsafe {
                 let mut msg = MSG::default();
                 // 先创建消息队列，保证主线程的 PostThreadMessage 不会落空。
-                let _ = PeekMessageW(&mut msg, HWND(0), 0, 0, PM_NOREMOVE);
+                let _ = PeekMessageW(&mut msg, HWND(0), 0, 0, PM_NOREMOVE); // gate-allow R-C-2: 仅用于创建线程消息队列，返回值只表示当时是否有消息
                 let thread_id = GetCurrentThreadId();
                 match SetWindowsHookExW(WH_KEYBOARD_LL, Some(keyboard_hook), HINSTANCE(0), 0) {
                     Ok(hook) => {
-                        let _ = tx.send((thread_id, true));
+                        let _ = tx.send((thread_id, true)); // gate-allow R-C-2: 接收端在 install() 内，超时放弃时安装失败错误已返回
                         loop {
                             let ret = GetMessageW(&mut msg, HWND(0), 0, 0);
                             if ret.0 == 0 || ret.0 == -1 {
                                 break;
                             }
                         }
-                        let _ = UnhookWindowsHookEx(hook);
+                        if let Err(error) = UnhookWindowsHookEx(hook) {
+                            eprintln!("[s4] 卸载键盘钩子失败: {error}");
+                        }
                     }
                     Err(_) => {
-                        let _ = tx.send((thread_id, false));
+                        let _ = tx.send((thread_id, false)); // gate-allow R-C-2: 接收端在 install() 内，超时放弃时安装失败错误已返回
                     }
                 }
             })?;
@@ -528,9 +530,15 @@ impl KeyboardHook {
     /// 停止钩子线程并取走记录（保证线程 join，无残留）。
     fn stop(self) -> Vec<KeyRecord> {
         unsafe {
-            let _ = PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0));
+            if let Err(error) =
+                PostThreadMessageW(self.thread_id, WM_QUIT, WPARAM(0), LPARAM(0))
+            {
+                eprintln!("[s4] 通知钩子线程退出失败（join 可能阻塞）: {error}");
+            }
         }
-        let _ = self.thread.join();
+        if let Err(error) = self.thread.join() {
+            eprintln!("[s4] 钩子线程异常退出: {error:?}");
+        }
         std::mem::take(&mut *KEY_EVENTS.lock().expect("钩子记录锁"))
     }
 }
@@ -905,7 +913,7 @@ struct TempFiles {
 impl Drop for TempFiles {
     fn drop(&mut self) {
         for path in &self.paths {
-            let _ = std::fs::remove_file(path);
+            let _ = std::fs::remove_file(path); // gate-allow R-C-2: Drop 无返回值可传播，临时文件清理失败不影响演示结论
         }
     }
 }
@@ -1091,7 +1099,7 @@ fn hex(hash: &[u8; 32]) -> String {
     use std::fmt::Write as _;
     let mut text = String::with_capacity(64);
     for byte in hash {
-        let _ = write!(text, "{byte:02x}");
+        write!(text, "{byte:02x}").expect("String 写入不会失败");
     }
     text
 }
@@ -1101,7 +1109,7 @@ fn hex(hash: &[u8; 32]) -> String {
 /// 设置 Per-Monitor V2 DPI 感知；已设置过时忽略错误。
 fn enable_dpi_awareness() {
     unsafe {
-        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); // gate-allow R-C-2: 进程已声明 DPI 感知时必然返回失败，属正常路径
     }
 }
 

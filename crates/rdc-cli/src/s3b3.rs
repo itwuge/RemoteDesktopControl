@@ -78,7 +78,7 @@ pub fn run(args: &mut impl Iterator<Item = String>) -> S3bResult<()> {
     let options = parse(args);
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = options;
+        let _options = options;
         return Err("S3b-3 只实现于 Windows（MF 硬件编码）".into());
     }
     #[cfg(target_os = "windows")]
@@ -362,7 +362,7 @@ mod windows_impl {
             let bitrate = options.bitrate;
             std::thread::spawn(move || {
                 let result = run_instance(index, frames, bitrate);
-                let _ = sender.send(result);
+                let _ = sender.send(result); // gate-allow R-C-2: 接收端在任一实例超时/报错后已提前返回，主错误随后返回
             });
         }
         drop(sender);
@@ -520,7 +520,12 @@ mod windows_impl {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
         let dir = PathBuf::from("logs").join(format!("s3b3-{secs}"));
-        let _ = std::fs::create_dir_all(&dir);
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            eprintln!(
+                "[s3b3] 创建日志目录 {} 失败，诊断输出将缺失: {error}",
+                dir.display()
+            );
+        }
         dir
     }
 }
