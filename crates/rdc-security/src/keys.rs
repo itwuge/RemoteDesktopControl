@@ -59,12 +59,16 @@ pub fn hmac_sha256_b64(key: &[u8], payload: &[u8]) -> String {
 pub fn verify_hmac_sha256_b64(key: &[u8], payload: &[u8], mac_b64: &str) -> Result<(), SecurityError> {
     let provided = STANDARD
         .decode(mac_b64)
-        .map_err(|_| SecurityError::ConfirmationFailed)?;
+        .map_err(|error| SecurityError::ConfirmationFailed {
+            source: Some(Box::new(error)),
+        })?;
     let mut mac = HmacSha256::new_from_slice(key).expect("HMAC 支持任意长度密钥");
     mac.update(payload);
     // `verify_slice` 内部为常量时间比较。
     mac.verify_slice(&provided)
-        .map_err(|_| SecurityError::ConfirmationFailed)
+        .map_err(|error| SecurityError::ConfirmationFailed {
+            source: Some(Box::new(error)),
+        })
 }
 
 // =====** Base64 辅助 =====**
@@ -97,14 +101,16 @@ pub fn to_b64(bytes: &[u8]) -> String {
 pub fn from_b64_exact<const N: usize>(text: &str, expected: usize) -> Result<[u8; N], SecurityError> {
     let raw = STANDARD
         .decode(text)
-        .map_err(|_| SecurityError::InvalidKeyLength {
+        .map_err(|error| SecurityError::InvalidKeyLength {
             expected,
             actual: text.len(),
+            source: Some(Box::new(error)),
         })?;
     if raw.len() != N || raw.len() != expected {
         return Err(SecurityError::InvalidKeyLength {
             expected,
             actual: raw.len(),
+            source: None,
         });
     }
     let mut out = [0u8; N];
@@ -297,12 +303,23 @@ pub fn verify_signature_b64(
     sig_b64: &str,
 ) -> Result<(), SecurityError> {
     let key_bytes: [u8; 32] = from_b64_exact(public_key_b64, 32)?;
-    let key = VerifyingKey::from_bytes(&key_bytes).map_err(|_| SecurityError::SignatureInvalid)?;
-    let sig_bytes: [u8; 64] = from_b64_exact(sig_b64, 64).map_err(|_| SecurityError::SignatureInvalid)?;
+    let key = VerifyingKey::from_bytes(&key_bytes).map_err(|error| {
+        SecurityError::SignatureInvalid {
+            source: Some(Box::new(error)),
+        }
+    })?;
+    let sig_bytes: [u8; 64] = from_b64_exact(sig_b64, 64).map_err(|error| {
+        SecurityError::SignatureInvalid {
+            source: Some(Box::new(error)),
+        }
+    })?;
     let signature = Signature::from_bytes(&sig_bytes);
     // 验签失败不区分原因，避免给攻击者提供额外的判别信息。
-    key.verify(payload, &signature)
-        .map_err(|_| SecurityError::SignatureInvalid)
+    key.verify(payload, &signature).map_err(|error| {
+        SecurityError::SignatureInvalid {
+            source: Some(Box::new(error)),
+        }
+    })
 }
 
 // =====** EphemeralKey =====**

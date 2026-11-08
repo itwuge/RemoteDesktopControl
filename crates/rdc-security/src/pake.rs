@@ -8,7 +8,7 @@
 use rand_core::{OsRng, RngCore};
 use spake2::{Ed25519Group, Identity, Password, Spake2};
 
-use crate::error::SecurityError;
+use crate::error::{SecurityError, Spake2LibError};
 
 // =====** 配对码常量 =====**
 
@@ -207,10 +207,16 @@ impl PakeSession {
         let state = self
             .state
             .take()
-            .ok_or(SecurityError::PakeFailure("PAKE 已完成，不能重复 finish"))?;
+            .ok_or(SecurityError::PakeFailure {
+                message: "PAKE 已完成，不能重复 finish",
+                source: None,
+            })?;
         state
             .finish(peer_msg)
-            .map_err(|_| SecurityError::PakeFailure("PAKE 消息不匹配或口令不一致"))
+            .map_err(|error| SecurityError::PakeFailure {
+                message: "PAKE 消息不匹配或口令不一致",
+                source: Some(Box::new(Spake2LibError(error))),
+            })
     }
 
     /// 返回本端角色。

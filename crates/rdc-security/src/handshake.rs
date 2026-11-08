@@ -418,7 +418,10 @@ impl SessionHandshake {
         self.verify_peer_hello(&eph, &id, &identity, ts, &sig, now_ms)?;
         let pake_msg = STANDARD
             .decode(&pake_msg)
-            .map_err(|_| SecurityError::PakeFailure("PAKE 消息不是合法 Base64"))?;
+            .map_err(|error| SecurityError::PakeFailure {
+                message: "PAKE 消息不是合法 Base64",
+                source: Some(Box::new(error)),
+            })?;
         // 被控端在收到 HELLO 后才启动 PAKE（B 侧消息随 HELLO_ACK 返回）。
         let code = self.code.as_ref().ok_or(SecurityError::PairingCodeInvalid)?;
         let (mut pake, my_msg) = PakeSession::start(PakeRole::Host, code);
@@ -453,11 +456,17 @@ impl SessionHandshake {
         self.verify_peer_hello(&eph, &id, &identity, ts, &sig, now_ms)?;
         let pake_msg = STANDARD
             .decode(&pake_msg)
-            .map_err(|_| SecurityError::PakeFailure("PAKE 消息不是合法 Base64"))?;
+            .map_err(|error| SecurityError::PakeFailure {
+                message: "PAKE 消息不是合法 Base64",
+                source: Some(Box::new(error)),
+            })?;
         let pake = self
             .pake
             .as_mut()
-            .ok_or(SecurityError::PakeFailure("PAKE 会话缺失"))?;
+            .ok_or(SecurityError::PakeFailure {
+                message: "PAKE 会话缺失",
+                source: None,
+            })?;
         let k_pake = pake.finish(&pake_msg)?;
         let shared = self.eph.exchange_secret(&eph)?;
         self.install_keys(&shared, &k_pake);
@@ -495,10 +504,12 @@ impl SessionHandshake {
     /// 主控端校验 AUTH_OK。
     fn controller_on_auth_ok(&mut self, nonce: String, mac: String) -> Result<Option<HandshakeMessage>, SecurityError> {
         let nonce: [u8; 16] = from_b64_exact(&nonce, 16)?;
-        let expected = self.nonce_c.ok_or(SecurityError::ConfirmationFailed)?;
+        let expected = self
+            .nonce_c
+            .ok_or(SecurityError::ConfirmationFailed { source: None })?;
         // nonce 必须原样回显：否则对端可能在重放旧 AUTH_OK。
         if !constant_time_eq(&nonce, &expected) {
-            return Err(SecurityError::ConfirmationFailed);
+            return Err(SecurityError::ConfirmationFailed { source: None });
         }
         let keys = self.required_keys()?;
         verify_hmac_b64(&keys.confirm, &confirm_payload(b"H", &self.session_id, &nonce), &mac)?;
@@ -524,7 +535,7 @@ impl SessionHandshake {
         // 被控端必须把签名公钥与信令里收到的 peer_pub 绑定，防止中间人替换。
         if let Some(expected) = &self.expected_peer_pub {
             if expected != identity {
-                return Err(SecurityError::SignatureInvalid);
+                return Err(SecurityError::SignatureInvalid { source: None });
             }
         }
         Ok(())
@@ -630,12 +641,16 @@ fn hmac_b64(key: &[u8; 32], payload: &[u8]) -> String {
 fn verify_hmac_b64(key: &[u8; 32], payload: &[u8], mac_b64: &str) -> Result<(), SecurityError> {
     let provided = STANDARD
         .decode(mac_b64)
-        .map_err(|_| SecurityError::ConfirmationFailed)?;
+        .map_err(|error| SecurityError::ConfirmationFailed {
+            source: Some(Box::new(error)),
+        })?;
     let mut mac = HmacSha256::new_from_slice(key).expect("HMAC 支持任意长度密钥");
     mac.update(payload);
     // `verify_slice` 内部是常量时间比较，避免时序侧信道。
     mac.verify_slice(&provided)
-        .map_err(|_| SecurityError::ConfirmationFailed)
+        .map_err(|error| SecurityError::ConfirmationFailed {
+            source: Some(Box::new(error)),
+        })
 }
 
 /// 常量时间比较两个 16 字节数组。
@@ -699,7 +714,7 @@ mod tests {
         let ack = h.step(hello, 1000).expect("host hello").expect("ACK");
         let auth = c.step(ack, 1000).expect("controller ack").expect("AUTH");
         let err = h.step(auth, 1000).expect_err("必须失败");
-        assert!(matches!(err, SecurityError::ConfirmationFailed));
+        assert!(matches!(err, SecurityError::ConfirmationFailed { .. }));
         assert_eq!(h.state(), HandshakeState::Failed);
         assert!(!h.is_established());
     }

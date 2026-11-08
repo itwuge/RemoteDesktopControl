@@ -11,7 +11,7 @@ use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes256Gcm, Nonce};
 use chacha20poly1305::ChaCha20Poly1305;
 
-use crate::error::SecurityError;
+use crate::error::{AeadLibError, SecurityError};
 
 // =====** 常量 =====**
 
@@ -157,14 +157,18 @@ impl AeadKey {
                     .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })?;
                 cipher
                     .encrypt(Nonce::from_slice(nonce), payload)
-                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })
+                    .map_err(|error| SecurityError::AeadFailure {
+                        source: Some(Box::new(AeadLibError(error))),
+                    })
             }
             CipherSuite::ChaCha20Poly1305 => {
                 let cipher = ChaCha20Poly1305::new_from_slice(&self.key)
                     .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })?;
                 cipher
                     .encrypt(chacha20poly1305::Nonce::from_slice(nonce), payload)
-                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })
+                    .map_err(|error| SecurityError::AeadFailure {
+                        source: Some(Box::new(AeadLibError(error))),
+                    })
             }
         }
     }
@@ -198,14 +202,18 @@ impl AeadKey {
                     .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })?;
                 cipher
                     .decrypt(Nonce::from_slice(nonce), payload)
-                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })
+                    .map_err(|error| SecurityError::AeadFailure {
+                        source: Some(Box::new(AeadLibError(error))),
+                    })
             }
             CipherSuite::ChaCha20Poly1305 => {
                 let cipher = ChaCha20Poly1305::new_from_slice(&self.key)
                     .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })?;
                 cipher
                     .decrypt(chacha20poly1305::Nonce::from_slice(nonce), payload)
-                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })
+                    .map_err(|error| SecurityError::AeadFailure {
+                        source: Some(Box::new(AeadLibError(error))),
+                    })
             }
         }
     }

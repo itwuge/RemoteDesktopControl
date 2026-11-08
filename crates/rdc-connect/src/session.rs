@@ -333,12 +333,14 @@ pub fn open_control(
     frame: &[u8],
 ) -> Result<Vec<u8>, SecurityError> {
     if frame.len() < 8 + rdc_security::TAG_LEN {
-        return Err(SecurityError::AeadFailure);
+        return Err(SecurityError::AeadFailure { source: None });
     }
     let counter = u64::from_be_bytes(
         frame[..8]
             .try_into()
-            .map_err(|_| SecurityError::AeadFailure)?,
+            .map_err(|error| SecurityError::AeadFailure {
+                source: Some(Box::new(error)),
+            })?,
     );
     let nonce = nonce_from_counter(counter);
     // 先解密再推进窗口：伪造包不能把合法序号挤出窗口。
@@ -379,7 +381,7 @@ mod tests {
         let mut replay = ReplayWindow::new();
         assert!(matches!(
             open_control(&key, &mut replay, &bad),
-            Err(SecurityError::AeadFailure)
+            Err(SecurityError::AeadFailure { .. })
         ));
     }
 
@@ -393,7 +395,7 @@ mod tests {
         let mut replay = ReplayWindow::new();
         assert!(matches!(
             open_control(&key, &mut replay, &bad),
-            Err(SecurityError::AeadFailure)
+            Err(SecurityError::AeadFailure { .. })
         ));
     }
 
@@ -417,7 +419,7 @@ mod tests {
         let mut replay = ReplayWindow::new();
         assert!(matches!(
             open_control(&key, &mut replay, &[0u8; 8]),
-            Err(SecurityError::AeadFailure)
+            Err(SecurityError::AeadFailure { .. })
         ));
     }
 }
