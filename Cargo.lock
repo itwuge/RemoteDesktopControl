@@ -1162,6 +1162,7 @@ dependencies = [
  "rdc-protocol",
  "rdc-security",
  "serde_json",
+ "thiserror",
  "tracing",
  "windows",
 ]

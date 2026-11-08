@@ -12,6 +12,7 @@
 // =====** 模块声明 =====**
 
 pub mod api;
+pub mod error;
 #[cfg(windows)]
 mod control_service;
 #[cfg(target_os = "linux")]
