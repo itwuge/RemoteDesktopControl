@@ -549,8 +549,14 @@ fn open_decoder() -> Result<DecoderHandle, String> {
 }
 
 /// 非 Windows 平台：屏幕墙预览返回明确错误，而不是假帧。
+/// 用专属占位类型而不是 `()`：`let mut decoder = open_decoder()?;` 若绑定到 ()，
+/// 会触发 clippy::let_unit_value（-D warnings 下直接失败）。
 #[cfg(not(target_os = "windows"))]
-type DecoderHandle = ();
+type DecoderHandle = UnsupportedDecoder;
+
+/// 非 Windows 平台的解码器占位类型（open_decoder 必然返回 Err，实际不会构造）。
+#[cfg(not(target_os = "windows"))]
+struct UnsupportedDecoder;
 
 /// 非 Windows 平台不支持解码。
 #[cfg(not(target_os = "windows"))]
