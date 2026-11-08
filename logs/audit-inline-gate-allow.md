@@ -1,7 +1,7 @@
-# inline `gate-allow` 审计清单（截至批次 E 段 c）
+# inline `gate-allow` 审计清单（截至批次 E 段 d）
 
 > 生成日期：2026-11-08
-> 口径：`scripts/gate.ps1` 要求 `gate-allow <RULE>: <理由>` 与违规代码**同一行**；本清单由 `grep gate-allow` 逐行核对生成，共 **99 条**（C1=3、C2=8、D1=20、D2=51、E=17）。
+> 口径：`scripts/gate.ps1` 要求 `gate-allow <RULE>: <理由>` 与违规代码**同一行**；本清单由 `grep gate-allow` 逐行核对生成，共 **121 条**（C1=3、C2=8、D1=20、D2=51、E=39）。
 > 判定人：本会话（AI 判定）；用户抽查。凡标「AI」均由本会话逐条读上下文后判定，未引用他人结论。
 > 目的：确认没有用放行掩盖「真吞错」。真吞错一律改显式分支（见文末 §3），只有下述刻意 best-effort 才允许放行。
 
@@ -13,8 +13,8 @@
 | C2（15 处 `unwrap_or_default()`） | 8 | Option/缺失语义 7、热路径时序统计 1 |
 | D1（master 欠账 + 小 crate） | 20 | 测试收尾 12、启动日志 2、rustls 进程级安装 2、QUIC 写半边关闭 3、`should_panic` 用例 1 |
 | D2（clipboard/signal/core/bridge） | 51 | 资源收尾 7、线程回收与句柄关闭 13、诊断输出 5、设计性丢弃/降级 10、测试收尾 4、网络对端离线 5、按键复位 3、非错误值 4 |
-| E（capture/decode/codec） | 17 | `Drop` 收尾 9、线程回收 2、构造失败收尾 1、显示器枚举降级 1、QPC 降级 2、DPI 重复声明 1、窗口可见状态语义 1 |
-| **合计** | **99** | |
+| E（capture/decode/codec/cli） | 39 | `Drop` 收尾 9、线程回收/退出 5、构造失败收尾 1、显示器枚举降级 1、QPC 降级 3、DPI 重复声明 2、窗口可见状态语义 1、诊断/夹具输出 14、超时后无人接收 3、非错误值/仅建队列 4 |
+| **合计** | **121** | |
 
 ## 2. 逐条清单
 
@@ -203,3 +203,30 @@
 | 97 | `crates/rdc-codec/src/platform/windows/amf.rs:159` | `let _ = FreeLibrary(self._lib);` | `Drop` 无返回值可传播，进程退出时系统回收已加载 DLL | AI |
 | 98 | `crates/rdc-codec/src/platform/windows/mf.rs:987` | `let _ = self.transform.ProcessMessage(MFT_MESSAGE_NOTIFY_END_STREAMING, 0);` | `Drop` 无返回值可传播，MFT 随 COM 引用计数释放 | AI |
 | 99 | `crates/rdc-codec/src/platform/linux.rs:209` | `let _ = self.child.kill();` | `Drop` 兜底击杀，紧随的 `shutdown()` 会再次回收并记录失败（**Linux-only，需 Linux 线复核**） | AI |
+
+### E-d · rdc-cli（22 条）
+
+| # | 文件:行 | 原代码形态 | 放行理由（具体依据） | 判定 |
+|---|---|---|---|---|
+| 100 | `crates/rdc-cli/src/s3a.rs:145` | `let _ = writeln!(writer, "{line}");` | 诊断 CSV 逐行写入，函数契约即忽略失败，不得中断实测主流程 | AI |
+| 101 | `crates/rdc-cli/src/s3a.rs:158` | `let _ = writer.flush();` | 收尾冲刷诊断日志，失败不影响已完成的实测结论 | AI |
+| 102 | `crates/rdc-cli/src/s3a.rs:304` | `let _ = done_tx.send(result);` | 主线程超时后已返回 watchdog 错误，结果无人接收属预期 | AI |
+| 103 | `crates/rdc-cli/src/s3a.rs:397` | `let _ = TranslateMessage(&msg);` | 失败仅表示无键盘消息可翻译，`DispatchMessage` 仍照常分发 | AI |
+| 104 | `crates/rdc-cli/src/s3a.rs:1062` | `let _ = ShowWindow(...);` | 返回此前可见状态，非失败指示 | AI |
+| 105 | `crates/rdc-cli/src/s3a.rs:1063` | `let _ = SetTimer(...);` | 定时器仅驱动夹具窗口重绘，失败不影响采集/编码验收 | AI |
+| 106 | `crates/rdc-cli/src/s3a.rs:1150` | `let _ = InvalidateRect(...);` | 重绘提示失败只影响夹具窗口观感，不影响验收 | AI |
+| 107 | `crates/rdc-cli/src/s3a.rs:1180` | `let _ = FillRect(...);` | 夹具窗口彩条绘制，失败不影响采集/编码验收 | AI |
+| 108 | `crates/rdc-cli/src/s3a.rs:1191` | `let _ = FillRect(...);` | 夹具窗口移动白块绘制，失败不影响采集/编码验收 | AI |
+| 109 | `crates/rdc-cli/src/s3a.rs:1192` | `let _ = EndPaint(...);` | 与 `BeginPaint` 配对，失败无恢复动作，窗口即将销毁 | AI |
+| 110 | `crates/rdc-cli/src/s3b3.rs:365` | `let _ = sender.send(result);` | 接收端在任一实例超时/报错后已提前返回，主错误随后返回 | AI |
+| 111 | `crates/rdc-cli/src/s3b4.rs:217` | `let _ = QueryPerformanceCounter(...);` | 失败时 `counter` 保持 0，紧随的 `frequency<=0` 分支返回 0 | AI |
+| 112 | `crates/rdc-cli/src/s3b4.rs:218` | `let _ = QueryPerformanceFrequency(...);` | 失败时 `frequency` 保持 0，紧随分支返回 0 | AI |
+| 113 | `crates/rdc-cli/src/s3b4.rs:246` | `let _ = create_dir_all(&options.out);` | 紧随其后的 `std::fs::write(...)?` 会在目录不可写时返回错误 | AI |
+| 114 | `crates/rdc-cli/src/s3b4.rs:471` | 同上 | 紧随的 `std::fs::write(d2.json)?` 返回主错误 | AI |
+| 115 | `crates/rdc-cli/src/s3b4.rs:655` | 同上 | 紧随的 `std::fs::write(host.json)?` 返回主错误 | AI |
+| 116 | `crates/rdc-cli/src/s3b4.rs:1000` | 同上 | 紧随的 `std::fs::write(report.json)?` 返回主错误 | AI |
+| 117 | `crates/rdc-cli/src/s4demo.rs:503` | `let _ = PeekMessageW(...);` | 仅用于创建线程消息队列，返回值只表示当时是否有消息 | AI |
+| 118 | `crates/rdc-cli/src/s4demo.rs:507` | `let _ = tx.send((thread_id, true));` | 接收端在 `install()` 内，超时放弃时安装失败错误已返回 | AI |
+| 119 | `crates/rdc-cli/src/s4demo.rs:519` | `let _ = tx.send((thread_id, false));` | 同上 | AI |
+| 120 | `crates/rdc-cli/src/s4demo.rs:916` | `let _ = std::fs::remove_file(path);` | `Drop` 无返回值可传播，临时文件清理失败不影响演示结论 | AI |
+| 121 | `crates/rdc-cli/src/s4demo.rs:1112` | `let _ = SetProcessDpiAwarenessContext(...);` | 进程已声明 DPI 感知时必然返回失败，属正常路径 | AI |
