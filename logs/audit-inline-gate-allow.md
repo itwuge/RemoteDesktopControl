@@ -1,7 +1,7 @@
-# inline `gate-allow` 审计清单（截至批次 E 段 d）
+# inline `gate-allow` 审计清单（截至批次 E 段 e）
 
 > 生成日期：2026-11-08
-> 口径：`scripts/gate.ps1` 要求 `gate-allow <RULE>: <理由>` 与违规代码**同一行**；本清单由 `grep gate-allow` 逐行核对生成，共 **121 条**（C1=3、C2=8、D1=20、D2=51、E=39）。
+> 口径：`scripts/gate.ps1` 要求 `gate-allow <RULE>: <理由>` 与违规代码**同一行**；本清单由 `grep gate-allow` 逐行核对生成，共 **130 条**（C1=3、C2=8、D1=20、D2=51、E=48）。
 > 判定人：本会话（AI 判定）；用户抽查。凡标「AI」均由本会话逐条读上下文后判定，未引用他人结论。
 > 目的：确认没有用放行掩盖「真吞错」。真吞错一律改显式分支（见文末 §3），只有下述刻意 best-effort 才允许放行。
 
@@ -13,8 +13,8 @@
 | C2（15 处 `unwrap_or_default()`） | 8 | Option/缺失语义 7、热路径时序统计 1 |
 | D1（master 欠账 + 小 crate） | 20 | 测试收尾 12、启动日志 2、rustls 进程级安装 2、QUIC 写半边关闭 3、`should_panic` 用例 1 |
 | D2（clipboard/signal/core/bridge） | 51 | 资源收尾 7、线程回收与句柄关闭 13、诊断输出 5、设计性丢弃/降级 10、测试收尾 4、网络对端离线 5、按键复位 3、非错误值 4 |
-| E（capture/decode/codec/cli） | 39 | `Drop` 收尾 9、线程回收/退出 5、构造失败收尾 1、显示器枚举降级 1、QPC 降级 3、DPI 重复声明 2、窗口可见状态语义 1、诊断/夹具输出 14、超时后无人接收 3、非错误值/仅建队列 4 |
-| **合计** | **121** | |
+| E（capture/decode/codec/cli/linux-e2e） | 48 | `Drop`/收尾释放 19、线程回收 2、构造失败收尾 1、显示器枚举降级 1、QPC 降级 4、DPI 重复声明 2、可见状态/消息语义 4、夹具重绘/绘制 5、诊断 CSV 2、超时后无人接收 4、紧随主错误返回 4 |
+| **合计** | **130** | |
 
 ## 2. 逐条清单
 
@@ -230,3 +230,17 @@
 | 119 | `crates/rdc-cli/src/s4demo.rs:519` | `let _ = tx.send((thread_id, false));` | 同上 | AI |
 | 120 | `crates/rdc-cli/src/s4demo.rs:916` | `let _ = std::fs::remove_file(path);` | `Drop` 无返回值可传播，临时文件清理失败不影响演示结论 | AI |
 | 121 | `crates/rdc-cli/src/s4demo.rs:1112` | `let _ = SetProcessDpiAwarenessContext(...);` | 进程已声明 DPI 感知时必然返回失败，属正常路径 | AI |
+
+### E-e · rdc-linux-e2e（9 条，**需 Linux 线复核**）
+
+| # | 文件:行 | 原代码形态 | 放行理由（具体依据） | 判定 |
+|---|---|---|---|---|
+| 122 | `crates/rdc-linux-e2e/src/bin/s8_2_target.rs:201` | `let _ = conn.destroy_window(window);` | 收尾释放无返回值，连接关闭后资源由 X server 回收 | AI |
+| 123 | `.../s8_2_target.rs:202` | `let _ = conn.free_gc(gc);` | 收尾释放无返回值，GC 随连接关闭回收 | AI |
+| 124 | `.../s8_2_target.rs:203` | `let _ = conn.flush();` | 收尾冲刷无返回值，主流程已返回 `Ok` | AI |
+| 125 | `crates/rdc-linux-e2e/src/decoder.rs:284` | `let _ = self.child.kill();` | `Drop` 无返回值可传播，kill 后紧接 `take(stdin)` 解除管道阻塞 | AI |
+| 126 | `.../decoder.rs:287` | `let _ = reader.join();` | `Drop` 无返回值可传播，读线程 panic 不影响解码器析构 | AI |
+| 127 | `.../decoder.rs:289` | `let _ = self.child.wait();` | `Drop` 无返回值可传播，进程退出由系统回收 | AI |
+| 128 | `crates/rdc-linux-e2e/src/display.rs:252` | `let _ = self.conn.destroy_window(...);` | 销毁路径无返回值，窗口关闭后连接随即断开 | AI |
+| 129 | `.../display.rs:253` | `let _ = self.conn.free_gc(...);` | 销毁路径无返回值，GC 随连接断开释放 | AI |
+| 130 | `.../display.rs:254` | `let _ = self.conn.flush();` | 销毁路径无返回值，连接关闭时服务端丢弃残留请求 | AI |
