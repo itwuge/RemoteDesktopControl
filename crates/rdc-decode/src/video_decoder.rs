@@ -221,13 +221,13 @@ pub fn open_video_decoder(
                 match FfmpegH264Decoder::open_with_device(device, width, height, fps, hw) {
                     Ok(decoder) => return Ok(Box::new(decoder)),
                     Err(error) => {
-                        eprintln!("[decode] FFmpeg 后端打开失败，回退 MF: {error}");
+                        tracing::warn!("[decode] FFmpeg 后端打开失败，回退 MF: {error}");
                     }
                 }
             }
             #[cfg(not(feature = "ffmpeg"))]
             {
-                eprintln!("[decode] 未以 ffmpeg feature 构建，回退 MF");
+                tracing::info!("[decode] 未以 ffmpeg feature 构建，回退 MF");
             }
             match device {
                 Some(device) => {

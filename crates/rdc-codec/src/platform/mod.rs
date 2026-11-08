@@ -171,7 +171,7 @@ mod selection {
     /// 统一落 `encoder.selected` 日志并组装返回值。
     fn finish(encoder: impl VideoEncoder + 'static, reason: String) -> EncoderSelection {
         let backend = encoder.backend_name().to_owned();
-        eprintln!("encoder.selected backend={backend} reason={reason}");
+        tracing::info!("encoder.selected backend={backend} reason={reason}");
         EncoderSelection {
             encoder: Box::new(encoder),
             backend,

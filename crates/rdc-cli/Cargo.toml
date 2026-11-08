@@ -31,6 +31,7 @@ rdc-security = { workspace = true }
 rdc-signal = { workspace = true }
 rdc-capture = { workspace = true }
 rdc-codec = { workspace = true }
+rdc-diag = { workspace = true }
 rdc-decode = { workspace = true }
 rdc-runtime = { workspace = true }
 rdc-transport = { workspace = true }

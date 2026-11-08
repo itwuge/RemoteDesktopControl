@@ -29,6 +29,7 @@ rdc-input = { workspace = true }
 rdc-clipboard = { workspace = true }
 rdc-filetransfer = { workspace = true }
 rdc-diag = { workspace = true }
+tracing = { workspace = true }
 serde_json = { workspace = true }
 flutter_rust_bridge = { workspace = true }
 

@@ -45,7 +45,8 @@ param(
 
 # =====** global state =====**
 
-$script:Root = ""
+# 注意：这里禁止给 $script:Root 赋初值。顶层 $script:Root 与 param([string]$Root) 是同一个变量，
+# 赋 "" 会把调用方传入的 -Root 覆盖掉，导致脚本永远只扫描自身所在工作树。
 $script:RootFull = ""
 $script:ConfigPath = ""
 $script:Config = $null
@@ -1526,6 +1527,32 @@ let a = 2;
             Fixture = "bad.cpp (Chinese, no BOM)"; Hits = $(if ($bomOk) { 1 } else { 0 }); Status = $(if ($bomOk) { "HIT" } else { "MISS" })
         }
         if (-not $bomOk) { $missing += ((Get-RuleId "source_encoding") + "-Fix") }
+
+        # 参数回归：-Root 必须真正切换扫描根。
+        # 背景：历史上 global state 里给 $script:Root 赋 "" 会覆盖入参，脚本只能扫自身工作树。
+        $rootProbe = Join-Path ([System.IO.Path]::GetTempPath()) ("gate-root-probe-" + [guid]::NewGuid().ToString("N"))
+        $rootProbeOk = $false
+        try {
+            New-Item -ItemType Directory -Path (Join-Path $rootProbe "app/windows") -Force | Out-Null
+            $probeEncoding = New-Object System.Text.UTF8Encoding($false)
+            [System.IO.File]::WriteAllText(
+                (Join-Path $rootProbe "app/windows/root_probe.cpp"),
+                "// 中文注释，缺少 UTF-8 BOM`nint main() { return 0; }`n",
+                $probeEncoding
+            )
+            $probeOutput = @(& powershell -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Root $rootProbe -Rules "R-C-1" -Quiet 2>&1 | ForEach-Object { $_.ToString() })
+            $probeExit = $LASTEXITCODE
+            $probeText = ($probeOutput -join "`n")
+            # 三条同时成立才算通过：非零退出、命中探针文件、且没有扫到当前仓库。
+            $rootProbeOk = ($probeExit -ne 0) -and ($probeText -match "root_probe\.cpp") -and ($probeText -notmatch "RemoteDesktopControl")
+        } finally {
+            if (Test-Path -LiteralPath $rootProbe) { Remove-Item -LiteralPath $rootProbe -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+        $table += [pscustomobject]@{
+            Semantic = "root_parameter"; Rule = "GATE-CLI"; Implemented = "yes"
+            Fixture = "-Root <foreign dir> (R-C-1 probe)"; Hits = $(if ($rootProbeOk) { 1 } else { 0 }); Status = $(if ($rootProbeOk) { "HIT" } else { "MISS" })
+        }
+        if (-not $rootProbeOk) { $missing += "GATE-CLI(-Root)" }
 
         Write-Host ""
         Write-Host "rule | implemented | fixture | hits | status" -ForegroundColor Cyan

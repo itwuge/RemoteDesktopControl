@@ -35,6 +35,8 @@ mod walldemo;
 /// 本函数不返回 `Result`；失败通过退出码表达，便于脚本判断。
 #[tokio::main]
 async fn main() -> ExitCode {
+    // 先装日志守卫：各子命令与底层 crate 都走统一的 tracing 通道，缺 subscriber 会导致日志静默丢失。
+    let _diag = rdc_diag::init("rdc-cli");
     // 只做最小手工解析：对象是少量固定子命令，不引入 clap。
     let mut args = std::env::args().skip(1);
     match args.next().as_deref() {

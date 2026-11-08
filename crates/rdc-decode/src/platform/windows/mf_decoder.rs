@@ -410,7 +410,7 @@ impl MfH264Decoder {
                 Ok(decoder) => return Ok(decoder),
                 Err(error) => {
                     // 逐候选打失败原因：硬解是否可用的证据必须落日志，而不是只留最后一条。
-                    eprintln!("[mf-decoder] {name} 配置失败: {error}");
+                    tracing::warn!("[mf-decoder] {name} 配置失败: {error}");
                     last_error = format!("{name}: {error}");
                 }
             }
@@ -459,11 +459,11 @@ impl MfH264Decoder {
                 let bool_v = BoolVariant::new(true);
                 let hr_ui4 = unsafe { codec.SetValue(&CODECAPI_AVLowLatencyMode, ui4.as_ptr()) };
                 let hr_bool = unsafe { codec.SetValue(&CODECAPI_AVLowLatencyMode, bool_v.as_ptr()) };
-                eprintln!(
+                tracing::info!(
                     "[mfdec] {name}: CODECAPI_AVLowLatencyMode=1 VT_UI4 -> {hr_ui4:?} / VT_BOOL -> {hr_bool:?}"
                 );
             }
-            Err(_) => eprintln!("[mfdec] {name}: 不支持 ICodecAPI，低延迟只能靠 MF_LOW_LATENCY"),
+            Err(_) => tracing::info!("[mfdec] {name}: 不支持 ICodecAPI，低延迟只能靠 MF_LOW_LATENCY"),
         }
 
         let output = make_output_type(width, height, fps)?;
@@ -513,7 +513,7 @@ impl MfH264Decoder {
         // 4C：把 MFT 自己声明的输出流能力打印出来（能否真正一进一出）。
         // CAN_BUFFER(0x200)/DO_NOT_THROTTLE(0x400) 在 windows crate 里没有绑定，按 mftransform.h 取值。
         let flags = info.dwFlags as i32;
-        eprintln!(
+        tracing::info!(
             "[mfdec] {name}: 输出流 flags=0x{flags:X} provides_samples={} can_buffer={} do_not_throttle={} single_sample_per_buffer={}",
             provides_samples,
             flags & 0x200 != 0,
@@ -673,7 +673,7 @@ impl MfH264Decoder {
                 Err(e) if (e.code().0 as u32) == 0xC00D_36B5 && attempts < 64 => {
                     attempts += 1;
                     if attempts == 1 {
-                        eprintln!(
+                        tracing::warn!(
                             "[mf-decoder] NOTACCEPTING: fed={} produced={} expect={}",
                             self.fed, self.produced, self.expecting_input
                         );

@@ -289,10 +289,15 @@ impl MfH264Session {
                     })?;
                 // 关闭异步 MFT 的内部帧缓存：不设该属性时驱动会多攒一帧再吐，
                 // 1080p 下表现为「每次 push 额外等 ~8ms」，吞吐也被串行化到 ~46fps。
-                // 失败不阻断：老驱动可能不认该属性，由上层实测值体现。
-                if let Err(e) = attrs.SetUINT32(&MF_LOW_LATENCY, 1) {
-                    eprintln!("[mf] MF_LOW_LATENCY 设置失败({name}): {e}");
-                }
+                // 失败不阻断：老驱动可能不认该属性，由上层实测值体现；结果记录到调试日志便于核对。
+                let low_latency_ok = match attrs.SetUINT32(&MF_LOW_LATENCY, 1) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        tracing::warn!("[mf] MF_LOW_LATENCY 设置失败({name}): {e}");
+                        false
+                    }
+                };
+                tracing::debug!("[mf] {name} low_latency={low_latency_ok}");
             }
         }
 
@@ -493,7 +498,7 @@ impl MfH264Session {
         self.sum_convert_us += convert_us;
         if self.enc_frames % 60 == 0 {
             let n = self.enc_frames;
-            eprintln!(
+            tracing::info!(
                 "[enc] frames={n} build_avg={}us(alloc={}us convert={}us) wait_avg={}us \
                  drain_avg={}us process_avg={}us",
                 self.sum_build_us / n,
@@ -643,7 +648,7 @@ impl MfH264Session {
                     VARIANT::from(RATE_CONTROL_DRIVER_DEFAULT),
                 )
                 .is_ok();
-            eprintln!("[enc] codecapi rate_control: mean={mean_ok} mode={RATE_CONTROL_DRIVER_DEFAULT}:{mode_ok}");
+            tracing::info!("[enc] codecapi rate_control: mean={mean_ok} mode={RATE_CONTROL_DRIVER_DEFAULT}:{mode_ok}");
             // CODECAPI 的低延迟是 VT_BOOL；此前用 VT_UI4 等于没生效（调研结论）。
             let low_latency = BoolVariant::new(cfg.low_latency);
             let low_ok = self
@@ -676,7 +681,7 @@ impl MfH264Session {
                     VARIANT::from(if cfg.low_latency { 0u32 } else { 50u32 }),
                 )
                 .is_ok();
-            eprintln!(
+            tracing::info!(
                 "[enc] codecapi low_latency={low_ok} gop={gop_ok} bframes={b_frames}:{b_ok} max_ref1={refs_ok} speed_first={speed_ok}"
             );
         }

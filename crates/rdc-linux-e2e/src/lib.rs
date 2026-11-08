@@ -34,6 +34,7 @@ pub mod protocol;
 /// 不会失败。
 #[cfg(not(target_os = "linux"))]
 pub fn unsupported() -> ! {
-    eprintln!("rdc-linux-e2e 仅支持 Linux/X11");
+    // 此处早于任何日志初始化，必须走 rdc-diag 的直写 fallback，避免 tracing 无 subscriber 时静默丢失。
+    rdc_diag::record::write_fallback("ERROR", "linux-e2e", "rdc-linux-e2e 仅支持 Linux/X11");
     std::process::exit(2);
 }

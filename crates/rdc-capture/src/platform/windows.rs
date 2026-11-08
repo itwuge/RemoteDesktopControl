@@ -516,9 +516,13 @@ fn capture_loop_dxgi(
         Ok(c) => c,
         Err(err) => {
             let (code, cause) = capture_error_code(&err);
-            warn!(error = %err, code, cause, "DXGI 采集初始化失败，线程退出");
-            // 写进 stderr，便于现场/日志核对；不再用笼统的「采集失败」。
-            eprintln!("[capture-diag] init_failed code={code} cause={cause}");
+            // 统一走 tracing：带上错误原文 + 结构化 code/cause，并保留既有 [capture-diag] 标签供现场检索。
+            tracing::warn!(
+                error = %err,
+                code,
+                cause,
+                "[capture-diag] init_failed code={code} cause={cause}"
+            );
             return;
         }
     };
@@ -668,7 +672,7 @@ fn capture_loop_dxgi(
                 // attached=0 → 无活跃显示输出（与 RDR-001 同根因）；
                 // attached>0 → 桌面静止或采集通路问题，需靠「强制桌面变化」对照区分。
                 let attached = active_output_count();
-                eprintln!(
+                tracing::info!(
                     "[capture-diag] 5s: frames=0 noframe={diag_noframe} pool_exhausted={diag_pool} attached={attached}"
                 );
             }

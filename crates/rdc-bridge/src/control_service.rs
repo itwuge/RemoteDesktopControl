@@ -762,7 +762,7 @@ fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
         .map(|v| v != "0")
         .unwrap_or(false);
     if !want_gpu {
-        eprintln!("[control] 纹理直出未启用（默认 host BGRA；RDC_CAPTURE_GPU=1 可启用实验路径）");
+        tracing::info!("[control] 纹理直出未启用（默认 host BGRA；RDC_CAPTURE_GPU=1 可启用实验路径）");
     }
     let mut gpu_pipeline = false;
     if want_gpu
@@ -777,7 +777,7 @@ fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
         } else {
             // 编码器已切到纹理模式但采集给不出纹理：显式退回 host 模式，不留半开状态。
             encoder.attach_d3d11(0, 0, false);
-            eprintln!("[control] 采集侧拒绝纹理直出，编码器回退 host BGRA（非静默）");
+            tracing::warn!("[control] 采集侧拒绝纹理直出，编码器回退 host BGRA（非静默）");
         }
     }
     encoder
@@ -794,7 +794,7 @@ fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
         .map_err(|error| format!("配置编码器失败: {error}"))?;
     // configure 之后 `backend_name()` 才是真实选中值（MFT 会带驱动友好名）。
     let encoder_name = encoder.backend_name().to_owned();
-    eprintln!(
+    tracing::info!(
         "[control] capture={} encoder={} reason={}",
         if gpu_pipeline {
             "dxgi-texture-direct"
@@ -815,7 +815,7 @@ fn setup_pipeline(stats: &Arc<Stats>) -> Result<PipelineSetup, String> {
         decoder_info.backend,
         decoder_info.output.as_str()
     );
-    eprintln!(
+    tracing::info!(
         "[control] decoder={} ({})；输出类型待首帧确定",
         decoder_info.backend, decoder_info.name
     );
@@ -1232,13 +1232,13 @@ fn run_encode_stage(
                         prepared = None;
                         stats.encoder_in_flight.store(0, Ordering::Relaxed);
                         last_output = Instant::now();
-                        eprintln!(
+                        tracing::warn!(
                             "[enc] 看门狗：{ENCODE_WATCHDOG_MS} ms 无包，已重建编码会话一次"
                         );
                     }
                     Err(error) => {
                         resets_for_stall = 1;
-                        eprintln!(
+                        tracing::error!(
                             "[enc] 看门狗：重建编码会话失败: {error}"
                         );
                         stats.force_error(format!(
@@ -1248,7 +1248,7 @@ fn run_encode_stage(
                 }
             } else if !stall_reported {
                 stall_reported = true;
-                eprintln!(
+                tracing::error!(
                     "[enc] 看门狗：重建 {resets_for_stall} 次后仍无包输出，报 RDC-ENC-001"
                 );
                 stats.force_error(format!(
@@ -1942,7 +1942,7 @@ fn read_barcode(
             };
             let (lb, lg, lr) = read(12);
             let (rb, rg, rr) = read(26);
-            eprintln!(
+            tracing::info!(
                 "[color] left(BGR)=({lb},{lg},{lr}) right(BGR)=({rb},{rg},{rr}) expected left=(0,0,255) right=(255,0,0)"
             );
         }

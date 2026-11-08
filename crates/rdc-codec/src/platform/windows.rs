@@ -208,7 +208,7 @@ impl PlatformEncoder {
             Err(error) => {
                 if !self.poll_error_reported {
                     self.poll_error_reported = true;
-                    eprintln!("[enc] poll_ready 失败: {error}");
+                    tracing::warn!("[enc] poll_ready 失败: {error}");
                 }
             }
         }
@@ -341,7 +341,7 @@ impl VideoEncoder for PlatformEncoder {
                     self.selected_name = session.name().to_owned();
                     if self.software {
                         // M1 要求：软编诊断路径必须打印实际选中的 MFT 名称与 software 标记。
-                        eprintln!(
+                        tracing::info!(
                             "[enc] backend=mf-sw selected=\"{}\" software=true",
                             self.selected_name
                         );
@@ -758,7 +758,7 @@ fn probe_one(activate: &IMFActivate, hardware: bool) -> Option<EncoderCapability
         Some(v) => v,
         None => {
             // 诊断：协商全部失败时把最后一次错误打印出来，便于定位驱动限制。
-            eprintln!("[probe] {name} 未通过类型协商: {probe_error}");
+            tracing::info!("[probe] {name} 未通过类型协商: {probe_error}");
             return None;
         }
     };

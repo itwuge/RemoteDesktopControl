@@ -22,6 +22,8 @@ use rdc_signal::SignalServer;
 /// 端口绑定或 TLS 初始化失败时返回错误。
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 服务端启动即装日志守卫：否则 tracing 无 subscriber，启动信息会静默丢失。
+    let _diag = rdc_diag::init("rdc-signal");
     // 默认监听所有 IPv4 网卡；若需 IPv6 可改为 `[::]:PORT_SIGNAL`。
     let addr = SocketAddr::from(([0, 0, 0, 0], PORT_SIGNAL));
     let server = SignalServer::bind(addr).await?;
@@ -30,11 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         addr = %server.addr(),
         "rdc-signal 启动"
     );
-    println!(
-        "rdc-signal {} listening on udp/{} (TLS 1.3 / QUIC)",
-        env!("CARGO_PKG_VERSION"),
-        server.addr()
-    );
+    // 启动信息已由上面的 tracing::info! 统一输出（同一事实不重复写 stdout）。
 
     // run() 只在端点关闭时返回；进程收到 Ctrl+C 时由操作系统直接结束。
     server.run().await;

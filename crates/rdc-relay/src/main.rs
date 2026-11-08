@@ -19,16 +19,15 @@ use rdc_protocol::ports::{PORT_RELAY_CONTROL, PORT_RELAY_MEDIA};
 /// S1 不执行任何 IO，不会失败。
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 服务端启动即装日志守卫：否则 tracing 无 subscriber，启动信息会静默丢失。
+    let _diag = rdc_diag::init("rdc-relay");
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
         media_port = PORT_RELAY_MEDIA,
         control_port = PORT_RELAY_CONTROL,
         "rdc-relay 启动（S1 空壳，默认关闭）"
     );
-    println!(
-        "rdc-relay {} media=udp/{PORT_RELAY_MEDIA} control=tcp/{PORT_RELAY_CONTROL} (S1 skeleton)",
-        env!("CARGO_PKG_VERSION")
-    );
+    // 启动信息已由上面的 tracing::info! 统一输出（同一事实不重复写 stdout）。
     // TODO(stage2): 实现会话配对与密文转发；只统计包数与字节数，不触碰载荷。
     Ok(())
 }

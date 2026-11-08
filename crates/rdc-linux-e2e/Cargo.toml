@@ -19,6 +19,8 @@ description = "RDC S8-2 Linux 端到端链路演示"
 [dependencies]
 rdc-capture = { workspace = true }
 rdc-codec = { workspace = true }
+rdc-diag = { workspace = true }
+tracing = { workspace = true }
 rdc-input = { workspace = true }
 rdc-runtime = { workspace = true }
 
