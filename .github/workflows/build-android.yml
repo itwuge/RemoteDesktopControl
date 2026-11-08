@@ -94,11 +94,19 @@ jobs:
           channel: stable
           cache: true
 
-      # -----** 5. cargo-ndk（用预编译安装，避免每次 cargo install 编译**-----
+      # -----** 5. cargo-ndk（必须源码安装）**-----
+      # 不能用 taiki-e/install-action 的预编译包：实测该二进制依赖 GLIBC_2.39，
+      # 在 ubuntu-22.04（glibc 2.35）上直接报
+      #   `cargo-ndk: /lib/x86_64-linux-gnu/libc.so.6: version 'GLIBC_2.39' not found`
+      # 所以用 cargo install 在 runner 本地编译，与 runner 的 glibc 严格匹配。
       - name: 安装 cargo-ndk
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-ndk
+        shell: bash
+        run: |
+          set -eo pipefail
+          if ! command -v cargo-ndk > /dev/null 2>&1; then
+            cargo install cargo-ndk --locked
+          fi
+          cargo ndk --version
 
       # -----** 6. Gradle 缓存（docs/10 §7.3）**-----
       - name: 缓存 Gradle

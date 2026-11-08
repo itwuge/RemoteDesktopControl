@@ -40,11 +40,24 @@ mkdir -p "$APPDIR/usr/bin" "$APPDIR/usr/share/applications" "$APPDIR/usr/share/i
 cp -R "$BUNDLE/." "$APPDIR/usr/bin/"
 install -m 0644 "$REPO_ROOT/packaging/linux/rdc.desktop" "$APPDIR/rdc.desktop"
 install -m 0644 "$REPO_ROOT/packaging/linux/rdc.desktop" "$APPDIR/usr/share/applications/rdc.desktop"
-# 图标缺失时不阻断：AppImage 允许无图标，日志说明即可。
-if [ -f "$REPO_ROOT/app/web/icons/Icon-256.png" ]; then
-  cp "$REPO_ROOT/app/web/icons/Icon-256.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/rdc.png"
-  cp "$APPDIR/usr/share/icons/hicolor/256x256/apps/rdc.png" "$APPDIR/rdc.png"
+# .desktop 里写了 Icon=rdc，appimagetool 找不到同名图标会直接 exit 1（不是警告），
+# 所以这里必须有图标：优先 256x256 专用图，退化到 Android 启动图标（xxxhdpi 192px）。
+ICON_SRC=""
+for candidate in \
+  "$REPO_ROOT/app/web/icons/Icon-256.png" \
+  "$REPO_ROOT/app/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png" \
+  "$REPO_ROOT/app/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png"; do
+  if [ -f "$candidate" ]; then
+    ICON_SRC="$candidate"
+    break
+  fi
+done
+if [ -z "$ICON_SRC" ]; then
+  echo "[packaging/linux/appimage] 错误：找不到任何可用图标源，appimagetool 无法打包" >&2
+  exit 1
 fi
+install -m 0644 "$ICON_SRC" "$APPDIR/usr/share/icons/hicolor/256x256/apps/rdc.png"
+install -m 0644 "$ICON_SRC" "$APPDIR/rdc.png"
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/usr/bin/env bash
 HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"

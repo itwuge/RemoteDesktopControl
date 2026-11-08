@@ -141,7 +141,7 @@ impl FrameSink for LoopSink {
 
 /// 计算分位数（输入已排序或未排序均可，函数内部排序）。
 #[cfg(target_os = "linux")]
-fn percentile(values: &mut Vec<u64>, pct: f64) -> u64 {
+fn percentile(values: &mut [u64], pct: f64) -> u64 {
     if values.is_empty() {
         return 0;
     }
@@ -352,8 +352,9 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
     let decode_frames = decoder.frames();
     let secs = loop_elapsed.as_secs_f64().max(0.001);
     // latencies 以纳秒记录（CLOCK_MONOTONIC），JSON 里统一换算成微秒。
-    let lat_p50 = percentile(&mut latencies.clone(), 0.50) / 1000;
-    let lat_p99 = percentile(&mut latencies.clone(), 0.99) / 1000;
+    let mut sorted_latencies = latencies.clone();
+    let lat_p50 = percentile(sorted_latencies.as_mut_slice(), 0.50) / 1000;
+    let lat_p99 = percentile(sorted_latencies.as_mut_slice(), 0.99) / 1000;
     let (enc_p50, enc_p99, enc_fps, enc_bitrate, backend) = {
         let guard = encoder.lock().map_err(|_| "编码器锁被污染")?;
         let name = guard.backend_name().to_string();

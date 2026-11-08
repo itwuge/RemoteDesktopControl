@@ -205,11 +205,9 @@ impl Display {
                             }
                         }
                     }
-                    x11rb::protocol::Event::KeyPress(key) => {
-                        // keycode 9 在常见布局上为 Esc。
-                        if key.detail == 9 {
-                            return false;
-                        }
+                    // keycode 9 在常见布局上为 Esc。
+                    x11rb::protocol::Event::KeyPress(key) if key.detail == 9 => {
+                        return false;
                     }
                     _ => {}
                 },
