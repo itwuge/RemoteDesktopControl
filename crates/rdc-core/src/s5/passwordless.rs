@@ -63,7 +63,11 @@ pub struct PairingDecision {
 }
 
 /// 免密判定错误（只有「设备身份已变」是硬拒绝）。
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// 为什么不再派生 `Clone/PartialEq/Eq`：`ChallengeFailed` 需要把
+/// [`rdc_security::SecurityError`] 挂进 `source`，该类型内含
+/// `Box<dyn Error>`，不满足这些派生的约束。
+#[derive(Debug, thiserror::Error)]
 pub enum PairingError {
     /// 设备记录没有公钥，只能退回配对码。
     #[error("设备记录缺少公钥，必须配对码")]
@@ -73,7 +77,11 @@ pub enum PairingError {
     PublicKeyMismatch,
     /// 挑战-应答验签失败。
     #[error("免密挑战-应答验签失败")]
-    ChallengeFailed,
+    ChallengeFailed {
+        /// 底层验签错误，保留 [`rdc_security::SecurityError`] 具体类型。
+        #[source]
+        source: rdc_security::SecurityError,
+    },
 }
 
 impl PairingError {
@@ -88,7 +96,7 @@ impl PairingError {
         match self {
             Self::MissingPublicKey => "missing_public_key",
             Self::PublicKeyMismatch => "public_key_mismatch",
-            Self::ChallengeFailed => "challenge_failed",
+            Self::ChallengeFailed { .. } => "challenge_failed",
         }
     }
 }
@@ -242,7 +250,7 @@ pub fn verify_response(
     response_b64: &str,
 ) -> Result<(), PairingError> {
     verify_signature_b64(public_key_b64, challenge_str.as_bytes(), response_b64)
-        .map_err(|_| PairingError::ChallengeFailed)
+        .map_err(|source| PairingError::ChallengeFailed { source })
 }
 
 // =====** 单元测试（F1–F4） =====**
@@ -379,5 +387,15 @@ mod tests {
                 "信令包头不得包含令牌字段 {forbidden}"
             );
         }
+    }
+
+    /// 挑战-应答验签失败：文案逐字不变，source 可追到 `SecurityError`。
+    #[test]
+    fn challenge_failed_keeps_source() {
+        let err = verify_response("不是 Base64", "challenge", "不是 Base64").expect_err("必须失败");
+        assert_eq!(err.to_string(), "免密挑战-应答验签失败");
+        assert_eq!(err.code(), "challenge_failed");
+        let source = std::error::Error::source(&err).expect("必须挂 source");
+        assert!(source.downcast_ref::<rdc_security::SecurityError>().is_some());
     }
 }

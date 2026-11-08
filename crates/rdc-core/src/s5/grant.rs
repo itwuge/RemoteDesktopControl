@@ -254,7 +254,11 @@ pub fn template_bits(value: &str) -> Option<PermBits> {
 // =====** 错误码 =====**
 
 /// 授权校验错误（每个变体对应一个固定错误码，便于审计与页面展示）。
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// 为什么不再派生 `Clone/PartialEq/Eq`：`SignatureInvalid` 需要把
+/// [`rdc_security::SecurityError`] 挂进 `source`，该类型内含
+/// `Box<dyn Error>`，不满足这些派生的约束。
+#[derive(Debug, thiserror::Error)]
 pub enum GrantError {
     /// 令牌绑定的 host 与本机不一致。
     #[error("授权绑定的设备与本机不一致")]
@@ -267,7 +271,11 @@ pub enum GrantError {
     GranteeMismatch,
     /// 签名为空、格式错误或验签失败。
     #[error("授权签名无效")]
-    SignatureInvalid,
+    SignatureInvalid {
+        /// 底层验签错误，保留 [`rdc_security::SecurityError`] 具体类型。
+        #[source]
+        source: rdc_security::SecurityError,
+    },
     /// 尚未到生效时间。
     #[error("授权尚未生效")]
     NotYetValid,
@@ -307,7 +315,7 @@ impl GrantError {
             Self::HostMismatch => "host_mismatch",
             Self::OwnerUntrusted => "owner_untrusted",
             Self::GranteeMismatch => "grantee_mismatch",
-            Self::SignatureInvalid => "signature_invalid",
+            Self::SignatureInvalid { .. } => "signature_invalid",
             Self::NotYetValid => "not_yet_valid",
             Self::Expired => "expired",
             Self::ValidityTooLong => "validity_too_long",
@@ -567,7 +575,7 @@ pub fn verify_grant(
         return Err(GrantError::OwnerUntrusted);
     }
     verify_signature_b64(&token.owner_pub, &token.canonical_bytes(), signature)
-        .map_err(|_| GrantError::SignatureInvalid)?;
+        .map_err(|source| GrantError::SignatureInvalid { source })?;
     // 步骤 2b：令牌必须确实签给本次连接的对端，防止 A 的令牌被 B 拿去用。
     if let Some(peer) = context.peer_pub {
         if token.grantee_pub != peer {
@@ -1149,14 +1157,22 @@ pub struct SignedKick {
 }
 
 /// 踢出校验错误。
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// 为什么不再派生 `Clone/PartialEq/Eq`：`SignatureInvalid` 需要把
+/// [`rdc_security::SecurityError`] 挂进 `source`，该类型内含
+/// `Box<dyn Error>`，不满足这些派生的约束。
+#[derive(Debug, thiserror::Error)]
 pub enum KickError {
     /// 签发者未受信任。
     #[error("踢出签发者未被本机信任")]
     OwnerUntrusted,
     /// 签名无效。
     #[error("踢出签名无效")]
-    SignatureInvalid,
+    SignatureInvalid {
+        /// 底层验签错误，保留 [`rdc_security::SecurityError`] 具体类型。
+        #[source]
+        source: rdc_security::SecurityError,
+    },
     /// 超过 3 秒生效窗口。
     #[error("踢出票据已超出 3 秒生效窗口")]
     Expired,
@@ -1176,7 +1192,7 @@ impl KickError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::OwnerUntrusted => "owner_untrusted",
-            Self::SignatureInvalid => "signature_invalid",
+            Self::SignatureInvalid { .. } => "signature_invalid",
             Self::Expired => "kick_expired",
             Self::FromFuture => "kick_from_future",
         }
@@ -1241,7 +1257,7 @@ pub fn verify_kick(
         &signed.ticket.canonical_bytes(),
         &signed.signature,
     )
-    .map_err(|_| KickError::SignatureInvalid)?;
+    .map_err(|source| KickError::SignatureInvalid { source })?;
     // 允许 1 秒时钟抖动，但超出 3 秒生效窗口的票据一律拒绝。
     if now_ms.saturating_add(1_000) < signed.ticket.issued_at_ms {
         return Err(KickError::FromFuture);
@@ -1295,14 +1311,18 @@ impl GrantRecord {
 }
 
 /// 授权存储错误。
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+///
+/// 为什么不再派生 `Clone/PartialEq/Eq`：`Io` / `Format` 分别持有
+/// [`std::io::Error`] 与 [`serde_json::Error`] 作为 `source`，
+/// 这两个类型都不满足这些派生的约束。
+#[derive(Debug, thiserror::Error)]
 pub enum GrantStoreError {
     /// 文件读写失败。
     #[error("授权存储 IO 失败：{0}")]
-    Io(String),
+    Io(#[from] std::io::Error),
     /// JSON 解析失败。
     #[error("授权存储格式错误：{0}")]
-    Format(String),
+    Format(#[from] serde_json::Error),
     /// 文件版本超前。
     #[error("授权存储版本不支持：文件 {found}，本端上限 {supported}")]
     UnsupportedVersion {
@@ -1368,10 +1388,9 @@ impl GrantStore {
         let bytes = match std::fs::read(path.as_ref()) {
             Ok(bytes) => bytes,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Self::new()),
-            Err(err) => return Err(GrantStoreError::Io(err.to_string())),
+            Err(err) => return Err(GrantStoreError::Io(err)),
         };
-        let file: GrantFile =
-            serde_json::from_slice(&bytes).map_err(|err| GrantStoreError::Format(err.to_string()))?;
+        let file: GrantFile = serde_json::from_slice(&bytes)?;
         if file.version > GRANT_FILE_VERSION {
             return Err(GrantStoreError::UnsupportedVersion {
                 found: file.version,
@@ -1408,7 +1427,7 @@ impl GrantStore {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent).map_err(|err| GrantStoreError::Io(err.to_string()))?;
+                std::fs::create_dir_all(parent)?;
             }
         }
         let file = GrantFile {
@@ -1416,8 +1435,7 @@ impl GrantStore {
             revoked_epoch: self.revoked_epoch,
             grants: self.grants.values().cloned().collect(),
         };
-        let bytes = serde_json::to_vec_pretty(&file)
-            .map_err(|err| GrantStoreError::Format(err.to_string()))?;
+        let bytes = serde_json::to_vec_pretty(&file)?;
         let mut name = path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -1425,16 +1443,11 @@ impl GrantStore {
         name.push_str(TEMP_SUFFIX);
         let temp = path.with_file_name(name);
         {
-            let mut handle =
-                std::fs::File::create(&temp).map_err(|err| GrantStoreError::Io(err.to_string()))?;
-            handle
-                .write_all(&bytes)
-                .map_err(|err| GrantStoreError::Io(err.to_string()))?;
-            handle
-                .sync_all()
-                .map_err(|err| GrantStoreError::Io(err.to_string()))?;
+            let mut handle = std::fs::File::create(&temp)?;
+            handle.write_all(&bytes)?;
+            handle.sync_all()?;
         }
-        std::fs::rename(&temp, path).map_err(|err| GrantStoreError::Io(err.to_string()))?;
+        std::fs::rename(&temp, path)?;
         Ok(())
     }
 
@@ -2291,5 +2304,48 @@ mod tests {
         assert_eq!(loaded.active_count(), 1);
         assert!(!dir.join("grants.json.tmp").exists());
         let _ = std::fs::remove_dir_all(&dir); // gate-allow R-C-2: 用例收尾删除独立临时目录，失败不影响断言结论
+    }
+
+    /// 授权存储错误：文案逐字不变，且 Io/Format 的 source 可 downcast 到具体类型。
+    #[test]
+    fn grant_store_error_display_and_source() {
+        let io_error = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "模拟权限拒绝");
+        let err = GrantStoreError::from(io_error);
+        assert_eq!(err.to_string(), "授权存储 IO 失败：模拟权限拒绝");
+        let source = std::error::Error::source(&err).expect("Io 必须挂 source");
+        assert!(source.downcast_ref::<std::io::Error>().is_some());
+
+        let json_error = serde_json::from_str::<serde_json::Value>("{").expect_err("必须失败");
+        let err = GrantStoreError::from(json_error);
+        assert_eq!(
+            err.to_string(),
+            "授权存储格式错误：EOF while parsing an object at line 1 column 1"
+        );
+        let source = std::error::Error::source(&err).expect("Format 必须挂 source");
+        assert!(source.downcast_ref::<serde_json::Error>().is_some());
+    }
+
+    /// 验签错误：文案逐字不变，source 可追到 `SecurityError`，错误码不变。
+    #[test]
+    fn signature_error_display_and_source() {
+        let security_error =
+            verify_signature_b64("不是 Base64", b"payload", "不是 Base64").expect_err("必须失败");
+        let err = GrantError::SignatureInvalid {
+            source: security_error,
+        };
+        assert_eq!(err.to_string(), "授权签名无效");
+        assert_eq!(err.code(), "signature_invalid");
+        let source = std::error::Error::source(&err).expect("必须挂 source");
+        assert!(source.downcast_ref::<rdc_security::SecurityError>().is_some());
+
+        let security_error =
+            verify_signature_b64("不是 Base64", b"ticket", "不是 Base64").expect_err("必须失败");
+        let err = KickError::SignatureInvalid {
+            source: security_error,
+        };
+        assert_eq!(err.to_string(), "踢出签名无效");
+        assert_eq!(err.code(), "signature_invalid");
+        let source = std::error::Error::source(&err).expect("必须挂 source");
+        assert!(source.downcast_ref::<rdc_security::SecurityError>().is_some());
     }
 }

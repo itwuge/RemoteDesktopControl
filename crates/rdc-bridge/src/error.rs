@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn grant_store_text_parity_with_legacy_display() {
         let json_error = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
-        let legacy = rdc_core::s5::grant::GrantStoreError::Format(json_error.to_string());
+        let legacy = rdc_core::s5::grant::GrantStoreError::Format(json_error);
         let before = legacy.to_string();
         let after = boundary_text(ApiError::from(legacy));
         assert_eq!(after, before);

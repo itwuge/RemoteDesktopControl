@@ -72,6 +72,15 @@ pub enum WallError {
     /// 消息格式或状态机不符合预期。
     #[error("屏幕墙协议错误：{0}")]
     Protocol(String),
+    /// 屏幕墙协议错误，且底层错误已保留。
+    #[error("屏幕墙协议错误：{message}")]
+    ProtocolWithSource {
+        /// 与旧实现逐字一致的短文案。
+        message: String,
+        /// 底层错误（`TryFromIntError` 等），用于日志与 downcast 排查。
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 }
 
 // =====** WallFrame =====**
@@ -341,8 +350,15 @@ pub async fn send_frame(
     session: &mut EstablishedSession,
     frame: &WallFrame,
 ) -> Result<usize, WallError> {
-    let total_len = u32::try_from(frame.data.len())
-        .map_err(|_| WallError::Protocol("帧长度超过 u32".to_owned()))?;
+    let total_len = match u32::try_from(frame.data.len()) {
+        Ok(len) => len,
+        Err(source) => {
+            return Err(WallError::ProtocolWithSource {
+                message: "帧长度超过 u32".to_owned(),
+                source: Box::new(source),
+            })
+        }
+    };
     let header = encode_message(&WallMessage::Header {
         stream_id: frame.stream_id,
         frame_id: frame.frame_id,
@@ -353,8 +369,15 @@ pub async fn send_frame(
     })?;
     session.send_control(&header).await?;
     let frag_count = frame.data.len().div_ceil(WALL_FRAGMENT_BYTES);
-    let frag_count_u16 = u16::try_from(frag_count)
-        .map_err(|_| WallError::Protocol("分片数超过 u16".to_owned()))?;
+    let frag_count_u16 = match u16::try_from(frag_count) {
+        Ok(count) => count,
+        Err(source) => {
+            return Err(WallError::ProtocolWithSource {
+                message: "分片数超过 u16".to_owned(),
+                source: Box::new(source),
+            })
+        }
+    };
     for (index, chunk) in frame.data.chunks(WALL_FRAGMENT_BYTES).enumerate() {
         let message = WallMessage::Fragment {
             stream_id: frame.stream_id,
@@ -894,7 +917,15 @@ impl ThumbnailEncoder {
                 fps: fps.max(15),
                 ..config
             };
-            encoder.configure(fallback).map_err(|_| first)?;
+            if let Err(second) = encoder.configure(fallback) {
+                // 两次尝试都失败：对外仍报首次错误（文案不变），
+                // 回退尝试的具体原因只进诊断日志，不再静默丢弃。
+                tracing::debug!(
+                    error = %second,
+                    "缩略图编码器回退配置失败，沿用首次错误"
+                );
+                return Err(WallError::from(first));
+            }
         }
         let block = width as usize * height as usize * 4;
         Ok(Self {
@@ -1209,5 +1240,27 @@ mod tests {
             ..frame
         };
         assert!(!hub.update(&unknown));
+    }
+
+    /// 数值越界：文案逐字不变，source 可追到 `TryFromIntError`。
+    #[test]
+    fn size_overflow_keeps_source() {
+        let source = u32::try_from(usize::MAX).expect_err("必须失败");
+        let err = WallError::ProtocolWithSource {
+            message: "帧长度超过 u32".to_owned(),
+            source: Box::new(source),
+        };
+        assert_eq!(err.to_string(), "屏幕墙协议错误：帧长度超过 u32");
+        let source = std::error::Error::source(&err).expect("必须挂 source");
+        assert!(source.downcast_ref::<std::num::TryFromIntError>().is_some());
+
+        let source = u16::try_from(usize::MAX).expect_err("必须失败");
+        let err = WallError::ProtocolWithSource {
+            message: "分片数超过 u16".to_owned(),
+            source: Box::new(source),
+        };
+        assert_eq!(err.to_string(), "屏幕墙协议错误：分片数超过 u16");
+        let source = std::error::Error::source(&err).expect("必须挂 source");
+        assert!(source.downcast_ref::<std::num::TryFromIntError>().is_some());
     }
 }

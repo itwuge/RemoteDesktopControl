@@ -12,7 +12,8 @@
 //!   任意一层丢帧都不会让「帧↔时间戳」配对漂移；
 //! - 解码帧通道有界（[`FRAME_QUEUE`]），满了丢最旧的输出帧，内存有上限。
 
-// 需 Linux 线复核：解码模块只在 Linux 目标编译，Windows 构建不覆盖此处的锁中毒处理。
+// Linux 编译已验证（2026-11-08，cargo build --workspace --all-targets 退出码 0、0 error）；运行语义仍未验证。
+// 本模块只在 Linux 目标编译，Windows 构建不覆盖此处的锁中毒处理。
 use crate::error::lock_poisoned_text;
 use std::collections::VecDeque;
 use std::io::{Read, Write};

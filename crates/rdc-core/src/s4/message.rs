@@ -330,18 +330,24 @@ pub fn decode(bytes: &[u8]) -> Result<S4Message, S4Error> {
 
 /// 读取 4 字节小端整数。
 fn read_u32(bytes: &[u8]) -> Result<u32, S4Error> {
-    bytes
-        .try_into()
-        .map(u32::from_le_bytes)
-        .map_err(|_| S4Error::Protocol("u32 字段截断".into()))
+    match <[u8; 4]>::try_from(bytes) {
+        Ok(array) => Ok(u32::from_le_bytes(array)),
+        Err(source) => Err(S4Error::ProtocolWithSource {
+            message: "u32 字段截断".into(),
+            source: Box::new(source),
+        }),
+    }
 }
 
 /// 读取 8 字节小端整数。
 fn read_u64(bytes: &[u8]) -> Result<u64, S4Error> {
-    bytes
-        .try_into()
-        .map(u64::from_le_bytes)
-        .map_err(|_| S4Error::Protocol("u64 字段截断".into()))
+    match <[u8; 8]>::try_from(bytes) {
+        Ok(array) => Ok(u64::from_le_bytes(array)),
+        Err(source) => Err(S4Error::ProtocolWithSource {
+            message: "u64 字段截断".into(),
+            source: Box::new(source),
+        }),
+    }
 }
 
 // =====** 自检 =====**
@@ -430,5 +436,19 @@ mod tests {
         });
         let bytes = encode(&S4Message::Input(wheel.clone())).expect("编码");
         assert_eq!(decode(&bytes).expect("解码"), S4Message::Input(wheel));
+    }
+
+    /// 字段截断：文案逐字不变，source 可追到 `TryFromSliceError`。
+    #[test]
+    fn truncated_field_keeps_source() {
+        let err = read_u32(&[0u8; 3]).expect_err("3 字节必须失败");
+        assert_eq!(err.to_string(), "协议错误：u32 字段截断");
+        let source = std::error::Error::source(&err).expect("必须挂 source");
+        assert!(source.downcast_ref::<std::array::TryFromSliceError>().is_some());
+
+        let err = read_u64(&[0u8; 7]).expect_err("7 字节必须失败");
+        assert_eq!(err.to_string(), "协议错误：u64 字段截断");
+        let source = std::error::Error::source(&err).expect("必须挂 source");
+        assert!(source.downcast_ref::<std::array::TryFromSliceError>().is_some());
     }
 }

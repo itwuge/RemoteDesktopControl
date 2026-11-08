@@ -42,6 +42,15 @@ pub enum S4Error {
     /// 消息格式或状态机不符合预期。
     #[error("协议错误：{0}")]
     Protocol(String),
+    /// 消息格式错误，且底层解析错误已保留。
+    #[error("协议错误：{message}")]
+    ProtocolWithSource {
+        /// 与旧实现逐字一致的短文案。
+        message: String,
+        /// 底层错误（`TryFromSliceError` 等），用于日志与 downcast 排查。
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 }
 
 // =====** 收发包装 =====**

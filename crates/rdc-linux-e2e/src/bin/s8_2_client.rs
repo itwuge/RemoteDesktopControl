@@ -23,7 +23,8 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod linux_impl {
-    // 需 Linux 线复核：本模块只在 Linux 目标编译，Windows 构建不覆盖此处的类型改动。
+    // Linux 编译已验证（2026-11-08，cargo build --workspace --all-targets 退出码 0、0 error）；运行语义仍未验证。
+    // 本模块只在 Linux 目标编译，Windows 构建不覆盖此处的类型改动。
     use rdc_linux_e2e::error::E2eError;
 
     /// 参数。
