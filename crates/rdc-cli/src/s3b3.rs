@@ -13,9 +13,13 @@ use std::error::Error;
 /// 自检错误类型。
 type S3bResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
+// 以下判据只被 `windows_impl`（`#[cfg(target_os = "windows")]`）引用；按同一条件
+// 裁剪定义，避免非 Windows 构建报 dead_code，同时保留判据数值本身。
 /// 判据：单帧提交成本 p99 上限（微秒），与 S3a 相同，用户明确不改。
+#[cfg(target_os = "windows")]
 const PUSH_P99_LIMIT_US: u64 = 8_000;
 /// 判据：实测码率相对目标的最大偏差。
+#[cfg(target_os = "windows")]
 const BITRATE_TOLERANCE: f64 = 0.20;
 
 /// 命令行参数。

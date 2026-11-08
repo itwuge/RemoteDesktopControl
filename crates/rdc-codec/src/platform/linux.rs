@@ -463,6 +463,9 @@ fn nal_ranges(data: &[u8]) -> Vec<(usize, usize, u8)> {
 
 // =====** 泵线程 =====**
 
+/// `spawn_pumps` 的四个句柄：提交通道、写线程、输出通道、读线程。
+type PumpHandles = (Sender<Job>, JoinHandle<()>, Receiver<RawAu>, JoinHandle<()>);
+
 /// 启动写线程与读线程。
 ///
 /// # Arguments
@@ -477,7 +480,7 @@ fn nal_ranges(data: &[u8]) -> Vec<(usize, usize, u8)> {
 fn spawn_pumps(
     child: &mut Child,
     pending: Arc<Mutex<VecDeque<(u64, Instant)>>>,
-) -> Result<(Sender<Job>, JoinHandle<()>, Receiver<RawAu>, JoinHandle<()>), CodecError> {
+) -> Result<PumpHandles, CodecError> {
     let stdin = child
         .stdin
         .take()

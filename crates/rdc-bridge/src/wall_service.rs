@@ -13,6 +13,14 @@
 //! - 不创建额外编码实例：全进程 1 个缩略图编码器 + 1 个解码器，与 S5-1 的选项 B 一致。
 //! - 采集会话有线程亲和性，采集源在管线线程内创建/启动/停止。
 
+// 非 Windows 构建下以下 11 项必然无调用点：缩略流管线只在 Windows 可达（`start()`
+// 在其它平台直接返回「不支持」，`start_windows` 也按 `#[cfg(windows)]` 排除），涉及
+// `CAPTURE_FPS`、`CAPTURE_CHANNEL_CAP`、`STREAM_ID`、`TICK`、`WallSink`、
+// `scale_bgra_to_rgba`、`run_pipeline`、`frame_messages`、`DecoderHandle`、
+// `open_decoder`、`decode_frame`。它们含采集帧率/通道容量/节拍等规格数值，不能为消
+// warning 删除，故仅在非 Windows 构建放行 dead_code；Windows 构建仍严格检查。
+#![cfg_attr(not(windows), allow(dead_code))]
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};

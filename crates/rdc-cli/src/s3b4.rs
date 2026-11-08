@@ -13,11 +13,16 @@ type S3bResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// 默认持续秒数。
 const DEFAULT_SECS: u64 = 10;
+// 以下端口/码率只被 `windows_impl`（`#[cfg(target_os = "windows")]`）引用；按同一
+// 条件裁剪定义，避免非 Windows 构建报 dead_code，同时保留规格数值本身。
 /// host 监听端口。
+#[cfg(target_os = "windows")]
 const HOST_PORT: u16 = 45000;
 /// ctrl 绑定端口。
+#[cfg(target_os = "windows")]
 const CTRL_PORT: u16 = 45100;
 /// 目标码率（bps）。
+#[cfg(target_os = "windows")]
 const TARGET_BITRATE: u32 = 8_000_000;
 
 /// 命令行参数。

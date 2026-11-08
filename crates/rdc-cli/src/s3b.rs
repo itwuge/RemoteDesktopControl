@@ -15,11 +15,16 @@ type S3bResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 /// 默认帧数（300 帧 ≈ 5 s @60fps）。
 const DEFAULT_FRAMES: u32 = 300;
+// 以下阈值只被 `windows_impl`（`#[cfg(target_os = "windows")]`）引用；按同一条件
+// 裁剪定义，避免非 Windows 构建报 dead_code，同时保留判据数值本身。
 /// 目标帧率。
+#[cfg(target_os = "windows")]
 const TARGET_FPS: u32 = 60;
 /// 目标码率（bps）。
+#[cfg(target_os = "windows")]
 const TARGET_BITRATE: u32 = 8_000_000;
 /// 单轮消息泵最大间隔门槛（毫秒）：超过即视为主线程被长时间占用。
+#[cfg(target_os = "windows")]
 const PUMP_GAP_LIMIT_MS: u64 = 100;
 
 /// 解析 `--frames N`，缺省用 [`DEFAULT_FRAMES`]。

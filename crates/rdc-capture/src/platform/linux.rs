@@ -967,9 +967,9 @@ impl XSession {
                     continue;
                 }
                 let inv = 255 - alpha;
-                let src_b = ((pixel >> 16) & 0xFF) as u32;
-                let src_g = ((pixel >> 8) & 0xFF) as u32;
-                let src_r = (pixel & 0xFF) as u32;
+                let src_b = (pixel >> 16) & 0xFF;
+                let src_g = (pixel >> 8) & 0xFF;
+                let src_r = pixel & 0xFF;
                 let dst_b = u32::from(dst[index]);
                 let dst_g = u32::from(dst[index + 1]);
                 let dst_r = u32::from(dst[index + 2]);
@@ -1161,11 +1161,7 @@ fn resolve_displays(conn: &RustConnection, screen: usize) -> ResolvedDisplays {
                 .find(|mode| mode.id == info.mode)
                 .map(|mode| {
                     let total = u64::from(mode.htotal) * u64::from(mode.vtotal);
-                    if total == 0 {
-                        0
-                    } else {
-                        (u64::from(mode.dot_clock) / total) as u32
-                    }
+                    u64::from(mode.dot_clock).checked_div(total).unwrap_or(0) as u32
                 })
                 .unwrap_or(0);
             let is_primary = primary
@@ -1248,7 +1244,7 @@ fn shm_available(conn: &RustConnection) -> bool {
 /// 不会失败。
 fn stride_bytes(width: u16, bits_per_pixel: u32) -> usize {
     let bits = usize::from(width) * bits_per_pixel as usize;
-    ((bits + 31) / 32) * 4
+    bits.div_ceil(32) * 4
 }
 
 /// 逐行拷贝像素，处理源/目标步长不一致。
