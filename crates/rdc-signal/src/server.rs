@@ -135,7 +135,7 @@ impl SignalServer {
     /// 证书生成、TLS 配置或端口绑定失败时返回 [`SignalServerError`]。
     pub async fn bind(addr: SocketAddr) -> Result<Self, SignalServerError> {
         // rustls 0.23 要求进程内安装一次 CryptoProvider；重复安装返回 Err 且可忽略。
-        let _ = rustls::crypto::ring::default_provider().install_default();
+        let _ = rustls::crypto::ring::default_provider().install_default(); // gate-allow R-C-2: 进程级 CryptoProvider 已装好时返回 Err，重复安装无害
 
         // 自签证书：文档允许本地使用自签，客户端把该证书作为唯一信任根。
         let certified = rcgen::generate_simple_self_signed(vec![TLS_SERVER_NAME.to_owned()])
@@ -435,7 +435,9 @@ async fn handle_register(
     };
     let response = server_msg(body);
     if let Ok(bytes) = response.encode() {
-        let _ = write_frame(&mut send, &bytes).await;
+        if let Err(err) = write_frame(&mut send, &bytes).await {
+            tracing::debug!(peer = %env.id, error = %err, "注册响应写入失败，对端可能已断开");
+        }
     }
 
     // 注册流的上行半部从此只承载服务端推送；客户端已不再写入。
@@ -577,7 +579,9 @@ async fn handle_accept(send: SendStream, shared: &Arc<Shared>, env: &SignalEnvel
     };
     match outcome {
         Some(tx) => {
-            let _ = tx.send(env.clone());
+            if tx.send(env.clone()).is_err() {
+                tracing::debug!(session = %session, "主控端应答通道已关闭，accept 通知未送达");
+            }
             let body = SignalMessage::AuthResult {
                 session: session.to_owned(),
                 ok: true,
@@ -610,7 +614,9 @@ async fn handle_refuse(
                 && transition(record.state, SessionEvent::Refuse).is_ok()
             {
                 if let Some(tx) = record.controller_tx.take() {
-                    let _ = tx.send(env.clone());
+                    if tx.send(env.clone()).is_err() {
+                        tracing::debug!(session = %session, "主控端应答通道已关闭，refuse 通知未送达");
+                    }
                 }
                 true
             } else {
@@ -672,7 +678,7 @@ async fn handle_candidates(
         } else {
             (peer_id.clone(), env.id.clone())
         };
-        let _ = push_to_peer(
+        let _ = push_to_peer( // gate-allow R-C-2: push_to_peer 队列满时已内部记 warn，false 表示对端离线，无需上层重复处理
             shared,
             &controller_id,
             server_msg(SignalMessage::Punch {
@@ -681,7 +687,7 @@ async fn handle_candidates(
                 role: PunchRole::Controller,
             }),
         );
-        let _ = push_to_peer(
+        let _ = push_to_peer( // gate-allow R-C-2: push_to_peer 队列满时已内部记 warn，false 表示对端离线，无需上层重复处理
             shared,
             &host_id,
             server_msg(SignalMessage::Punch {
@@ -728,7 +734,7 @@ async fn handle_connected(
         })
     };
     if let Some(peer_id) = peer_id {
-        let _ = push_to_peer(
+        let _ = push_to_peer( // gate-allow R-C-2: push_to_peer 队列满时已内部记 warn，false 表示对端离线，无需上层重复处理
             shared,
             &peer_id,
             server_msg(SignalMessage::Connected {
@@ -779,7 +785,7 @@ async fn handle_bye(
         reason: reason.to_owned(),
     });
     if let Some(peer_id) = peer_id {
-        let _ = push_to_peer(shared, &peer_id, bye.clone());
+        let _ = push_to_peer(shared, &peer_id, bye.clone()); // gate-allow R-C-2: push_to_peer 队列满时已内部记 warn，false 表示对端离线，无需上层重复处理
     }
     lock(&shared.sessions).remove(session);
     // bye 幂等：无论之前是否存在，都回 bye 确认。
@@ -975,7 +981,9 @@ async fn write_frame(send: &mut SendStream, bytes: &[u8]) -> Result<(), String> 
 /// 发送一条响应并关闭发送半边（drop 时自动关闭）。
 async fn respond(mut send: SendStream, env: SignalEnvelope) {
     if let Ok(bytes) = env.encode() {
-        let _ = write_frame(&mut send, &bytes).await;
+        if let Err(err) = write_frame(&mut send, &bytes).await {
+            tracing::debug!(peer = %env.id, error = %err, "响应写入失败，对端可能已断开");
+        }
     }
 }
 

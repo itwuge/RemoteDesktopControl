@@ -78,10 +78,10 @@ impl PlatformClipboard {
                     len += 1;
                 }
                 let text = String::from_utf16_lossy(std::slice::from_raw_parts(ptr, len));
-                let _ = GlobalUnlock(hglobal);
+                let _ = GlobalUnlock(hglobal); // gate-allow R-C-2: 读取已完成，解锁失败只代表引用计数已归零，无可恢复动作
                 Ok(Some(text))
             })();
-            let _ = CloseClipboard();
+            let _ = CloseClipboard(); // gate-allow R-C-2: 关闭剪贴板必须无条件尝试，失败不影响已读到的文本结果
             result
         }
     }
@@ -95,14 +95,14 @@ impl PlatformClipboard {
             let hmem = GlobalAlloc(GMEM_MOVEABLE, bytes).map_err(platform_error)?;
             let ptr = GlobalLock(hmem) as *mut u16;
             if ptr.is_null() {
-                let _ = GlobalFree(hmem);
+                let _ = GlobalFree(hmem); // gate-allow R-C-2: GlobalLock 失败后的释放属收尾，主错误随后返回
                 return Err(ClipboardError::Platform("GlobalLock 返回空指针".into()));
             }
             std::ptr::copy_nonoverlapping(utf16.as_ptr(), ptr, utf16.len());
-            let _ = GlobalUnlock(hmem);
+            let _ = GlobalUnlock(hmem); // gate-allow R-C-2: 交给系统前必须尝试解锁，失败会由 SetClipboardData 自行报错
 
             if let Err(err) = OpenClipboard(None) {
-                let _ = GlobalFree(hmem);
+                let _ = GlobalFree(hmem); // gate-allow R-C-2: 打开剪贴板失败的收尾释放，主错误随后返回
                 return Err(platform_error(err));
             }
             let result = (|| {
@@ -112,9 +112,9 @@ impl PlatformClipboard {
                     .map_err(platform_error)?;
                 Ok(())
             })();
-            let _ = CloseClipboard();
+            let _ = CloseClipboard(); // gate-allow R-C-2: 关闭剪贴板必须无条件尝试，失败不影响写入结果
             if result.is_err() {
-                let _ = GlobalFree(hmem);
+                let _ = GlobalFree(hmem); // gate-allow R-C-2: SetClipboardData 失败时释放所有权内存属收尾，主错误随后返回
             }
             result
         }
