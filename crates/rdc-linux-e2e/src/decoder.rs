@@ -12,6 +12,8 @@
 //!   任意一层丢帧都不会让「帧↔时间戳」配对漂移；
 //! - 解码帧通道有界（[`FRAME_QUEUE`]），满了丢最旧的输出帧，内存有上限。
 
+// 需 Linux 线复核：解码模块只在 Linux 目标编译，Windows 构建不覆盖此处的锁中毒处理。
+use crate::error::lock_poisoned_text;
 use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -135,7 +137,10 @@ impl Decoder {
     /// 解码端已关闭或写入失败时返回说明文本。
     pub fn push(&mut self, data: &[u8], pts_ns: u64) -> Result<(), String> {
         {
-            let mut queue = self.pending.lock().map_err(|_| "时间戳队列锁被污染")?;
+            let mut queue = self
+                .pending
+                .lock()
+                .map_err(|poison| lock_poisoned_text("时间戳队列锁被污染", poison))?;
             queue.push_back(pts_ns);
             // 防御：解码端异常时避免队列无限增长。
             if queue.len() > 4096 {

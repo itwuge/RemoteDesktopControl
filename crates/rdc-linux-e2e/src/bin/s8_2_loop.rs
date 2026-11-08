@@ -18,6 +18,9 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod linux_impl {
+    // 需 Linux 线复核：本模块只在 Linux 目标编译，Windows 构建不覆盖此处的类型改动。
+    use rdc_linux_e2e::error::E2eError;
+
     /// 参数。
     pub struct Args {
         pub secs: u64,
@@ -31,7 +34,7 @@ mod linux_impl {
     }
 
     /// 解析命令行。
-    pub fn parse_args() -> Result<Args, String> {
+    pub fn parse_args() -> Result<Args, E2eError> {
         let mut args = Args {
             secs: 10,
             fps: 60,
@@ -46,23 +49,23 @@ mod linux_impl {
         while let Some(arg) = iter.next() {
             let value = iter.next();
             match arg.as_str() {
-                "--secs" => args.secs = value.ok_or("--secs 缺值")?.parse().map_err(|_| "--secs 需整数")?,
-                "--fps" => args.fps = value.ok_or("--fps 缺值")?.parse().map_err(|_| "--fps 需整数")?,
+                "--secs" => args.secs = value.ok_or("--secs 缺值")?.parse().map_err(|error| E2eError::with_source("--secs 需整数", error))?,
+                "--fps" => args.fps = value.ok_or("--fps 缺值")?.parse().map_err(|error| E2eError::with_source("--fps 需整数", error))?,
                 "--bitrate" => {
-                    args.bitrate_bps = value.ok_or("--bitrate 缺值")?.parse().map_err(|_| "--bitrate 需整数")?
+                    args.bitrate_bps = value.ok_or("--bitrate 缺值")?.parse().map_err(|error| E2eError::with_source("--bitrate 需整数", error))?
                 }
                 "--display-id" => {
-                    args.display_id = value.ok_or("--display-id 缺值")?.parse().map_err(|_| "--display-id 需整数")?
+                    args.display_id = value.ok_or("--display-id 缺值")?.parse().map_err(|error| E2eError::with_source("--display-id 需整数", error))?
                 }
                 "--max-backlog" => {
-                    args.max_backlog = value.ok_or("--max-backlog 缺值")?.parse().map_err(|_| "--max-backlog 需整数")?
+                    args.max_backlog = value.ok_or("--max-backlog 缺值")?.parse().map_err(|error| E2eError::with_source("--max-backlog 需整数", error))?
                 }
                 "--win-scale" => {
-                    args.win_scale = value.ok_or("--win-scale 缺值")?.parse().map_err(|_| "--win-scale 需整数")?
+                    args.win_scale = value.ok_or("--win-scale 缺值")?.parse().map_err(|error| E2eError::with_source("--win-scale 需整数", error))?
                 }
-                "--win-x" => args.win_x = value.ok_or("--win-x 缺值")?.parse().map_err(|_| "--win-x 需整数")?,
-                "--win-y" => args.win_y = value.ok_or("--win-y 缺值")?.parse().map_err(|_| "--win-y 需整数")?,
-                other => return Err(format!("未知参数: {other}")),
+                "--win-x" => args.win_x = value.ok_or("--win-x 缺值")?.parse().map_err(|error| E2eError::with_source("--win-x 需整数", error))?,
+                "--win-y" => args.win_y = value.ok_or("--win-y 缺值")?.parse().map_err(|error| E2eError::with_source("--win-y 需整数", error))?,
+                other => return Err(E2eError::message(format!("未知参数: {other}"))),
             }
         }
         Ok(args)
@@ -80,6 +83,8 @@ use std::time::{Duration, Instant};
 use rdc_capture::{create_source, CaptureConfig, ChromaFormat, Frame, FrameSink};
 #[cfg(target_os = "linux")]
 use rdc_codec::{create_encoder, probe_encoders, CodecKind, VideoChroma, VideoConfig, VideoEncoder};
+#[cfg(target_os = "linux")]
+use rdc_linux_e2e::error::lock_poisoned_text;
 #[cfg(target_os = "linux")]
 use rdc_linux_e2e::{clock, decoder::Decoder, display::Display};
 
@@ -319,7 +324,7 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
 
     // 8) 收尾：冲刷编码器 → 解码剩余 → 上屏。
     let rest = {
-        let mut guard = encoder.lock().map_err(|_| "编码器锁被污染")?;
+        let mut guard = encoder.lock().map_err(|poison| lock_poisoned_text("编码器锁被污染", poison))?;
         guard
             .flush()
             .map_err(|error| format!("冲刷编码器失败: {error}"))?
@@ -355,7 +360,7 @@ fn run(args: &linux_impl::Args) -> Result<(), String> {
     let lat_p50 = percentile(&mut latencies.clone(), 0.50) / 1000;
     let lat_p99 = percentile(&mut latencies.clone(), 0.99) / 1000;
     let (enc_p50, enc_p99, enc_fps, enc_bitrate, backend) = {
-        let guard = encoder.lock().map_err(|_| "编码器锁被污染")?;
+        let guard = encoder.lock().map_err(|poison| lock_poisoned_text("编码器锁被污染", poison))?;
         let name = guard.backend_name().to_string();
         match guard.stats_snapshot() {
             Some(snapshot) => (

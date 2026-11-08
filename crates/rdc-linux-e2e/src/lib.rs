@@ -12,6 +12,8 @@
 //! - 软编走外部 ffmpeg 进程，本 crate 不链接 GPL 组件。
 //! - 所有判据以实测为准，不达标就如实打印，不调整阈值。
 
+pub mod error;
+
 #[cfg(target_os = "linux")]
 pub mod clock;
 #[cfg(target_os = "linux")]

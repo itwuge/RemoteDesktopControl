@@ -23,6 +23,9 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod linux_impl {
+    // 需 Linux 线复核：本模块只在 Linux 目标编译，Windows 构建不覆盖此处的类型改动。
+    use rdc_linux_e2e::error::E2eError;
+
     /// 参数。
     pub struct Args {
         pub connect: String,
@@ -36,7 +39,7 @@ mod linux_impl {
     }
 
     /// 解析命令行。
-    pub fn parse_args() -> Result<Args, String> {
+    pub fn parse_args() -> Result<Args, E2eError> {
         let mut args = Args {
             connect: "127.0.0.1:45900".into(),
             secs: 60,
@@ -52,24 +55,24 @@ mod linux_impl {
             let value = iter.next();
             match arg.as_str() {
                 "--connect" => args.connect = value.ok_or("--connect 缺值")?,
-                "--secs" => args.secs = value.ok_or("--secs 缺值")?.parse().map_err(|_| "--secs 需整数")?,
-                "--clicks" => args.clicks = value.ok_or("--clicks 缺值")?.parse().map_err(|_| "--clicks 需整数")?,
+                "--secs" => args.secs = value.ok_or("--secs 缺值")?.parse().map_err(|error| E2eError::with_source("--secs 需整数", error))?,
+                "--clicks" => args.clicks = value.ok_or("--clicks 缺值")?.parse().map_err(|error| E2eError::with_source("--clicks 需整数", error))?,
                 "--click-interval-ms" => {
                     args.click_interval_ms = value
                         .ok_or("--click-interval-ms 缺值")?
                         .parse()
-                        .map_err(|_| "--click-interval-ms 需整数")?
+                        .map_err(|error| E2eError::with_source("--click-interval-ms 需整数", error))?
                 }
                 "--move-interval-ms" => {
                     args.move_interval_ms = value
                         .ok_or("--move-interval-ms 缺值")?
                         .parse()
-                        .map_err(|_| "--move-interval-ms 需整数")?
+                        .map_err(|error| E2eError::with_source("--move-interval-ms 需整数", error))?
                 }
-                "--scale" => args.scale = value.ok_or("--scale 缺值")?.parse().map_err(|_| "--scale 需整数")?,
-                "--win-x" => args.win_x = value.ok_or("--win-x 缺值")?.parse().map_err(|_| "--win-x 需整数")?,
-                "--win-y" => args.win_y = value.ok_or("--win-y 缺值")?.parse().map_err(|_| "--win-y 需整数")?,
-                other => return Err(format!("未知参数: {other}")),
+                "--scale" => args.scale = value.ok_or("--scale 缺值")?.parse().map_err(|error| E2eError::with_source("--scale 需整数", error))?,
+                "--win-x" => args.win_x = value.ok_or("--win-x 缺值")?.parse().map_err(|error| E2eError::with_source("--win-x 需整数", error))?,
+                "--win-y" => args.win_y = value.ok_or("--win-y 缺值")?.parse().map_err(|error| E2eError::with_source("--win-y 需整数", error))?,
+                other => return Err(E2eError::message(format!("未知参数: {other}"))),
             }
         }
         Ok(args)

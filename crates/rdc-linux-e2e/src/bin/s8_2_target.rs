@@ -17,6 +17,9 @@ fn main() {
 
 #[cfg(target_os = "linux")]
 mod linux_impl {
+    // 需 Linux 线复核：本模块只在 Linux 目标编译，Windows 构建不覆盖此处的类型改动。
+    use rdc_linux_e2e::error::E2eError;
+
     /// 参数。
     pub struct Args {
         pub x: i16,
@@ -29,7 +32,7 @@ mod linux_impl {
     }
 
     /// 解析命令行。
-    pub fn parse_args() -> Result<Args, String> {
+    pub fn parse_args() -> Result<Args, E2eError> {
         let mut args = Args {
             x: 200,
             y: 150,
@@ -43,14 +46,14 @@ mod linux_impl {
         while let Some(arg) = iter.next() {
             let value = iter.next();
             match arg.as_str() {
-                "--x" => args.x = value.ok_or("--x 缺值")?.parse().map_err(|_| "--x 需整数")?,
-                "--y" => args.y = value.ok_or("--y 缺值")?.parse().map_err(|_| "--y 需整数")?,
-                "--w" => args.width = value.ok_or("--w 缺值")?.parse().map_err(|_| "--w 需整数")?,
-                "--h" => args.height = value.ok_or("--h 缺值")?.parse().map_err(|_| "--h 需整数")?,
-                "--green" => args.green = value.ok_or("--green 缺值")?.parse().map_err(|_| "--green 需整数")?,
-                "--secs" => args.secs = value.ok_or("--secs 缺值")?.parse().map_err(|_| "--secs 需整数")?,
+                "--x" => args.x = value.ok_or("--x 缺值")?.parse().map_err(|error| E2eError::with_source("--x 需整数", error))?,
+                "--y" => args.y = value.ok_or("--y 缺值")?.parse().map_err(|error| E2eError::with_source("--y 需整数", error))?,
+                "--w" => args.width = value.ok_or("--w 缺值")?.parse().map_err(|error| E2eError::with_source("--w 需整数", error))?,
+                "--h" => args.height = value.ok_or("--h 缺值")?.parse().map_err(|error| E2eError::with_source("--h 需整数", error))?,
+                "--green" => args.green = value.ok_or("--green 缺值")?.parse().map_err(|error| E2eError::with_source("--green 需整数", error))?,
+                "--secs" => args.secs = value.ok_or("--secs 缺值")?.parse().map_err(|error| E2eError::with_source("--secs 需整数", error))?,
                 "--out" => args.out = value.ok_or("--out 缺值")?,
-                other => return Err(format!("未知参数: {other}")),
+                other => return Err(E2eError::message(format!("未知参数: {other}"))),
             }
         }
         Ok(args)
