@@ -154,17 +154,17 @@ impl AeadKey {
         match self.suite {
             CipherSuite::Aes256Gcm => {
                 let cipher = Aes256Gcm::new_from_slice(&self.key)
-                    .map_err(|_| SecurityError::AeadFailure)?;
+                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })?;
                 cipher
                     .encrypt(Nonce::from_slice(nonce), payload)
-                    .map_err(|_| SecurityError::AeadFailure)
+                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })
             }
             CipherSuite::ChaCha20Poly1305 => {
                 let cipher = ChaCha20Poly1305::new_from_slice(&self.key)
-                    .map_err(|_| SecurityError::AeadFailure)?;
+                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })?;
                 cipher
                     .encrypt(chacha20poly1305::Nonce::from_slice(nonce), payload)
-                    .map_err(|_| SecurityError::AeadFailure)
+                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })
             }
         }
     }
@@ -189,23 +189,23 @@ impl AeadKey {
     ) -> Result<Vec<u8>, SecurityError> {
         // 长度不足直接拒绝，避免算法库报“空密文”这种误导性错误。
         if ciphertext.len() < TAG_LEN {
-            return Err(SecurityError::AeadFailure);
+            return Err(SecurityError::AeadFailure { source: None });
         }
         let payload = Payload { msg: ciphertext, aad };
         match self.suite {
             CipherSuite::Aes256Gcm => {
                 let cipher = Aes256Gcm::new_from_slice(&self.key)
-                    .map_err(|_| SecurityError::AeadFailure)?;
+                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })?;
                 cipher
                     .decrypt(Nonce::from_slice(nonce), payload)
-                    .map_err(|_| SecurityError::AeadFailure)
+                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })
             }
             CipherSuite::ChaCha20Poly1305 => {
                 let cipher = ChaCha20Poly1305::new_from_slice(&self.key)
-                    .map_err(|_| SecurityError::AeadFailure)?;
+                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })?;
                 cipher
                     .decrypt(chacha20poly1305::Nonce::from_slice(nonce), payload)
-                    .map_err(|_| SecurityError::AeadFailure)
+                    .map_err(|error| SecurityError::AeadFailure { source: Some(Box::new(error)) })
             }
         }
     }
@@ -355,7 +355,7 @@ mod tests {
         let ct = key().seal(b"payload", &nonce).expect("加密");
         let mut bad = ct.clone();
         bad[0] ^= 0x01;
-        assert!(matches!(key().open(&bad, &nonce), Err(SecurityError::AeadFailure)));
+        assert!(matches!(key().open(&bad, &nonce), Err(SecurityError::AeadFailure { .. })));
     }
 
     /// 篡改 AAD（例如包头字段）必须解密失败：这是头部不可篡改的保证。
@@ -371,7 +371,7 @@ mod tests {
         bad_aad[0] ^= 0x01;
         assert!(matches!(
             key().open_with_aad(&ct, &nonce, &bad_aad),
-            Err(SecurityError::AeadFailure)
+            Err(SecurityError::AeadFailure { .. })
         ));
     }
 
